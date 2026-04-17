@@ -11,11 +11,10 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 14) {
             musicalBlock
             mixBlock
-            detectionBlock
+            beatBarRow
             transportLine
             Spacer(minLength: 0)
             missingBlock
-            devicesBlock
             keybindingBlock
         }
         .padding(.horizontal, 24)
@@ -24,9 +23,14 @@ struct ContentView: View {
         .background(Color.black)
         .foregroundColor(fg)
         .font(.system(.body, design: .monospaced))
+        .overlay(alignment: .topTrailing) {
+            devicesBlock
+                .padding(.top, 18)
+                .padding(.trailing, 24)
+        }
     }
 
-    // MARK: - Musical state
+    // MARK: - Musical state (global: key, chord, tempo, complexity, detected pitch)
 
     private var musicalBlock: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -37,24 +41,33 @@ struct ContentView: View {
                     Text("(follow)").foregroundColor(dim)
                 }
             }
-            readout(label: "CHD", value: state.chordString, pending: state.pendingChordString)
+            readout(label: "CHORD", value: state.chordString, pending: state.pendingChordString)
             HStack(spacing: 8) {
                 labelText("BPM")
                 Text("\(Int(state.tempo.rounded()))")
                     .opacity(state.bpmFlash ? 0.35 : 1.0)
             }
-            HStack(spacing: 14) {
-                readout(
-                    label: "LVL",
-                    value: "\(state.complexity)",
-                    pending: state.pending.complexity.map(String.init)
-                )
-                HStack(spacing: 8) {
-                    ForEach(0..<4, id: \.self) { i in
-                        Circle()
-                            .fill(beatColor(i))
-                            .frame(width: 7, height: 7)
-                    }
+            readout(
+                label: "COMPLEXITY",
+                value: "\(state.complexity)",
+                pending: state.pending.complexity.map(String.init)
+            )
+            HStack(spacing: 8) {
+                labelText("DETECTED")
+                Text(state.detectedNote ?? "—")
+                    .foregroundColor(state.detectedNote == nil ? dim : fg)
+            }
+        }
+    }
+
+    private var beatBarRow: some View {
+        HStack(spacing: 14) {
+            labelText("BEAT / BAR")
+            HStack(spacing: 10) {
+                ForEach(0..<4, id: \.self) { i in
+                    Circle()
+                        .fill(beatColor(i))
+                        .frame(width: 12, height: 12)
                 }
             }
         }
@@ -73,12 +86,11 @@ struct ContentView: View {
 
     private func instrumentRow(name: String, level: Int, last: Date) -> some View {
         HStack(spacing: 12) {
+            activityLight(last: last)
             Text(name)
                 .foregroundColor(dim)
                 .frame(width: 60, alignment: .leading)
             levelMeter(level: level)
-                .frame(width: 50, alignment: .leading)
-            activityLight(last: last)
         }
     }
 
@@ -100,16 +112,6 @@ struct ContentView: View {
                 .fill(fg)
                 .opacity(max(0.12, brightness))
                 .frame(width: 8, height: 8)
-        }
-    }
-
-    // MARK: - Detection
-
-    private var detectionBlock: some View {
-        HStack(spacing: 8) {
-            labelText("DET")
-            Text(state.detectedNote ?? "—")
-                .foregroundColor(state.detectedNote == nil ? dim : fg)
         }
     }
 
@@ -189,7 +191,7 @@ struct ContentView: View {
     private func labelText(_ s: String) -> some View {
         Text(s)
             .foregroundColor(dim)
-            .frame(width: 44, alignment: .leading)
+            .frame(width: 92, alignment: .leading)
     }
 
     private func beatColor(_ i: Int) -> Color {

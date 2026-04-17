@@ -83,17 +83,35 @@ Pending changes show next to the current value with an arrow
 
 ## HUD
 
-Stacked top-to-bottom in three visual groups: musical state, mix, detection / transport.
+Three visual groups, top to bottom: global musical state, per-instrument mix,
+bar position + transport. Audio routing sits in the upper right.
+
+**Upper block — global state**
 
 | Readout | Meaning |
 |---------|---------|
 | `KEY` | The tonal center you declared. Updates only on your keystroke; never driven by detection. A dim `(follow)` suffix appears here while follow mode is on. |
-| `CHD` | The chord the pad is currently playing. In manual mode it mirrors `KEY`; in follow mode it diverges per the detected pitch. Pending changes commit on the next bar. |
+| `CHORD` | The chord the pad is currently playing. In manual mode it mirrors `KEY`; in follow mode it diverges per the detected pitch. Pending changes commit on the next bar. |
 | `BPM` | Current tempo |
-| `LVL` | Current complexity, with inline beat dots showing position in bar |
-| `KICK` / `SNARE` / `HH` / `PAD` | One row per instrument. Each row shows a level meter (0 / 50 / 75 / 100%) and an activity light that pulses on each trigger and decays over ~180 ms. |
-| `DET` | Detected pitch from microphone (or `—`) |
+| `COMPLEXITY` | Current complexity (1–3) |
+| `DETECTED` | Pitch detected from the microphone (or `—`) |
+
+**Mix block — one row per instrument** (`KICK`, `SNARE`, `HH`, `PAD`)
+
+Each row: an activity light on the left that pulses on trigger and decays over
+~180 ms, then the name, then a level meter (0 / 50 / 75 / 100%).
+
+**Transport block**
+
+| Readout | Meaning |
+|---------|---------|
+| `BEAT / BAR` | Four dots illuminated in sequence as the bar progresses |
 | `● PLAYING` / `○ STOPPED` | Transport state, prominent |
+
+**Upper right**
+
+| Readout | Meaning |
+|---------|---------|
 | `MIC` | System default input device |
 | `OUT` | System default output device |
 
