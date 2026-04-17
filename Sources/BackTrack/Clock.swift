@@ -54,20 +54,6 @@ final class Clock: ObservableObject {
             // the generator if the pattern calls for it on tick 0.
             audio.stopAllPads()
             state.applyPending()
-        } else if state.followDetection && tick % 4 == 0 && !state.pending.isEmpty {
-            // Follow mode commits pending on every beat (not just bar start)
-            // for responsive chord tracking. Stop pads only when something
-            // actually changes to avoid cutting identical-chord bars mid-way.
-            let oldRoot = state.rootNote
-            let oldMajor = state.isMajor
-            audio.stopAllPads()
-            state.applyPending()
-            // LVL 1's pad pattern only fires on tick 0 ("sustained full bar"),
-            // so a mid-bar chord change wouldn't produce any pad audio until
-            // the next bar. Explicitly retrigger the sustained chord here.
-            if state.complexity == 1 && (state.rootNote != oldRoot || state.isMajor != oldMajor) {
-                for e in Generators.pads(state: state, tick: 0) { audio.trigger(e) }
-            }
         }
 
         for e in Generators.drums(state: state, tick: tick) { audio.trigger(e) }

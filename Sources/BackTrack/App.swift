@@ -25,7 +25,7 @@ final class Coordinator: ObservableObject {
         audio.state = state
         let clock = Clock(state: state, audio: audio)
         let keyboard = KeyboardHandler(state: state, clock: clock, audio: audio)
-        let pitchDetector = PitchDetector(state: state)
+        let pitchDetector = PitchDetector(state: state, audio: audio)
         self.state = state
         self.audio = audio
         self.clock = clock

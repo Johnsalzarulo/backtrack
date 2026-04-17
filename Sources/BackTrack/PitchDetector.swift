@@ -6,6 +6,7 @@ final class PitchDetector {
     // topology changes and input/output device mismatches can't crash playback.
     private let engine = AVAudioEngine()
     private weak var state: AppState?
+    private weak var audio: AudioEngineController?
 
     private var installed = false
     private var lastPublishedNote: String?
@@ -16,8 +17,9 @@ final class PitchDetector {
     private let threshold: Float = 0.15
     private let silenceRms: Float = 0.01
 
-    init(state: AppState) {
+    init(state: AppState, audio: AudioEngineController) {
         self.state = state
+        self.audio = audio
     }
 
     func start() {
@@ -82,18 +84,20 @@ final class PitchDetector {
         if note == lastPublishedNote && note != nil { return }
         lastPublishedNote = note
         DispatchQueue.main.async { [weak self] in
-            guard let state = self?.state else { return }
+            guard let self = self, let state = self.state else { return }
             state.detectedNote = note
             state.detectedFrequency = freq
             if state.followDetection, let freq = freq {
-                Self.applyFollow(state: state, frequency: freq)
+                self.applyFollowImmediately(state: state, frequency: freq)
             }
         }
     }
 
-    // Map detected pitch → nearest diatonic chord in the user's key scope,
-    // then queue it as a pending chord change (commits on next bar).
-    private static func applyFollow(state: AppState, frequency: Float) {
+    // Map detected pitch → nearest diatonic chord in the user's key scope
+    // and apply it immediately (not queued). Follow mode ungrids chord
+    // changes from the bar/beat structure so the pad tracks the voice as
+    // fast as detection fires (~every 46 ms).
+    private func applyFollowImmediately(state: AppState, frequency: Float) {
         let midi = 69.0 + 12.0 * log2(frequency / 440.0)
         let detectedPc = ((Int(midi.rounded()) % 12) + 12) % 12
 
@@ -124,13 +128,24 @@ final class PitchDetector {
         let chordRoot = (state.keyRoot + scale[bestDegree]) % 12
         let chordIsMajor = qualities[bestDegree]
 
-        let currentRoot = state.pending.rootNote ?? state.rootNote
-        let currentMajor = state.pending.isMajor ?? state.isMajor
-        if chordRoot != currentRoot {
-            state.pending.rootNote = chordRoot
+        if chordRoot == state.rootNote && chordIsMajor == state.isMajor {
+            return
         }
-        if chordIsMajor != currentMajor {
-            state.pending.isMajor = chordIsMajor
+
+        // Apply directly to committed state (not pending). Clear any
+        // stale pending for these fields so a manual press queued right
+        // before doesn't overwrite detection on the next bar.
+        audio?.stopAllPads()
+        state.rootNote = chordRoot
+        state.isMajor = chordIsMajor
+        state.pending.rootNote = nil
+        state.pending.isMajor = nil
+
+        // LVL 2 and 3 fire pad events on every 8th via the generator, so
+        // the new chord is audible on the next Clock tick. LVL 1 only fires
+        // on tick 0 ("sustained full bar"), so we retrigger explicitly.
+        if state.complexity == 1, let audio = audio {
+            for e in Generators.pads(state: state, tick: 0) { audio.trigger(e) }
         }
     }
 

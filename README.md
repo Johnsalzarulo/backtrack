@@ -145,14 +145,15 @@ on keypress while `CHD` shows the pending arrow until the next bar.
 
 When `L` is toggled on, each detected pitch is mapped to the nearest
 diatonic scale degree in the current `KEY`, and the corresponding chord
-(major or minor per the scale) is queued as a pending `CHORD` change.
-While follow mode is on, pending chord changes commit on **every beat**
-(4× faster than the normal bar-boundary cadence) so the pad tracks what
-you sing without waiting for the next bar. `KEY` itself does not move —
-to re-key mid-song, press `A`–`G` / `M` as usual. At complexity 1
-(sustained pad) the chord is explicitly re-triggered on a mid-bar change
-so you actually hear the new chord; at complexity 2 and 3 the
-8th-note gate fires the new chord naturally on its next tick.
+is applied **immediately** — no pending queue, no bar or beat
+quantization. The pad tracks the voice as fast as detection fires
+(~every 46 ms). `KEY` itself does not move — to re-key mid-song, press
+`A`–`G` / `M` as usual. Drums stay locked to the grid regardless.
+
+At complexity 1 (sustained pad) the chord is explicitly re-triggered
+the moment detection changes it, so you actually hear the new chord.
+At complexity 2 and 3 the 8th-note gate fires the new chord on its
+next tick, which at typical tempos is under 200 ms away.
 
 ## Generators
 
