@@ -59,10 +59,7 @@ final class PitchDetector {
             return
         }
 
-        var samples = [Float](repeating: 0, count: frameCount)
-        for i in 0..<frameCount { samples[i] = channel[i] }
-
-        if let freq = yinPitch(samples, sampleRate: sampleRate) {
+        if let freq = yinPitch(channel, count: frameCount, sampleRate: sampleRate) {
             let note = noteName(for: freq)
             lastDetectionTime = Date()
             publish(note: note, freq: freq)
@@ -147,26 +144,22 @@ final class PitchDetector {
 
     // YIN: de Cheveigné & Kawahara, 2002. Monophonic pitch estimation
     // via cumulative mean normalized difference function.
-    private func yinPitch(_ samples: [Float], sampleRate: Double) -> Float? {
-        let n = samples.count
+    private func yinPitch(_ p: UnsafePointer<Float>, count n: Int, sampleRate: Double) -> Float? {
         let maxLag = n / 2
         let minLag = max(2, Int(sampleRate / 1000.0))
         guard maxLag > minLag else { return nil }
 
         var d = [Float](repeating: 0, count: maxLag + 1)
-        samples.withUnsafeBufferPointer { buf in
-            let p = buf.baseAddress!
-            for tau in 1...maxLag {
-                var sum: Float = 0
-                let limit = n - tau
-                var i = 0
-                while i < limit {
-                    let diff = p[i] - p[i + tau]
-                    sum += diff * diff
-                    i += 1
-                }
-                d[tau] = sum
+        for tau in 1...maxLag {
+            var sum: Float = 0
+            let limit = n - tau
+            var i = 0
+            while i < limit {
+                let diff = p[i] - p[i + tau]
+                sum += diff * diff
+                i += 1
             }
+            d[tau] = sum
         }
 
         var cmndf = [Float](repeating: 1.0, count: maxLag + 1)

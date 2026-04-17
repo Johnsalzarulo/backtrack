@@ -115,10 +115,17 @@ final class AudioEngineController: ObservableObject {
     // Prevents AVAudioEngine from silently resampling a 44.1k buffer through a 48k
     // graph (or vice versa), which shifts pitch by ~1.5 semitones.
     private func rewireForBufferFormats() {
+        let wasRunning = engine.isRunning
+        if wasRunning { engine.pause() }
         if let buf = kickBuffer { reconnectDrum(kickPlayer, mixer: kickMixer, format: buf.format) }
         if let buf = snareBuffer { reconnectDrum(snarePlayer, mixer: snareMixer, format: buf.format) }
         if let buf = hhBuffer { reconnectDrum(hhPlayer, mixer: hhMixer, format: buf.format) }
         if let buf = padBuffer { reconnectPadVoices(format: buf.format) }
+        if wasRunning {
+            do { try engine.start() } catch {
+                NSLog("BackTrack: audio engine failed to restart after rewire: \(error)")
+            }
+        }
     }
 
     private func reconnectDrum(_ player: AVAudioPlayerNode, mixer: AVAudioMixerNode, format: AVAudioFormat) {

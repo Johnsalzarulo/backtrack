@@ -21,6 +21,12 @@ final class KeyboardHandler {
         }
     }
 
+    deinit {
+        if let monitor = monitor {
+            NSEvent.removeMonitor(monitor)
+        }
+    }
+
     private func handle(_ event: NSEvent) -> Bool {
         if event.modifierFlags.contains(.command) { return false }
 
