@@ -28,11 +28,17 @@ final class AudioEngineController: ObservableObject {
     private var snareBuffer: AVAudioPCMBuffer?
     private var hhBuffer: AVAudioPCMBuffer?
 
-    // Track the format each drum player is currently wired with, so we only
-    // disconnect/reconnect when a kit actually introduces a different format.
-    private var kickConnectedFormat: AVAudioFormat?
-    private var snareConnectedFormat: AVAudioFormat?
-    private var hhConnectedFormat: AVAudioFormat?
+    // All drum buffers are normalized to this format at load time so the
+    // drum players never need their connections reconfigured — cycling a
+    // kit becomes a pure buffer-pointer swap with zero graph changes.
+    // This eliminates the reconnect code path entirely, which was the
+    // source of intermittent crashes when cycling kits during playback.
+    private static let drumFormat: AVAudioFormat = AVAudioFormat(
+        commonFormat: .pcmFormatFloat32,
+        sampleRate: 44100,
+        channels: 2,
+        interleaved: false
+    )!
 
     // Live-input effect path. Fixed topology; PadMode varies gains,
     // EQ settings, distortion/delay wet mix, and reverb preset:
@@ -81,12 +87,15 @@ final class AudioEngineController: ObservableObject {
             outputEngine.connect(sub, to: outputMaster, format: nil)
         }
 
+        // Connect drum players with the canonical drum format. All loaded
+        // buffers are normalized to this format, so scheduleBuffer never
+        // hits a format mismatch and the players never need reconnection.
         outputEngine.attach(kickPlayer)
-        outputEngine.connect(kickPlayer, to: kickMixer, format: nil)
+        outputEngine.connect(kickPlayer, to: kickMixer, format: Self.drumFormat)
         outputEngine.attach(snarePlayer)
-        outputEngine.connect(snarePlayer, to: snareMixer, format: nil)
+        outputEngine.connect(snarePlayer, to: snareMixer, format: Self.drumFormat)
         outputEngine.attach(hhPlayer)
-        outputEngine.connect(hhPlayer, to: hhMixer, format: nil)
+        outputEngine.connect(hhPlayer, to: hhMixer, format: Self.drumFormat)
 
         // Pitch shifters run at fixed intervals; gain mixers decide whether
         // their contribution reaches the pre-reverb sum.
@@ -238,8 +247,6 @@ final class AudioEngineController: ObservableObject {
             loadKitBuffers(kits[currentKitIndex], missing: &missing)
         }
 
-        rewireDrumsForBufferFormats()
-
         let kitNames = kits.map { $0.name }
         let idx = currentKitIndex
         DispatchQueue.main.async { [weak self] in
@@ -289,47 +296,14 @@ final class AudioEngineController: ObservableObject {
         currentKitIndex = clamped
         var missing: [String] = []
         loadKitBuffers(kits[clamped], missing: &missing)
-        rewireDrumsForBufferFormats()
+        // No graph reconfiguration needed: loaded buffers are already
+        // converted to Self.drumFormat, which matches the drum players'
+        // connection format.
         let idx = currentKitIndex
         DispatchQueue.main.async { [weak self] in
             self?.state?.missingSamples = missing
             self?.state?.currentKitIndex = idx
         }
-    }
-
-    // Only reconnect a drum player when its currently-wired connection
-    // format differs from the new buffer's native format. When all kits
-    // share the same format (typical), cycling kits is a pure buffer-pointer
-    // swap — no graph reconfig, no audio glitch, no engine pause needed.
-    // When formats do differ, reconnect in place without pausing; AVAudioEngine
-    // supports dynamic reconnection while running.
-    private func rewireDrumsForBufferFormats() {
-        if let buf = kickBuffer,
-           !formatsMatch(kickConnectedFormat, buf.format) {
-            reconnectDrum(kickPlayer, mixer: kickMixer, format: buf.format)
-            kickConnectedFormat = buf.format
-        }
-        if let buf = snareBuffer,
-           !formatsMatch(snareConnectedFormat, buf.format) {
-            reconnectDrum(snarePlayer, mixer: snareMixer, format: buf.format)
-            snareConnectedFormat = buf.format
-        }
-        if let buf = hhBuffer,
-           !formatsMatch(hhConnectedFormat, buf.format) {
-            reconnectDrum(hhPlayer, mixer: hhMixer, format: buf.format)
-            hhConnectedFormat = buf.format
-        }
-    }
-
-    private func formatsMatch(_ a: AVAudioFormat?, _ b: AVAudioFormat) -> Bool {
-        guard let a = a else { return false }
-        return a.isEqual(b)
-    }
-
-    private func reconnectDrum(_ player: AVAudioPlayerNode, mixer: AVAudioMixerNode, format: AVAudioFormat) {
-        player.stop()
-        outputEngine.disconnectNodeOutput(player)
-        outputEngine.connect(player, to: mixer, format: format)
     }
 
     private func loadDrum(name: String, in kit: Kit, missing: inout [String]) -> AVAudioPCMBuffer? {
@@ -354,6 +328,10 @@ final class AudioEngineController: ObservableObject {
         return nil
     }
 
+    // Loads a drum file and normalizes it to Self.drumFormat so the player
+    // connections never need reconnecting for a kit with different native
+    // formats. Returns nil on any failure so the caller reports it as
+    // missing rather than leaving a mismatched-format buffer in place.
     private func loadBuffer(at url: URL, label: String, missing: inout [String]) -> AVAudioPCMBuffer? {
         guard FileManager.default.fileExists(atPath: url.path) else {
             missing.append(label)
@@ -361,19 +339,51 @@ final class AudioEngineController: ObservableObject {
         }
         do {
             let file = try AVAudioFile(forReading: url)
-            guard let buffer = AVAudioPCMBuffer(
+            guard let nativeBuffer = AVAudioPCMBuffer(
                 pcmFormat: file.processingFormat,
                 frameCapacity: AVAudioFrameCount(file.length)
             ) else {
                 missing.append(label)
                 return nil
             }
-            try file.read(into: buffer)
-            return buffer
+            try file.read(into: nativeBuffer)
+
+            if nativeBuffer.format.isEqual(Self.drumFormat) {
+                return nativeBuffer
+            }
+            if let converted = convertToDrumFormat(nativeBuffer) {
+                return converted
+            }
+            missing.append("\(label) (format conversion failed)")
+            return nil
         } catch {
             missing.append(label)
             return nil
         }
+    }
+
+    private func convertToDrumFormat(_ input: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+        guard let converter = AVAudioConverter(from: input.format, to: Self.drumFormat) else {
+            return nil
+        }
+        let ratio = Self.drumFormat.sampleRate / input.format.sampleRate
+        let capacity = AVAudioFrameCount(Double(input.frameLength) * ratio + 1024)
+        guard let output = AVAudioPCMBuffer(pcmFormat: Self.drumFormat, frameCapacity: capacity) else {
+            return nil
+        }
+        var consumed = false
+        var err: NSError?
+        let status = converter.convert(to: output, error: &err) { _, outStatus in
+            if consumed {
+                outStatus.pointee = .endOfStream
+                return nil
+            }
+            consumed = true
+            outStatus.pointee = .haveData
+            return input
+        }
+        if status == .error || err != nil { return nil }
+        return output
     }
 
     // MARK: - Volume + pad mode
@@ -491,6 +501,14 @@ final class AudioEngineController: ObservableObject {
 
     private func play(buffer: AVAudioPCMBuffer?, on player: AVAudioPlayerNode, volume: Float) {
         guard let buffer = buffer else { return }
+        // Defensive: refuse to schedule a buffer whose format doesn't match
+        // the player's connection format. scheduleBuffer with a mismatched
+        // format throws an Obj-C exception that Swift can't catch, which
+        // would crash the app.
+        guard buffer.format.isEqual(Self.drumFormat) else {
+            NSLog("BackTrack: drum buffer format mismatch, skipping trigger")
+            return
+        }
         player.volume = volume
         player.scheduleBuffer(buffer, at: nil, options: .interrupts, completionHandler: nil)
         if !player.isPlaying { player.play() }
