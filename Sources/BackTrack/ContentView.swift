@@ -25,7 +25,14 @@ struct ContentView: View {
 
     private var statusBlock: some View {
         VStack(alignment: .leading, spacing: 6) {
-            readout(label: "KEY", value: state.keyString, pending: state.pendingKeyString)
+            HStack(spacing: 8) {
+                labelText("KEY")
+                Text(state.keyString)
+                if state.followDetection {
+                    Text("(follow)").foregroundColor(dim)
+                }
+            }
+            readout(label: "CHD", value: state.chordString, pending: state.pendingChordString)
             HStack(spacing: 8) {
                 labelText("BPM")
                 Text("\(Int(state.tempo.rounded()))")
@@ -59,13 +66,6 @@ struct ContentView: View {
                 labelText("DET")
                 Text(state.detectedNote ?? "—")
                     .foregroundColor(state.detectedNote == nil ? dim : fg)
-            }
-
-            if state.followDetection {
-                HStack(spacing: 8) {
-                    labelText("FLW")
-                    Text("key \(state.keyScopeString)")
-                }
             }
         }
     }

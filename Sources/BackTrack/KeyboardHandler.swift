@@ -54,14 +54,10 @@ final class KeyboardHandler {
         case "m":
             let next = !(state.pending.isMajor ?? state.isMajor)
             state.pending.isMajor = next
-            if state.followDetection { state.keyIsMajor = next }
+            state.keyIsMajor = next
             return true
         case "l":
             state.followDetection.toggle()
-            if state.followDetection {
-                state.keyRoot = state.pending.rootNote ?? state.rootNote
-                state.keyIsMajor = state.pending.isMajor ?? state.isMajor
-            }
             return true
         case "1":
             state.pending.complexity = 1
@@ -106,6 +102,6 @@ final class KeyboardHandler {
 
     private func setRoot(_ pc: Int) {
         state.pending.rootNote = pc
-        if state.followDetection { state.keyRoot = pc }
+        state.keyRoot = pc
     }
 }

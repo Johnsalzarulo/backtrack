@@ -85,13 +85,13 @@ Pending changes show next to the current value with an arrow
 
 | Readout | Meaning |
 |---------|---------|
-| `KEY` | Current chord (root + quality) |
+| `KEY` | The tonal center you declared. Updates only on your keystroke; never driven by detection. A dim `(follow)` suffix appears here while follow mode is on. |
+| `CHD` | The chord the pad is currently playing. In manual mode it mirrors `KEY`; in follow mode it diverges per the detected pitch. Pending changes commit on the next bar. |
 | `BPM` | Current tempo |
 | `LVL` | Current complexity |
 | Beat dots | Position in bar |
 | `MIX` | Kick / snare / hi-hat / pad volume bars |
 | `DET` | Detected pitch from microphone (or `—`) |
-| `FLW` | Key scope (only shown while follow mode is on) |
 | `MIC` | System default input device |
 | `OUT` | System default output device |
 
@@ -104,15 +104,32 @@ interpolation for sub-sample accuracy. An RMS silence gate suppresses noise,
 and the last detected note is held for ~400 ms to avoid flicker between
 breaths or consonants.
 
+## Key vs. chord
+
+BackTrack distinguishes two things:
+
+- **KEY** — the tonal center you declare. Updates the instant you press
+  `A`–`G` or `M`. Nothing else changes it — detection never touches the
+  key. A dim `(follow)` suffix appears next to `KEY` in the HUD while
+  follow mode is on, as the only mode indicator.
+- **CHD** — the chord the pad is currently playing. Queued to the next
+  bar boundary (shows a `→` pending arrow while it's about to change).
+  In manual mode it mirrors `KEY`. In follow mode it's driven by the
+  diatonic snap from detection.
+
+Pressing `A`–`G` or `M` updates `KEY` immediately and queues the matching
+chord change — so in manual mode you'll see `KEY` flash to the new value
+on keypress while `CHD` shows the pending arrow until the next bar.
+
 ## Follow mode
 
-When `L` is toggled on, BackTrack snapshots the current chord as the key
-scope and displays it on the `FLW` row. From then on, each detected pitch
-is mapped to the nearest diatonic scale degree in that key, and the
-corresponding chord (major or minor per the scale) is queued as a pending
-change — committing cleanly on the next bar boundary like any other
-pending change. Pressing `A`–`G` or `M` while follow mode is on updates
-both the pad chord and the key scope, so you can re-key on the fly.
+When `L` is toggled on, each detected pitch is mapped to the nearest
+diatonic scale degree in the current `KEY`, and the corresponding chord
+(major or minor per the scale) is queued as a pending `CHD` change —
+committing cleanly on the next bar like any other pending change. `KEY`
+itself does not move. To re-key mid-song, press `A`–`G` / `M` as usual;
+`KEY` updates immediately and detection starts snapping against the new
+key from the next buffer on.
 
 ## Generators
 

@@ -42,10 +42,6 @@ final class AppState: ObservableObject {
     @Published var inputDevice: String? = nil
     @Published var outputDevice: String? = nil
 
-    var keyScopeString: String {
-        "\(Self.noteNames[keyRoot]) \(keyIsMajor ? "maj" : "min")"
-    }
-
     static let maxLevel = 4
 
     static func levelGain(_ level: Int) -> Float {
@@ -63,11 +59,19 @@ final class AppState: ObservableObject {
         pending = PendingChanges()
     }
 
+    // The user-declared key (changes only on manual keystroke, immediate).
     var keyString: String {
+        "\(Self.noteNames[keyRoot]) \(keyIsMajor ? "maj" : "min")"
+    }
+
+    // The chord the pad is currently playing (queued to bar boundaries).
+    // In manual mode this matches the key; in follow mode it diverges per
+    // the detected pitch.
+    var chordString: String {
         "\(Self.noteNames[rootNote]) \(isMajor ? "maj" : "min")"
     }
 
-    var pendingKeyString: String? {
+    var pendingChordString: String? {
         guard pending.rootNote != nil || pending.isMajor != nil else { return nil }
         let root = pending.rootNote ?? rootNote
         let major = pending.isMajor ?? isMajor
