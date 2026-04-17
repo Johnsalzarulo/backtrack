@@ -60,14 +60,13 @@ final class KeyboardHandler {
         case "d":
             audio.cycleKit()
             return true
-        case "1":
-            state.pending.complexity = 1
+        case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+            if let n = Int(chars) {
+                state.pending.pattern = n
+            }
             return true
-        case "2":
-            state.pending.complexity = 2
-            return true
-        case "3":
-            state.pending.complexity = 3
+        case "0":
+            state.pending.pattern = 10
             return true
         case "k":
             state.kickLevel = AppState.cycleDown(state.kickLevel)

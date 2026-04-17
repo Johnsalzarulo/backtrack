@@ -79,7 +79,7 @@ Queued (commit on beat 1 of the next bar):
 
 | Key     | Action                           |
 |---------|----------------------------------|
-| `1` `2` `3` | complexity level             |
+| `1`–`9`, `0` | drum pattern (10 variants, see below) |
 
 ## HUD
 
@@ -90,7 +90,7 @@ Three groups, top to bottom.
 | Readout | Meaning |
 |---------|---------|
 | `BPM` | Current tempo |
-| `COMPLEXITY` | Current complexity (1–3) |
+| `PATTERN` | Active drum pattern (1–10) |
 | `KIT` | Active drum kit name, with `(i/n)` counter when multiple kits exist |
 | `DETECTED` | Pitch detected from the microphone (or `—`) — display only, doesn't drive anything |
 
@@ -158,13 +158,22 @@ visibility — nothing in the audio path depends on it.
 
 ## Drums
 
-Patterns are pure functions of `(state, tick)`:
+Ten drum patterns, one per number key. Grouped in threes by "feel",
+each group ramping simple → busier; pattern 10 is a sparse outlier
+that restarts the simplicity cycle.
 
-| LVL | Pattern |
-|-----|---------|
-| 1 | Kick 1&3, snare 2&4, hi-hat quarters |
-| 2 | Kick 1&3, snare 2&4, hi-hat 8ths |
-| 3 | Kick 1, 3, and-of-3; snare 2&4 + e-of-4 ghost; hi-hat 16ths |
+| Key | # | Feel | Pattern |
+|-----|---|------|---------|
+| `1` | 1 | Straight | Kick 1, hi-hat quarters; no snare. Ultra sparse pulse. |
+| `2` | 2 | Straight | Kick 1&3, snare 2&4, hi-hat quarters |
+| `3` | 3 | Straight | Kick 1&3, snare 2&4 + ghost 4e, hi-hat 8ths |
+| `4` | 4 | Rock     | Kick 1, snare 3, hi-hat 8ths |
+| `5` | 5 | Rock     | Kick 1 + "and of 2", snare 3, hi-hat 8ths |
+| `6` | 6 | Rock     | Kick 1, "and of 2", "and of 4"; snare 3; hi-hat 16ths |
+| `7` | 7 | Boom-bap | Kick 1, snare 3, hi-hat 2 & 4 only |
+| `8` | 8 | Boom-bap | Kick 1 + "e of 1", snare 3 + ghost 4e, hi-hat 8ths |
+| `9` | 9 | Boom-bap | Kick 1, "e of 1", "and of 3"; snare 3 + ghost 4e; hi-hat 16ths |
+| `0` | 10 | Sparse  | Kick 1&3, soft snare 4e only, hi-hat on 1 & 3 only |
 
 ## Files
 

@@ -40,9 +40,9 @@ struct ContentView: View {
                     .opacity(state.bpmFlash ? 0.35 : 1.0)
             }
             readout(
-                label: "COMPLEXITY",
-                value: "\(state.complexity)",
-                pending: state.pending.complexity.map(String.init)
+                label: "PATTERN",
+                value: "\(state.pattern)",
+                pending: state.pending.pattern.map(String.init)
             )
             HStack(spacing: 8) {
                 labelText("KIT")
@@ -185,7 +185,7 @@ struct ContentView: View {
 
     private var keybindingBlock: some View {
         VStack(alignment: .leading, spacing: 3) {
-            row("SPACE", "start / stop",    "1 2 3", "complexity")
+            row("SPACE", "start / stop",    "1–9 0", "pattern (10 variants)")
             row("T",     "tap tempo",       "R",     "reload samples")
             row("↑ ↓",   "tempo ± 1",       "D",     "cycle drum kit")
             row("K S H", "drum volume",     "P",     "pad mode")

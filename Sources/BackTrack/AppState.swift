@@ -2,10 +2,10 @@ import Foundation
 import SwiftUI
 
 struct PendingChanges {
-    var complexity: Int?
+    var pattern: Int?
 
     var isEmpty: Bool {
-        complexity == nil
+        pattern == nil
     }
 }
 
@@ -38,7 +38,7 @@ final class AppState: ObservableObject {
 
     @Published var tempo: Double = 90
     @Published var isPlaying: Bool = false
-    @Published var complexity: Int = 1
+    @Published var pattern: Int = 2  // 1–10; default is the classic kick1&3 / snare2&4 / hh quarters
     @Published var currentBeat: Int = 0
     @Published var pending: PendingChanges = PendingChanges()
     @Published var bpmFlash: Bool = false
@@ -93,7 +93,7 @@ final class AppState: ObservableObject {
     }
 
     func applyPending() {
-        if let c = pending.complexity { complexity = c }
+        if let p = pending.pattern { pattern = p }
         pending = PendingChanges()
     }
 }
