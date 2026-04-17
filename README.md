@@ -65,7 +65,7 @@ Immediate:
 | `↑` `↓` | tempo ± 1 BPM                            |
 | `R`     | reload samples + refresh device readout  |
 | `L`     | toggle follow mode (pad tracks detected pitch) |
-| `K`     | kick volume (cycles 100→75→50→25→0→100)  |
+| `K`     | kick volume (cycles 100 → 75 → 50 → 0 → 100) |
 | `S`     | snare volume                             |
 | `H`     | hi-hat volume                            |
 | `P`     | pad volume                               |

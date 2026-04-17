@@ -24,11 +24,11 @@ final class AppState: ObservableObject {
     @Published var bpmFlash: Bool = false
     @Published var missingSamples: [String] = []
 
-    // Volume levels 0–4: 0=mute, 1=25%, 2=50%, 3=75%, 4=100%
-    @Published var kickLevel: Int = 4
-    @Published var snareLevel: Int = 4
-    @Published var hhLevel: Int = 4
-    @Published var padLevel: Int = 4
+    // Volume levels 0–3: indexes into Self.levelGains (0%, 50%, 75%, 100%).
+    @Published var kickLevel: Int = 3
+    @Published var snareLevel: Int = 3
+    @Published var hhLevel: Int = 3
+    @Published var padLevel: Int = 3
 
     @Published var detectedNote: String? = nil
     @Published var detectedFrequency: Float? = nil
@@ -42,10 +42,11 @@ final class AppState: ObservableObject {
     @Published var inputDevice: String? = nil
     @Published var outputDevice: String? = nil
 
-    static let maxLevel = 4
+    static let levelGains: [Float] = [0.0, 0.5, 0.75, 1.0]
+    static let maxLevel = levelGains.count - 1
 
     static func levelGain(_ level: Int) -> Float {
-        Float(max(0, min(maxLevel, level))) / Float(maxLevel)
+        levelGains[max(0, min(maxLevel, level))]
     }
 
     static func cycleDown(_ level: Int) -> Int {
