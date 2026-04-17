@@ -47,40 +47,4 @@ enum Generators {
 
         return events
     }
-
-    static func pads(state: AppState, tick: Int) -> [NoteEvent] {
-        let third = state.isMajor ? 4 : 3
-        let fifth = 7
-        let seventh = state.isMajor ? 11 : 10
-        let ninth = 14
-
-        switch state.complexity {
-        case 1:
-            if tick == 0 {
-                return [
-                    NoteEvent(voice: .pad(semitonesFromRoot: 0), velocity: 0.5),
-                    NoteEvent(voice: .pad(semitonesFromRoot: fifth), velocity: 0.5)
-                ]
-            }
-            return []
-        case 2:
-            if tick % 2 == 0 {
-                return [
-                    NoteEvent(voice: .pad(semitonesFromRoot: 0), velocity: 0.4),
-                    NoteEvent(voice: .pad(semitonesFromRoot: third), velocity: 0.4),
-                    NoteEvent(voice: .pad(semitonesFromRoot: fifth), velocity: 0.4)
-                ]
-            }
-            return []
-        case 3:
-            let chord = [0, third, fifth, seventh, ninth]
-            if tick % 2 == 0 {
-                let idx = (tick / 2) % chord.count
-                return [NoteEvent(voice: .pad(semitonesFromRoot: chord[idx]), velocity: 0.5)]
-            }
-            return []
-        default:
-            return []
-        }
-    }
 }

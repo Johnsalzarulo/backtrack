@@ -30,18 +30,10 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Musical state (global: key, chord, tempo, complexity, detected pitch)
+    // MARK: - Musical state
 
     private var musicalBlock: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                labelText("KEY")
-                Text(state.keyString)
-                if state.followDetection {
-                    Text("(follow)").foregroundColor(dim)
-                }
-            }
-            readout(label: "CHORD", value: state.chordString, pending: state.pendingChordString)
             HStack(spacing: 8) {
                 labelText("BPM")
                 Text("\(Int(state.tempo.rounded()))")
@@ -80,13 +72,19 @@ struct ContentView: View {
             instrumentRow(name: "KICK",  level: state.kickLevel,  last: state.kickLastTrigger)
             instrumentRow(name: "SNARE", level: state.snareLevel, last: state.snareLastTrigger)
             instrumentRow(name: "HH",    level: state.hhLevel,    last: state.hhLastTrigger)
-            instrumentRow(name: "PAD",   level: state.padLevel,   last: state.padLastTrigger)
+            instrumentRow(name: "PAD",   level: state.padLevel,   last: nil)
         }
     }
 
-    private func instrumentRow(name: String, level: Int, last: Date) -> some View {
+    // `last` is nil for the live-processed pad (no discrete triggers), in
+    // which case we show a static dim dot so the row alignment matches.
+    private func instrumentRow(name: String, level: Int, last: Date?) -> some View {
         HStack(spacing: 12) {
-            activityLight(last: last)
+            if let last = last {
+                activityLight(last: last)
+            } else {
+                Circle().fill(dim).opacity(0.3).frame(width: 8, height: 8)
+            }
             Text(name)
                 .foregroundColor(dim)
                 .frame(width: 60, alignment: .leading)
@@ -157,10 +155,9 @@ struct ContentView: View {
 
     private var keybindingBlock: some View {
         VStack(alignment: .leading, spacing: 3) {
-            row("SPACE", "start / stop",    "A–G",   "root note")
-            row("T",     "tap tempo",       "M",     "major / minor")
-            row("↑ ↓",   "tempo ± 1",       "1 2 3", "complexity")
-            row("R",     "reload samples",  "L",     "follow detected pitch")
+            row("SPACE", "start / stop",    "1 2 3", "complexity")
+            row("T",     "tap tempo",       "R",     "reload samples")
+            row("↑ ↓",   "tempo ± 1",       "",      "")
             row("K S H P", "instrument volume", "", "")
         }
         .foregroundColor(dim)

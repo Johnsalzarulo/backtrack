@@ -2,12 +2,10 @@ import Foundation
 import SwiftUI
 
 struct PendingChanges {
-    var rootNote: Int?
-    var isMajor: Bool?
     var complexity: Int?
 
     var isEmpty: Bool {
-        rootNote == nil && isMajor == nil && complexity == nil
+        complexity == nil
     }
 }
 
@@ -16,8 +14,6 @@ final class AppState: ObservableObject {
 
     @Published var tempo: Double = 90
     @Published var isPlaying: Bool = false
-    @Published var rootNote: Int = 0
-    @Published var isMajor: Bool = false
     @Published var complexity: Int = 1
     @Published var currentBeat: Int = 0
     @Published var pending: PendingChanges = PendingChanges()
@@ -31,20 +27,13 @@ final class AppState: ObservableObject {
     @Published var padLevel: Int = 3
 
     // Last-trigger timestamps drive the per-instrument activity indicators
-    // in the HUD; a TimelineView reads these each frame and decays brightness.
+    // in the HUD. Pad is continuous (live-processed) so has no trigger.
     @Published var kickLastTrigger: Date = .distantPast
     @Published var snareLastTrigger: Date = .distantPast
     @Published var hhLastTrigger: Date = .distantPast
-    @Published var padLastTrigger: Date = .distantPast
 
     @Published var detectedNote: String? = nil
     @Published var detectedFrequency: Float? = nil
-
-    // Follow mode: detected pitch drives pad chord within a diatonic key scope.
-    // keyRoot/keyIsMajor are the scale; rootNote/isMajor remain the current chord.
-    @Published var followDetection: Bool = false
-    @Published var keyRoot: Int = 0
-    @Published var keyIsMajor: Bool = false
 
     @Published var inputDevice: String? = nil
     @Published var outputDevice: String? = nil
@@ -61,28 +50,7 @@ final class AppState: ObservableObject {
     }
 
     func applyPending() {
-        if let r = pending.rootNote { rootNote = r }
-        if let m = pending.isMajor { isMajor = m }
         if let c = pending.complexity { complexity = c }
         pending = PendingChanges()
-    }
-
-    // The user-declared key (changes only on manual keystroke, immediate).
-    var keyString: String {
-        "\(Self.noteNames[keyRoot]) \(keyIsMajor ? "maj" : "min")"
-    }
-
-    // The chord the pad is currently playing (queued to bar boundaries).
-    // In manual mode this matches the key; in follow mode it diverges per
-    // the detected pitch.
-    var chordString: String {
-        "\(Self.noteNames[rootNote]) \(isMajor ? "maj" : "min")"
-    }
-
-    var pendingChordString: String? {
-        guard pending.rootNote != nil || pending.isMajor != nil else { return nil }
-        let root = pending.rootNote ?? rootNote
-        let major = pending.isMajor ?? isMajor
-        return "\(Self.noteNames[root]) \(major ? "maj" : "min")"
     }
 }

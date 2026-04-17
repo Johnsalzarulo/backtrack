@@ -25,7 +25,8 @@ final class Coordinator: ObservableObject {
         audio.state = state
         let clock = Clock(state: state, audio: audio)
         let keyboard = KeyboardHandler(state: state, clock: clock, audio: audio)
-        let pitchDetector = PitchDetector(state: state, audio: audio)
+        let pitchDetector = PitchDetector(state: state)
+        audio.pitchDetector = pitchDetector
         self.state = state
         self.audio = audio
         self.clock = clock
@@ -37,7 +38,6 @@ final class Coordinator: ObservableObject {
         audio.loadSamples()
         audio.applyVolumes(from: state)
         keyboard.install()
-        pitchDetector.start()
         refreshDevices()
     }
 

@@ -31,7 +31,6 @@ final class Clock: ObservableObject {
         timer = nil
         state.isPlaying = false
         state.currentBeat = 0
-        audio.stopAllPads()
     }
 
     private func scheduleTimer(immediate: Bool) {
@@ -49,15 +48,10 @@ final class Clock: ObservableObject {
 
     private func onTick() {
         if tick == 0 {
-            // Cut pad tails at every bar boundary so long samples don't
-            // bleed across bars — pad voices are re-triggered below by
-            // the generator if the pattern calls for it on tick 0.
-            audio.stopAllPads()
             state.applyPending()
         }
 
         for e in Generators.drums(state: state, tick: tick) { audio.trigger(e) }
-        for e in Generators.pads(state: state, tick: tick) { audio.trigger(e) }
 
         state.currentBeat = tick / 4
         tick = (tick + 1) % Generators.ticksPerBar

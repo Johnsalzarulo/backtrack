@@ -57,14 +57,6 @@ final class KeyboardHandler {
             state.inputDevice = AudioDevices.defaultInputName()
             state.outputDevice = AudioDevices.defaultOutputName()
             return true
-        case "m":
-            let next = !(state.pending.isMajor ?? state.isMajor)
-            state.pending.isMajor = next
-            state.keyIsMajor = next
-            return true
-        case "l":
-            state.followDetection.toggle()
-            return true
         case "1":
             state.pending.complexity = 1
             return true
@@ -90,13 +82,6 @@ final class KeyboardHandler {
             state.padLevel = AppState.cycleDown(state.padLevel)
             audio.setPadVolume(level: state.padLevel)
             return true
-        case "a": setRoot(9); return true
-        case "b": setRoot(11); return true
-        case "c": setRoot(0); return true
-        case "d": setRoot(2); return true
-        case "e": setRoot(4); return true
-        case "f": setRoot(5); return true
-        case "g": setRoot(7); return true
         default:
             return false
         }
@@ -104,10 +89,5 @@ final class KeyboardHandler {
 
     private func adjustTempo(by delta: Double) {
         state.tempo = max(40, min(240, state.tempo + delta))
-    }
-
-    private func setRoot(_ pc: Int) {
-        state.pending.rootNote = pc
-        state.keyRoot = pc
     }
 }

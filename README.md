@@ -1,45 +1,34 @@
 # BackTrack
 
 A minimal, rule-based backing-track generator for live solo practice and
-performance. Drums and pads only, 4/4 only, keyboard-driven. Native macOS.
-
-Includes real-time pitch detection from the microphone, with an optional
-"follow" mode that drives pad chord changes from what you sing or play.
+performance. Rule-based drums on a 4/4 grid plus a live pad effect that
+responds directly to whatever you're singing or playing into the mic.
+Keyboard-driven. Native macOS.
 
 ## Requirements
 
 - macOS 13+
 - Swift 5.9+ (Xcode or Command Line Tools)
-- Microphone access (for pitch detection — the first run will prompt)
-- Headphones strongly recommended when using follow mode, to avoid the
-  pad output feeding back into the input and confusing detection
+- Microphone access (for the live pad effect and pitch detection — the
+  first run will prompt)
+- Headphones or a routed monitor setup so the pad output doesn't feed
+  back into the input
 
 ## Samples
 
-BackTrack loads user-supplied samples from a fixed directory:
+BackTrack loads drum samples from a fixed directory:
 
 ```
 ~/BackTrack/Samples/
-├── drums/
-│   ├── kick.{wav|aif|aiff|mp3}
-│   ├── snare.{wav|aif|aiff|mp3}
-│   └── hh.{wav|aif|aiff|mp3}
-└── pads/
-    └── pad_<NOTE>.{wav|aif|aiff|mp3}
+└── drums/
+    ├── kick.{wav|aif|aiff|mp3}
+    ├── snare.{wav|aif|aiff|mp3}
+    └── hh.{wav|aif|aiff|mp3}
 ```
 
-The pad filename encodes the sample's pitch class:
-
-- `pad_C.aif` — sample recorded at C
-- `pad_F#.wav` — F-sharp
-- `pad_Bb.mp3` — B-flat
-
-Case-insensitive. A trailing octave digit (`pad_C3.aif`) is tolerated but
-ignored — pitch shifting is relative to the sample's recorded register, so
-the octave you record at determines the chord's natural range.
-
 Missing samples appear in the HUD under `MISSING SAMPLES`. Press `R` to
-reload from disk without restarting.
+reload from disk without restarting. There are no pad samples — the pad
+is generated live from your mic input.
 
 ## Run
 
@@ -60,53 +49,46 @@ Immediate:
 
 | Key     | Action                                   |
 |---------|------------------------------------------|
-| `Space` | start / stop                             |
+| `Space` | start / stop drums                       |
 | `T`     | tap tempo (4-tap rolling avg)            |
 | `↑` `↓` | tempo ± 1 BPM                            |
 | `R`     | reload samples + refresh device readout  |
-| `L`     | toggle follow mode (pad tracks detected pitch) |
 | `K`     | kick volume (cycles 100 → 75 → 50 → 0 → 100) |
 | `S`     | snare volume                             |
 | `H`     | hi-hat volume                            |
-| `P`     | pad volume                               |
+| `P`     | pad volume (live-effect wet level)       |
 
 Queued (commit on beat 1 of the next bar):
 
 | Key     | Action                           |
 |---------|----------------------------------|
-| `A`–`G` | root note                        |
-| `M`     | toggle major / minor             |
 | `1` `2` `3` | complexity level             |
-
-Pending changes show next to the current value with an arrow
-(`C min → F min`) and disappear the instant they commit.
 
 ## HUD
 
-Three visual groups, top to bottom: global musical state, per-instrument mix,
-bar position + transport. Audio routing sits in the upper right.
+Three groups, top to bottom.
 
 **Upper block — global state**
 
 | Readout | Meaning |
 |---------|---------|
-| `KEY` | The tonal center you declared. Updates only on your keystroke; never driven by detection. A dim `(follow)` suffix appears here while follow mode is on. |
-| `CHORD` | The chord the pad is currently playing. In manual mode it mirrors `KEY`; in follow mode it diverges per the detected pitch. Pending changes commit on the next bar. |
 | `BPM` | Current tempo |
 | `COMPLEXITY` | Current complexity (1–3) |
-| `DETECTED` | Pitch detected from the microphone (or `—`) |
+| `DETECTED` | Pitch detected from the microphone (or `—`) — display only, doesn't drive anything |
 
-**Mix block — one row per instrument** (`KICK`, `SNARE`, `HH`, `PAD`)
+**Mix block — one row per instrument**
 
-Each row: an activity light on the left that pulses on trigger and decays over
-~180 ms, then the name, then a level meter (0 / 50 / 75 / 100%).
+| Row | Behavior |
+|-----|----------|
+| `KICK` / `SNARE` / `HH` | Activity light on the left pulses on each trigger and decays over ~180 ms; then the name; then a level meter (0 / 50 / 75 / 100%) |
+| `PAD` | Live effect chain. Dim static dot on the left (no discrete triggers); level meter sets wet output |
 
 **Transport block**
 
 | Readout | Meaning |
 |---------|---------|
 | `BEAT / BAR` | Four dots illuminated in sequence as the bar progresses |
-| `● PLAYING` / `○ STOPPED` | Transport state, prominent |
+| `● PLAYING` / `○ STOPPED` | Drum transport state |
 
 **Upper right**
 
@@ -115,64 +97,32 @@ Each row: an activity light on the left that pulses on trigger and decays over
 | `MIC` | System default input device |
 | `OUT` | System default output device |
 
+## Pad effect
+
+The pad is a live processing chain on the mic input:
+
+```
+mic → high-pass EQ (~100 Hz) → large-hall reverb (85% wet) → pad mixer → out
+```
+
+Because it's a direct effect rather than a sample trigger, it tracks
+everything you play with essentially zero interpretive latency: strum a
+chord and you hear a reverbed swell of that exact chord; finger-pick a
+pattern and the arpeggio blurs into a soft wash. The `P` key controls
+the pad mixer's output volume, so it doubles as a wet-level knob — 0
+silences the effect entirely.
+
 ## Pitch detection
 
-Runs continuously on a dedicated input-only `AVAudioEngine`, isolated from
-the playback engine. Uses the YIN algorithm (de Cheveigné & Kawahara, 2002)
-with a cumulative mean normalized difference function and parabolic
-interpolation for sub-sample accuracy. An RMS silence gate suppresses noise,
-and the last detected note is held for ~400 ms to avoid flicker between
-breaths or consonants.
+An input tap runs YIN (de Cheveigné & Kawahara, 2002) on each buffer
+and publishes the detected note to the `DETECTED` readout. An RMS
+silence gate suppresses noise, and the last detected note is held for
+~400 ms to avoid flicker between breaths or consonants. It's there for
+visibility — nothing in the audio path depends on it.
 
-## Key vs. chord
+## Drums
 
-BackTrack distinguishes two things:
-
-- **KEY** — the tonal center you declare. Updates the instant you press
-  `A`–`G` or `M`. Nothing else changes it — detection never touches the
-  key. A dim `(follow)` suffix appears next to `KEY` in the HUD while
-  follow mode is on, as the only mode indicator.
-- **CHD** — the chord the pad is currently playing. Queued to the next
-  bar boundary (shows a `→` pending arrow while it's about to change).
-  In manual mode it mirrors `KEY`. In follow mode it's driven by the
-  diatonic snap from detection.
-
-Pressing `A`–`G` or `M` updates `KEY` immediately and queues the matching
-chord change — so in manual mode you'll see `KEY` flash to the new value
-on keypress while `CHD` shows the pending arrow until the next bar.
-
-## Follow mode
-
-When `L` is toggled on, the pad tracks the voice as fast as detection
-fires (~every 23 ms) — no pending queue, no bar or beat quantization.
-`KEY` itself does not move; to re-key mid-song, press `A`–`G` / `M`
-as usual. Drums stay locked to the grid regardless.
-
-Instead of snapping to every individual pitch, follow mode keeps a
-rolling ~800 ms histogram of detected pitch classes, weighted by two
-factors: a general octave bias (lower MIDI = more weight), and a
-bass bonus (notes within 2 semitones of the window's lowest get 2×
-weight). The bass bonus is what locks the root onto a picking
-pattern's lowest note regardless of how many arpeggiated upper notes
-are in the window. Hysteresis on top: the new dominant must outweigh
-the current root by 1.35× to trigger a switch, which prevents
-flicker on close calls.
-
-Pad notes fade in and out over ~150 ms each, both hiding detection
-latency behind a gentle swell and giving the pad more body on
-sustained chords. The pad voice pool rotates so old sustained chords
-are replaced cleanly as new ones arrive.
-
-At complexity 1 (sustained pad) the chord is explicitly re-triggered
-the moment detection changes it. At complexity 2 and 3 the 8th-note
-gate fires the new chord on its next tick.
-
-## Generators
-
-Patterns are pure functions of `(state, tick)`. Complexity is global across
-both instruments.
-
-**Drums**
+Patterns are pure functions of `(state, tick)`:
 
 | LVL | Pattern |
 |-----|---------|
@@ -180,22 +130,14 @@ both instruments.
 | 2 | Kick 1&3, snare 2&4, hi-hat 8ths |
 | 3 | Kick 1, 3, and-of-3; snare 2&4 + e-of-4 ghost; hi-hat 16ths |
 
-**Pads**
-
-| LVL | Pattern |
-|-----|---------|
-| 1 | Sustained root + fifth, full bar |
-| 2 | Full triad (major/minor), gated on 8ths |
-| 3 | Extended chord (triad + 7th, 9th), arpeggiated on 8ths |
-
 ## Files
 
 - `App.swift` — entry point, coordinator wiring, device bootstrap
-- `AppState.swift` — `ObservableObject` with musical, mix, detection, and routing state
-- `AudioEngine.swift` — playback `AVAudioEngine`, per-instrument mixer buses, sample loading, pad pitch shift
+- `AppState.swift` — `ObservableObject` with tempo, mix, detection, routing state
+- `AudioEngine.swift` — single `AVAudioEngine` with drum players, per-instrument mixers, and the live input → EQ → reverb → pad-mixer chain
 - `AudioDevices.swift` — CoreAudio helpers for default input/output device names
-- `Clock.swift` — 16th-note timer, tap tempo, transport, pending drain
-- `Generators.swift` — pure drum/pad pattern functions
+- `Clock.swift` — 16th-note timer, tap tempo, transport
+- `Generators.swift` — pure drum pattern function
 - `KeyboardHandler.swift` — NSEvent local monitor
-- `PitchDetector.swift` — dedicated input `AVAudioEngine`, YIN pitch detection, diatonic snap for follow mode
+- `PitchDetector.swift` — stateless YIN processor driven by the engine's input tap
 - `ContentView.swift` — SwiftUI HUD

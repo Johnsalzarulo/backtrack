@@ -1,14 +1,13 @@
 import AVFoundation
 import Foundation
 
+// Pitch detector for the DETECTED display. Consumes audio buffers from the
+// main engine's input tap (installed in AudioEngineController) and publishes
+// the detected note name to state.detectedNote. No longer owns its own engine,
+// no longer drives chord changes — just a readout.
 final class PitchDetector {
-    // Dedicated input-only engine — isolated from the playback engine so
-    // topology changes and input/output device mismatches can't crash playback.
-    private let engine = AVAudioEngine()
     private weak var state: AppState?
-    private weak var audio: AudioEngineController?
 
-    private var installed = false
     private var lastPublishedNote: String?
     private var lastDetectionTime: Date?
     private let holdInterval: TimeInterval = 0.4
@@ -17,48 +16,11 @@ final class PitchDetector {
     private let threshold: Float = 0.15
     private let silenceRms: Float = 0.01
 
-    init(state: AppState, audio: AudioEngineController) {
+    init(state: AppState) {
         self.state = state
-        self.audio = audio
     }
 
-    // Rolling pitch-class history for follow-mode root smoothing.
-    // Lets the pad lock onto the dominant (and lowest-biased) note across
-    // a short window instead of chasing every passing pitch in an arpeggio.
-    private struct PitchObservation {
-        let pitchClass: Int
-        let midi: Int
-        let timestamp: Date
-    }
-    private var pitchHistory: [PitchObservation] = []
-    private let historyWindow: TimeInterval = 0.8
-    // Hysteresis: new root weight must exceed current root's weight by this
-    // factor to trigger a switch. Without this, close calls flicker.
-    private let switchMargin: Float = 1.35
-
-    func start() {
-        guard !installed else { return }
-        let input = engine.inputNode
-        let format = input.inputFormat(forBus: 0)
-        guard format.sampleRate > 0, format.channelCount > 0 else {
-            NSLog("BackTrack: no audio input available — pitch detection disabled")
-            return
-        }
-        // 1024-sample buffer ≈ 23 ms at 44.1 kHz — half the latency of 2048
-        // and still safe for voice / guitar fundamentals above ~100 Hz.
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
-            self?.process(buffer)
-        }
-        engine.prepare()
-        do {
-            try engine.start()
-            installed = true
-        } catch {
-            NSLog("BackTrack: pitch detector engine failed to start: \(error)")
-        }
-    }
-
-    private func process(_ buffer: AVAudioPCMBuffer) {
+    func process(_ buffer: AVAudioPCMBuffer) {
         guard let floatData = buffer.floatChannelData else { return }
         let frameCount = Int(buffer.frameLength)
         guard frameCount > 0 else { return }
@@ -97,106 +59,11 @@ final class PitchDetector {
     }
 
     private func publish(note: String?, freq: Float?) {
-        let noteChanged = note != lastPublishedNote
+        if note == lastPublishedNote { return }
         lastPublishedNote = note
         DispatchQueue.main.async { [weak self] in
-            guard let self = self, let state = self.state else { return }
-            if noteChanged {
-                state.detectedNote = note
-                state.detectedFrequency = freq
-            }
-            // Run the follow-mode update on every detection (not only when
-            // the note name changes) so the rolling pitch history captures
-            // sustained notes and can dominate a picking pattern.
-            if state.followDetection, let freq = freq {
-                self.applyFollowImmediately(state: state, frequency: freq)
-            }
-        }
-    }
-
-    // Apply the dominant-root diatonic chord immediately (no grid, no pending).
-    // Dominance is computed over a short rolling window of recent detections,
-    // with low notes weighted more heavily — so a picking pattern locks on
-    // the bass root instead of chasing the arpeggio.
-    private func applyFollowImmediately(state: AppState, frequency: Float) {
-        let midiF = 69.0 + 12.0 * log2(frequency / 440.0)
-        let midi = Int(midiF.rounded())
-        let detectedPc = ((midi % 12) + 12) % 12
-
-        // Append observation, drop expired ones.
-        let now = Date()
-        pitchHistory.append(PitchObservation(pitchClass: detectedPc, midi: midi, timestamp: now))
-        let cutoff = now.addingTimeInterval(-historyWindow)
-        while let first = pitchHistory.first, first.timestamp < cutoff {
-            pitchHistory.removeFirst()
-        }
-
-        // Weighted pitch-class histogram.
-        // - Octave bias: lower MIDI = more weight.
-        // - Bass bonus: notes within 2 semitones of the window's lowest get
-        //   2× weight, so the bass line of a picked pattern dominates the
-        //   upper-arpeggio notes regardless of how many of them there are.
-        guard let lowestMidi = pitchHistory.map(\.midi).min() else { return }
-        var weights = [Float](repeating: 0, count: 12)
-        for obs in pitchHistory {
-            let octaveBias = max(Float(0.35), Float(2.0) - Float(obs.midi) / Float(40))
-            let bassBonus: Float = obs.midi <= lowestMidi + 2 ? 2.0 : 1.0
-            weights[obs.pitchClass] += octaveBias * bassBonus
-        }
-        var dominantPc = detectedPc
-        var maxWeight: Float = -1
-        for (pc, w) in weights.enumerated() where w > maxWeight {
-            maxWeight = w
-            dominantPc = pc
-        }
-
-        // Hysteresis: don't switch root unless the new dominant clearly
-        // outweighs the current root. Prevents flicker when a picked
-        // pattern briefly touches a non-root neighbor.
-        let currentRootWeight = weights[state.rootNote]
-        if dominantPc != state.rootNote && maxWeight < currentRootWeight * switchMargin {
-            return
-        }
-
-        // Diatonic snap using the dominant (not the just-detected) pitch class.
-        // Major: maj, min, min, maj, maj, min, min (vii° → min)
-        // Minor: min, min, maj, min, min, maj, maj (ii° → min)
-        let scale: [Int]
-        let qualities: [Bool]
-        if state.keyIsMajor {
-            scale = [0, 2, 4, 5, 7, 9, 11]
-            qualities = [true, false, false, true, true, false, false]
-        } else {
-            scale = [0, 2, 3, 5, 7, 8, 10]
-            qualities = [false, false, true, false, false, true, true]
-        }
-        let offset = ((dominantPc - state.keyRoot) % 12 + 12) % 12
-        var bestDegree = 0
-        var bestDist = Int.max
-        for (i, s) in scale.enumerated() {
-            let raw = abs(s - offset)
-            let dist = min(raw, 12 - raw)
-            if dist < bestDist {
-                bestDist = dist
-                bestDegree = i
-            }
-        }
-        let chordRoot = (state.keyRoot + scale[bestDegree]) % 12
-        let chordIsMajor = qualities[bestDegree]
-
-        if chordRoot == state.rootNote && chordIsMajor == state.isMajor { return }
-
-        audio?.stopAllPads()
-        state.rootNote = chordRoot
-        state.isMajor = chordIsMajor
-        state.pending.rootNote = nil
-        state.pending.isMajor = nil
-
-        // LVL 2 and 3 fire pad events on every 8th via the generator, so
-        // the new chord is audible on the next Clock tick. LVL 1 only fires
-        // on tick 0 ("sustained full bar"), so we retrigger explicitly.
-        if state.complexity == 1, let audio = audio {
-            for e in Generators.pads(state: state, tick: 0) { audio.trigger(e) }
+            self?.state?.detectedNote = note
+            self?.state?.detectedFrequency = freq
         }
     }
 
