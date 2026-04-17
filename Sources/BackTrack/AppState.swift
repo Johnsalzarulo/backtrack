@@ -36,7 +36,7 @@ enum PadMode: Int, CaseIterable {
 final class AppState: ObservableObject {
     static let noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
-    @Published var tempo: Double = 90
+    @Published var tempo: Double = 100
     @Published var isPlaying: Bool = false
     @Published var pattern: Int = 2  // 1–10; default is the classic kick1&3 / snare2&4 / hh quarters
     @Published var currentBeat: Int = 0
@@ -51,7 +51,7 @@ final class AppState: ObservableObject {
 
     // Pad is no longer a volume-cycle instrument; P cycles through
     // pre-baked effect-chain presets defined by PadMode.
-    @Published var padMode: PadMode = .simple
+    @Published var padMode: PadMode = .off
 
     // Last-trigger timestamps drive the per-instrument activity indicators
     // in the HUD. Pad is continuous (live-processed) so has no trigger.
