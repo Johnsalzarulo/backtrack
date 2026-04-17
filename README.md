@@ -122,10 +122,13 @@ reverb preset + wet mix. Topology stays constant.
 | Mode | Character |
 |------|-----------|
 | `OFF` | Pad mixer muted; no live effect output |
-| `SIMPLE` | High-pass at 100 Hz, large hall reverb 85% wet. Dry baseline. |
-| `SHIMMER` | Dry + +12 octave layer, cathedral reverb 95% wet, gentle high-pass. Classic octave-up shimmer. |
-| `SYNTH` | Low-pass at 2 kHz + −12 sub-octave layer + cathedral reverb. Dark, sustained, synth-swell feel. |
-| `STRINGS` | Mid-boost parametric EQ + subtle +12 blend + large hall 80% wet. Warm orchestral-ish. |
+| `SIMPLE` | High-pass + quarter-note delay (BPM-synced, 60% feedback, darkened echoes) + large hall 75% wet |
+| `SHIMMER` | Dry + strong +12 octave layer + large hall 80% wet. Arrives sooner than the old cathedral-based version. |
+| `SYNTH` | Low-pass at 2.5 kHz + −12 sub-octave + mild distortion + medium hall 70% wet. Dark, gritty, tighter sustain. |
+| `STRINGS` | Parametric mid-boost at 800 Hz + subtle +12 blend + medium hall 65% wet. Warm, responsive, orchestral-ish. |
+
+The BPM-synced quarter-note delay in SIMPLE updates whenever tempo
+changes (arrow keys, tap tempo).
 
 ## Pitch detection
 

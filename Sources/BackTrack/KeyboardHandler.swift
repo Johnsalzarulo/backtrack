@@ -89,5 +89,6 @@ final class KeyboardHandler {
 
     private func adjustTempo(by delta: Double) {
         state.tempo = max(40, min(240, state.tempo + delta))
+        audio.updateDelayTime()
     }
 }

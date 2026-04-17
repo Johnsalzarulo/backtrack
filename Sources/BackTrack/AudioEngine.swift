@@ -28,10 +28,10 @@ final class AudioEngineController: ObservableObject {
     private var snareBuffer: AVAudioPCMBuffer?
     private var hhBuffer: AVAudioPCMBuffer?
 
-    // Live-input effect path. Fixed topology; PadMode just varies gains +
-    // EQ settings + reverb preset.
+    // Live-input effect path. Fixed topology; PadMode varies gains,
+    // EQ settings, distortion/delay wet mix, and reverb preset:
     //   liveInputPlayer → [ dry (EQ) | +12 (pitchUp) | -12 (pitchDown) ]
-    //                   → preReverbMixer → inputReverb → padMixer → master
+    //                   → preReverbMixer → distortion → delay → reverb → padMixer → master
     private let liveInputPlayer = AVAudioPlayerNode()
     private let inputEQ = AVAudioUnitEQ(numberOfBands: 1)
     private let pitchUpNode = AVAudioUnitTimePitch()
@@ -40,6 +40,8 @@ final class AudioEngineController: ObservableObject {
     private let pitchUpGain = AVAudioMixerNode()
     private let pitchDownGain = AVAudioMixerNode()
     private let preReverbMixer = AVAudioMixerNode()
+    private let distortion = AVAudioUnitDistortion()
+    private let delay = AVAudioUnitDelay()
     private let inputReverb = AVAudioUnitReverb()
     private let padMixer = AVAudioMixerNode()
 
@@ -85,6 +87,12 @@ final class AudioEngineController: ObservableObject {
         pitchUpNode.pitch = 1200       // +12 semitones
         pitchDownNode.pitch = -1200    // −12 semitones
 
+        // Defaults — apply(mode:) overrides these.
+        distortion.wetDryMix = 0
+        delay.wetDryMix = 0
+        delay.delayTime = 0.5
+        delay.feedback = 50
+
         outputEngine.attach(liveInputPlayer)
         outputEngine.attach(inputEQ)
         outputEngine.attach(pitchUpNode)
@@ -93,6 +101,8 @@ final class AudioEngineController: ObservableObject {
         outputEngine.attach(pitchUpGain)
         outputEngine.attach(pitchDownGain)
         outputEngine.attach(preReverbMixer)
+        outputEngine.attach(distortion)
+        outputEngine.attach(delay)
         outputEngine.attach(inputReverb)
     }
 
@@ -141,7 +151,12 @@ final class AudioEngineController: ObservableObject {
         outputEngine.connect(pitchDownNode, to: pitchDownGain, format: format)
         outputEngine.connect(pitchDownGain, to: preReverbMixer, format: format)
 
-        outputEngine.connect(preReverbMixer, to: inputReverb, format: format)
+        // preReverbMixer → distortion → delay → reverb → padMixer.
+        // Distortion and delay sit inline but are effectively bypassed
+        // (wetDryMix = 0) unless the current PadMode enables them.
+        outputEngine.connect(preReverbMixer, to: distortion, format: format)
+        outputEngine.connect(distortion, to: delay, format: format)
+        outputEngine.connect(delay, to: inputReverb, format: format)
         outputEngine.connect(inputReverb, to: padMixer, format: format)
     }
 
@@ -284,60 +299,88 @@ final class AudioEngineController: ObservableObject {
     func setSnareVolume(level: Int) { snareMixer.outputVolume = AppState.levelGain(level) }
     func setHhVolume(level: Int) { hhMixer.outputVolume = AppState.levelGain(level) }
 
-    // Each PadMode is a preset: gains on the three parallel paths, the EQ's
-    // single band, and the reverb preset + wet mix. OFF simply mutes padMixer.
+    // Each PadMode is a preset: gains on the three parallel paths, the EQ
+    // band, distortion/delay wet mix, and reverb preset + wet mix. OFF
+    // simply mutes padMixer.
     func apply(mode: PadMode) {
         let band = inputEQ.bands[0]
         band.bypass = false
         band.bandwidth = 1.0
         band.gain = 0
 
+        // Keep the BPM-synced delay time current even for modes that don't
+        // use delay — harmless if delay.wetDryMix = 0.
+        updateDelayTime()
+
         switch mode {
         case .off:
             padMixer.outputVolume = 0.0
 
         case .simple:
+            // High-pass + quarter-note delay (BPM-synced) + large hall.
             padMixer.outputVolume = 1.0
             band.filterType = .highPass
             band.frequency = 100
             dryGain.outputVolume = 1.0
             pitchUpGain.outputVolume = 0
             pitchDownGain.outputVolume = 0
+            distortion.wetDryMix = 0
+            delay.feedback = 60
+            delay.lowPassCutoff = 8000  // slightly dark echoes
+            delay.wetDryMix = 35
             inputReverb.loadFactoryPreset(.largeHall2)
-            inputReverb.wetDryMix = 85
+            inputReverb.wetDryMix = 75
 
         case .shimmer:
+            // Dry + strong +12 layer, shorter reverb so it arrives sooner.
             padMixer.outputVolume = 1.0
             band.filterType = .highPass
             band.frequency = 150
             dryGain.outputVolume = 1.0
-            pitchUpGain.outputVolume = 0.7
+            pitchUpGain.outputVolume = 0.85
             pitchDownGain.outputVolume = 0
-            inputReverb.loadFactoryPreset(.cathedral)
-            inputReverb.wetDryMix = 95
+            distortion.wetDryMix = 0
+            delay.wetDryMix = 0
+            inputReverb.loadFactoryPreset(.largeHall2)  // was cathedral — faster attack
+            inputReverb.wetDryMix = 80
 
         case .synth:
+            // Dark + sub-octave + mild grit. Shorter reverb = less sustain.
             padMixer.outputVolume = 1.0
             band.filterType = .lowPass
-            band.frequency = 2000
+            band.frequency = 2500
             dryGain.outputVolume = 0.6
             pitchUpGain.outputVolume = 0
             pitchDownGain.outputVolume = 0.7
-            inputReverb.loadFactoryPreset(.cathedral)
-            inputReverb.wetDryMix = 92
+            distortion.loadFactoryPreset(.multiDistortedCubed)
+            distortion.preGain = -6
+            distortion.wetDryMix = 25
+            delay.wetDryMix = 0
+            inputReverb.loadFactoryPreset(.mediumHall)
+            inputReverb.wetDryMix = 70
 
         case .strings:
+            // Mid-boost + subtle +12 + shorter reverb for faster response.
             padMixer.outputVolume = 1.0
             band.filterType = .parametric
             band.frequency = 800
             band.bandwidth = 1.0
             band.gain = 4
             dryGain.outputVolume = 1.0
-            pitchUpGain.outputVolume = 0.35
+            pitchUpGain.outputVolume = 0.25
             pitchDownGain.outputVolume = 0
-            inputReverb.loadFactoryPreset(.largeHall)
-            inputReverb.wetDryMix = 80
+            distortion.wetDryMix = 0
+            delay.wetDryMix = 0
+            inputReverb.loadFactoryPreset(.mediumHall)  // was largeHall — more immediate
+            inputReverb.wetDryMix = 65
         }
+    }
+
+    // Update the BPM-synced delay time (quarter note). Called from apply(mode:)
+    // and from anywhere the tempo changes.
+    func updateDelayTime() {
+        let bpm = max(40, min(240, state?.tempo ?? 90))
+        delay.delayTime = 60.0 / bpm
     }
 
     // MARK: - Playback

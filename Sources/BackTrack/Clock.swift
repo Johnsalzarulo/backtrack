@@ -81,6 +81,7 @@ final class Clock: ObservableObject {
                 let bpm = 60.0 / avg
                 state.tempo = max(40, min(240, bpm))
             }
+            audio.updateDelayTime()
             if state.isPlaying {
                 tick = 0
                 state.currentBeat = 0
