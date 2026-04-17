@@ -39,11 +39,15 @@ struct ContentView: View {
                 Text("\(Int(state.tempo.rounded()))")
                     .opacity(state.bpmFlash ? 0.35 : 1.0)
             }
-            readout(
-                label: "PATTERN",
-                value: "\(state.pattern)",
-                pending: state.pending.pattern.map(String.init)
-            )
+            HStack(spacing: 8) {
+                labelText("PATTERN")
+                Text("\(state.pattern)")
+                Text(Generators.patternName(forIndex: state.pattern - 1))
+                    .foregroundColor(dim)
+                if let p = state.pending.pattern {
+                    Text("→ \(p)").foregroundColor(dim)
+                }
+            }
             HStack(spacing: 8) {
                 labelText("KIT")
                 Text(state.currentKitName)

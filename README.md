@@ -158,22 +158,54 @@ visibility — nothing in the audio path depends on it.
 
 ## Drums
 
-Ten drum patterns, one per number key. Grouped in threes by "feel",
-each group ramping simple → busier; pattern 10 is a sparse outlier
-that restarts the simplicity cycle.
+Ten drum patterns, one per number key (`1`–`9`, `0` = 10). Grouped in
+threes by "feel", each group ramping simple → busier; pattern 10 is
+a sparse outlier that restarts the simplicity cycle.
 
-| Key | # | Feel | Pattern |
-|-----|---|------|---------|
-| `1` | 1 | Straight | Kick 1, hi-hat quarters; no snare. Ultra sparse pulse. |
-| `2` | 2 | Straight | Kick 1&3, snare 2&4, hi-hat quarters |
-| `3` | 3 | Straight | Kick 1&3, snare 2&4 + ghost 4e, hi-hat 8ths |
-| `4` | 4 | Rock     | Kick 1, snare 3, hi-hat 8ths |
-| `5` | 5 | Rock     | Kick 1 + "and of 2", snare 3, hi-hat 8ths |
-| `6` | 6 | Rock     | Kick 1, "and of 2", "and of 4"; snare 3; hi-hat 16ths |
-| `7` | 7 | Boom-bap | Kick 1, snare 3, hi-hat 2 & 4 only |
-| `8` | 8 | Boom-bap | Kick 1 + "e of 1", snare 3 + ghost 4e, hi-hat 8ths |
-| `9` | 9 | Boom-bap | Kick 1, "e of 1", "and of 3"; snare 3 + ghost 4e; hi-hat 16ths |
-| `0` | 10 | Sparse  | Kick 1&3, soft snare 4e only, hi-hat on 1 & 3 only |
+The default patterns are listed in the HUD by name when you switch
+to them. They're fully editable — see the next section.
+
+### Editing patterns
+
+Drop a file at `~/BackTrack/Samples/patterns.json` to override any
+or all of the built-in patterns. Each pattern is an object with a
+`name` plus three 16-character grids (`kick`, `snare`, `hh`):
+
+```json
+[
+  {
+    "name": "Half-time rock",
+    "kick":  "X . . . . . . . . . . . . . . .",
+    "snare": ". . . . . . . . . . . . X . . .",
+    "hh":    "X . X . X . X . X . X . X . X ."
+  },
+  {
+    "name": "Four on the floor",
+    "kick":  "X . . . X . . . X . . . X . . .",
+    "snare": ". . . . X . . . . . . . X . . .",
+    "hh":    ". . X . . . X . . . X . . . X ."
+  }
+]
+```
+
+Grid characters:
+
+| Char | Meaning |
+|------|---------|
+| `X` or `O` | full hit (velocity 1.0) |
+| `x` or `o` | ghost hit (velocity 0.35) |
+| `.` | rest |
+| spaces | ignored (use them for readability) |
+
+Rules:
+
+- The bar is 16 sixteenth-note ticks. Position 0 is beat 1, position 4
+  is beat 2, position 8 is beat 3, position 12 is beat 4.
+- Entries in the JSON array map to keys `1`, `2`, `3`, … `9`, `0` in
+  that order. Slots you omit keep their built-in default.
+- Press `R` in the app to hot-reload `patterns.json` without
+  restarting. If the file is missing or malformed, all ten built-in
+  defaults are used; parse errors are logged to stderr.
 
 ## Files
 

@@ -54,6 +54,7 @@ final class KeyboardHandler {
             return true
         case "r":
             audio.loadSamples()
+            Generators.loadPatterns()
             state.inputDevice = AudioDevices.defaultInputName()
             state.outputDevice = AudioDevices.defaultOutputName()
             return true
