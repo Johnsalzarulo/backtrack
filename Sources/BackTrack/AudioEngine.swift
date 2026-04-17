@@ -12,11 +12,16 @@ struct NoteEvent {
 }
 
 final class AudioEngineController: ObservableObject {
-    // Drum engine — output only. Isolated from the input engine so
-    // the mic and the output device can be on different hardware
-    // without AVAudioEngine choking on the mismatch.
-    private let drumEngine = AVAudioEngine()
-    private let drumMaster = AVAudioMixerNode()
+    // Output engine — everything that hits the speakers lives here:
+    // drum players, and the live-input effect chain which is fed by
+    // buffers captured on the input engine's tap. Decoupling input
+    // and output into separate engines avoids AVAudioEngine's
+    // input/output-device matching requirement and works cleanly
+    // with arbitrary mic/interface/monitor routing.
+    private let outputEngine = AVAudioEngine()
+    private let outputMaster = AVAudioMixerNode()
+
+    // Drum graph (outputEngine)
     private let kickMixer = AVAudioMixerNode()
     private let snareMixer = AVAudioMixerNode()
     private let hhMixer = AVAudioMixerNode()
@@ -27,49 +32,45 @@ final class AudioEngineController: ObservableObject {
     private var snareBuffer: AVAudioPCMBuffer?
     private var hhBuffer: AVAudioPCMBuffer?
 
-    // Input processing engine — mic → EQ → reverb → padMixer → output.
-    // Outputs to the system default output just like the drum engine;
-    // macOS's HAL mixes both streams on the device.
-    private let inputEngine = AVAudioEngine()
-    private let padMixer = AVAudioMixerNode()
-    private let inputMixer = AVAudioMixerNode()  // tap point, avoids tapping inputNode directly
+    // Live-input effect path (outputEngine): liveInputPlayer → EQ → reverb → padMixer → master
+    private let liveInputPlayer = AVAudioPlayerNode()
     private let inputEQ = AVAudioUnitEQ(numberOfBands: 1)
     private let inputReverb = AVAudioUnitReverb()
-    private var inputWired = false
+    private let padMixer = AVAudioMixerNode()
+
+    // Input engine — captures mic input only, no output routing.
+    // Buffers from its tap are forwarded to liveInputPlayer above.
+    private let inputEngine = AVAudioEngine()
+    private let inputMixer = AVAudioMixerNode()
+    private var tapFormat: AVAudioFormat?
 
     weak var state: AppState?
     weak var pitchDetector: PitchDetector?
 
     init() {
-        setupDrumEngine()
+        setupOutputEngine()
         setupInputEngine()
+        wireLiveInputPath()
         startEngines()
     }
 
-    // MARK: - Drum engine
+    // MARK: - Output engine setup
 
-    private func setupDrumEngine() {
-        drumEngine.attach(drumMaster)
-        drumEngine.connect(drumMaster, to: drumEngine.mainMixerNode, format: nil)
+    private func setupOutputEngine() {
+        outputEngine.attach(outputMaster)
+        outputEngine.connect(outputMaster, to: outputEngine.mainMixerNode, format: nil)
 
-        for sub in [kickMixer, snareMixer, hhMixer] {
-            drumEngine.attach(sub)
-            drumEngine.connect(sub, to: drumMaster, format: nil)
+        for sub in [kickMixer, snareMixer, hhMixer, padMixer] {
+            outputEngine.attach(sub)
+            outputEngine.connect(sub, to: outputMaster, format: nil)
         }
 
-        drumEngine.attach(kickPlayer)
-        drumEngine.connect(kickPlayer, to: kickMixer, format: nil)
-        drumEngine.attach(snarePlayer)
-        drumEngine.connect(snarePlayer, to: snareMixer, format: nil)
-        drumEngine.attach(hhPlayer)
-        drumEngine.connect(hhPlayer, to: hhMixer, format: nil)
-    }
-
-    // MARK: - Input processing engine
-
-    private func setupInputEngine() {
-        inputEngine.attach(padMixer)
-        inputEngine.connect(padMixer, to: inputEngine.mainMixerNode, format: nil)
+        outputEngine.attach(kickPlayer)
+        outputEngine.connect(kickPlayer, to: kickMixer, format: nil)
+        outputEngine.attach(snarePlayer)
+        outputEngine.connect(snarePlayer, to: snareMixer, format: nil)
+        outputEngine.attach(hhPlayer)
+        outputEngine.connect(hhPlayer, to: hhMixer, format: nil)
 
         let band = inputEQ.bands[0]
         band.filterType = .highPass
@@ -79,9 +80,15 @@ final class AudioEngineController: ObservableObject {
         inputReverb.loadFactoryPreset(.largeHall2)
         inputReverb.wetDryMix = 85
 
+        outputEngine.attach(liveInputPlayer)
+        outputEngine.attach(inputEQ)
+        outputEngine.attach(inputReverb)
+    }
+
+    // MARK: - Input engine setup (capture + tap)
+
+    private func setupInputEngine() {
         inputEngine.attach(inputMixer)
-        inputEngine.attach(inputEQ)
-        inputEngine.attach(inputReverb)
 
         let input = inputEngine.inputNode
         let format = input.inputFormat(forBus: 0)
@@ -90,26 +97,44 @@ final class AudioEngineController: ObservableObject {
             return
         }
         inputEngine.connect(input, to: inputMixer, format: format)
-        inputEngine.connect(inputMixer, to: inputEQ, format: format)
-        inputEngine.connect(inputEQ, to: inputReverb, format: format)
-        inputEngine.connect(inputReverb, to: padMixer, format: nil)
+        tapFormat = format
 
-        // Tap the intermediate mixer, not the input node directly, so the
-        // tap and the processing chain don't contend for the same node.
         inputMixer.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
-            self?.pitchDetector?.process(buffer)
+            guard let self = self else { return }
+            self.pitchDetector?.process(buffer)
+            // Forward captured audio into the output engine's live player.
+            self.liveInputPlayer.scheduleBuffer(buffer, at: nil, options: [], completionHandler: nil)
         }
+    }
 
-        inputWired = true
+    // MARK: - Live-input path wiring
+
+    // Wire liveInputPlayer through EQ + reverb + padMixer using the tap's
+    // format. Done after the tap format is known so every connection in
+    // the chain uses a matching PCM format and AVAudioEngine doesn't
+    // silently drop audio through an implicit conversion.
+    private func wireLiveInputPath() {
+        guard let format = tapFormat else { return }
+        outputEngine.connect(liveInputPlayer, to: inputEQ, format: format)
+        outputEngine.connect(inputEQ, to: inputReverb, format: format)
+        outputEngine.connect(inputReverb, to: padMixer, format: format)
     }
 
     private func startEngines() {
-        drumEngine.prepare()
-        do { try drumEngine.start() } catch {
-            NSLog("BackTrack: drum engine failed to start: \(error)")
+        outputEngine.prepare()
+        do {
+            try outputEngine.start()
+        } catch {
+            NSLog("BackTrack: output engine failed to start: \(error)")
+        }
+        // liveInputPlayer must be playing for its scheduled buffers to produce audio.
+        if tapFormat != nil {
+            liveInputPlayer.play()
         }
         inputEngine.prepare()
-        do { try inputEngine.start() } catch {
+        do {
+            try inputEngine.start()
+        } catch {
             NSLog("BackTrack: input engine failed to start: \(error)")
         }
     }
@@ -139,22 +164,25 @@ final class AudioEngineController: ObservableObject {
     }
 
     private func rewireDrumsForBufferFormats() {
-        let wasRunning = drumEngine.isRunning
-        if wasRunning { drumEngine.pause() }
+        let wasRunning = outputEngine.isRunning
+        if wasRunning { outputEngine.pause() }
         if let buf = kickBuffer { reconnectDrum(kickPlayer, mixer: kickMixer, format: buf.format) }
         if let buf = snareBuffer { reconnectDrum(snarePlayer, mixer: snareMixer, format: buf.format) }
         if let buf = hhBuffer { reconnectDrum(hhPlayer, mixer: hhMixer, format: buf.format) }
         if wasRunning {
-            do { try drumEngine.start() } catch {
-                NSLog("BackTrack: drum engine failed to restart after rewire: \(error)")
+            do { try outputEngine.start() } catch {
+                NSLog("BackTrack: output engine failed to restart after rewire: \(error)")
+            }
+            if tapFormat != nil, !liveInputPlayer.isPlaying {
+                liveInputPlayer.play()
             }
         }
     }
 
     private func reconnectDrum(_ player: AVAudioPlayerNode, mixer: AVAudioMixerNode, format: AVAudioFormat) {
         player.stop()
-        drumEngine.disconnectNodeOutput(player)
-        drumEngine.connect(player, to: mixer, format: format)
+        outputEngine.disconnectNodeOutput(player)
+        outputEngine.connect(player, to: mixer, format: format)
     }
 
     private func loadDrum(name: String, in dir: URL, missing: inout [String]) -> AVAudioPCMBuffer? {
