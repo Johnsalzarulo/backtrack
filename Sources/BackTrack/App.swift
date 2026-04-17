@@ -17,6 +17,7 @@ final class Coordinator: ObservableObject {
     let audio: AudioEngineController
     let clock: Clock
     let keyboard: KeyboardHandler
+    let pitchDetector: PitchDetector
 
     init() {
         let state = AppState()
@@ -24,16 +25,25 @@ final class Coordinator: ObservableObject {
         audio.state = state
         let clock = Clock(state: state, audio: audio)
         let keyboard = KeyboardHandler(state: state, clock: clock, audio: audio)
+        let pitchDetector = PitchDetector(state: state)
         self.state = state
         self.audio = audio
         self.clock = clock
         self.keyboard = keyboard
+        self.pitchDetector = pitchDetector
     }
 
     func bootstrap() {
         audio.loadSamples()
         audio.applyVolumes(from: state)
         keyboard.install()
+        pitchDetector.start()
+        refreshDevices()
+    }
+
+    func refreshDevices() {
+        state.inputDevice = AudioDevices.defaultInputName()
+        state.outputDevice = AudioDevices.defaultOutputName()
     }
 }
 

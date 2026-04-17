@@ -3,10 +3,16 @@
 A minimal, rule-based backing-track generator for live solo practice and
 performance. Drums and pads only, 4/4 only, keyboard-driven. Native macOS.
 
+Includes real-time pitch detection from the microphone, with an optional
+"follow" mode that drives pad chord changes from what you sing or play.
+
 ## Requirements
 
 - macOS 13+
 - Swift 5.9+ (Xcode or Command Line Tools)
+- Microphone access (for pitch detection — the first run will prompt)
+- Headphones strongly recommended when using follow mode, to avoid the
+  pad output feeding back into the input and confusing detection
 
 ## Samples
 
@@ -52,16 +58,17 @@ swift build -c release
 
 Immediate:
 
-| Key     | Action                           |
-|---------|----------------------------------|
-| `Space` | start / stop                     |
-| `T`     | tap tempo (4-tap rolling avg)    |
-| `↑` `↓` | tempo ± 1 BPM                    |
-| `R`     | reload samples from disk         |
-| `K`     | kick volume (cycles 100→75→50→25→0→100) |
-| `S`     | snare volume                     |
-| `H`     | hi-hat volume                    |
-| `P`     | pad volume                       |
+| Key     | Action                                   |
+|---------|------------------------------------------|
+| `Space` | start / stop                             |
+| `T`     | tap tempo (4-tap rolling avg)            |
+| `↑` `↓` | tempo ± 1 BPM                            |
+| `R`     | reload samples + refresh device readout  |
+| `L`     | toggle follow mode (pad tracks detected pitch) |
+| `K`     | kick volume (cycles 100→75→50→25→0→100)  |
+| `S`     | snare volume                             |
+| `H`     | hi-hat volume                            |
+| `P`     | pad volume                               |
 
 Queued (commit on beat 1 of the next bar):
 
@@ -73,6 +80,39 @@ Queued (commit on beat 1 of the next bar):
 
 Pending changes show next to the current value with an arrow
 (`C min → F min`) and disappear the instant they commit.
+
+## HUD
+
+| Readout | Meaning |
+|---------|---------|
+| `KEY` | Current chord (root + quality) |
+| `BPM` | Current tempo |
+| `LVL` | Current complexity |
+| Beat dots | Position in bar |
+| `MIX` | Kick / snare / hi-hat / pad volume bars |
+| `DET` | Detected pitch from microphone (or `—`) |
+| `FLW` | Key scope (only shown while follow mode is on) |
+| `MIC` | System default input device |
+| `OUT` | System default output device |
+
+## Pitch detection
+
+Runs continuously on a dedicated input-only `AVAudioEngine`, isolated from
+the playback engine. Uses the YIN algorithm (de Cheveigné & Kawahara, 2002)
+with a cumulative mean normalized difference function and parabolic
+interpolation for sub-sample accuracy. An RMS silence gate suppresses noise,
+and the last detected note is held for ~400 ms to avoid flicker between
+breaths or consonants.
+
+## Follow mode
+
+When `L` is toggled on, BackTrack snapshots the current chord as the key
+scope and displays it on the `FLW` row. From then on, each detected pitch
+is mapped to the nearest diatonic scale degree in that key, and the
+corresponding chord (major or minor per the scale) is queued as a pending
+change — committing cleanly on the next bar boundary like any other
+pending change. Pressing `A`–`G` or `M` while follow mode is on updates
+both the pad chord and the key scope, so you can re-key on the fly.
 
 ## Generators
 
@@ -97,10 +137,12 @@ both instruments.
 
 ## Files
 
-- `App.swift` — entry point, coordinator wiring
-- `AppState.swift` — `ObservableObject` with musical + mix state
-- `AudioEngine.swift` — AVAudioEngine graph, sample loading, pad pitch shift
+- `App.swift` — entry point, coordinator wiring, device bootstrap
+- `AppState.swift` — `ObservableObject` with musical, mix, detection, and routing state
+- `AudioEngine.swift` — playback `AVAudioEngine`, per-instrument mixer buses, sample loading, pad pitch shift
+- `AudioDevices.swift` — CoreAudio helpers for default input/output device names
 - `Clock.swift` — 16th-note timer, tap tempo, transport, pending drain
 - `Generators.swift` — pure drum/pad pattern functions
 - `KeyboardHandler.swift` — NSEvent local monitor
+- `PitchDetector.swift` — dedicated input `AVAudioEngine`, YIN pitch detection, diatonic snap for follow mode
 - `ContentView.swift` — SwiftUI HUD

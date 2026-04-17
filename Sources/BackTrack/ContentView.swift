@@ -12,6 +12,7 @@ struct ContentView: View {
             transportLine
             Spacer(minLength: 0)
             missingBlock
+            devicesBlock
             keybindingBlock
         }
         .padding(.horizontal, 24)
@@ -53,6 +54,19 @@ struct ContentView: View {
                 meter("P", level: state.padLevel)
             }
             .padding(.top, 2)
+
+            HStack(spacing: 8) {
+                labelText("DET")
+                Text(state.detectedNote ?? "—")
+                    .foregroundColor(state.detectedNote == nil ? dim : fg)
+            }
+
+            if state.followDetection {
+                HStack(spacing: 8) {
+                    labelText("FLW")
+                    Text("key \(state.keyScopeString)")
+                }
+            }
         }
     }
 
@@ -111,12 +125,27 @@ struct ContentView: View {
         }
     }
 
+    private var devicesBlock: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 8) {
+                Text("MIC").frame(width: 44, alignment: .leading)
+                Text(state.inputDevice ?? "—")
+            }
+            HStack(spacing: 8) {
+                Text("OUT").frame(width: 44, alignment: .leading)
+                Text(state.outputDevice ?? "—")
+            }
+        }
+        .foregroundColor(dim)
+        .font(.system(.caption, design: .monospaced))
+    }
+
     private var keybindingBlock: some View {
         VStack(alignment: .leading, spacing: 3) {
             row("SPACE", "start / stop", "A–G", "root note")
             row("T", "tap tempo", "M", "major / minor")
             row("↑ ↓", "tempo ± 1", "1 2 3", "complexity")
-            row("R", "reload samples", "", "")
+            row("R", "reload samples", "L", "follow detected pitch")
             row("K S H P", "mix (kick snare hh pad)", "", "")
         }
         .foregroundColor(dim)

@@ -30,6 +30,22 @@ final class AppState: ObservableObject {
     @Published var hhLevel: Int = 4
     @Published var padLevel: Int = 4
 
+    @Published var detectedNote: String? = nil
+    @Published var detectedFrequency: Float? = nil
+
+    // Follow mode: detected pitch drives pad chord within a diatonic key scope.
+    // keyRoot/keyIsMajor are the scale; rootNote/isMajor remain the current chord.
+    @Published var followDetection: Bool = false
+    @Published var keyRoot: Int = 0
+    @Published var keyIsMajor: Bool = false
+
+    @Published var inputDevice: String? = nil
+    @Published var outputDevice: String? = nil
+
+    var keyScopeString: String {
+        "\(Self.noteNames[keyRoot]) \(keyIsMajor ? "maj" : "min")"
+    }
+
     static let maxLevel = 4
 
     static func levelGain(_ level: Int) -> Float {

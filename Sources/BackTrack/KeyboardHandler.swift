@@ -48,10 +48,20 @@ final class KeyboardHandler {
             return true
         case "r":
             audio.loadSamples()
+            state.inputDevice = AudioDevices.defaultInputName()
+            state.outputDevice = AudioDevices.defaultOutputName()
             return true
         case "m":
-            let current = state.pending.isMajor ?? state.isMajor
-            state.pending.isMajor = !current
+            let next = !(state.pending.isMajor ?? state.isMajor)
+            state.pending.isMajor = next
+            if state.followDetection { state.keyIsMajor = next }
+            return true
+        case "l":
+            state.followDetection.toggle()
+            if state.followDetection {
+                state.keyRoot = state.pending.rootNote ?? state.rootNote
+                state.keyIsMajor = state.pending.isMajor ?? state.isMajor
+            }
             return true
         case "1":
             state.pending.complexity = 1
@@ -78,13 +88,13 @@ final class KeyboardHandler {
             state.padLevel = AppState.cycleDown(state.padLevel)
             audio.setPadVolume(level: state.padLevel)
             return true
-        case "a": state.pending.rootNote = 9; return true
-        case "b": state.pending.rootNote = 11; return true
-        case "c": state.pending.rootNote = 0; return true
-        case "d": state.pending.rootNote = 2; return true
-        case "e": state.pending.rootNote = 4; return true
-        case "f": state.pending.rootNote = 5; return true
-        case "g": state.pending.rootNote = 7; return true
+        case "a": setRoot(9); return true
+        case "b": setRoot(11); return true
+        case "c": setRoot(0); return true
+        case "d": setRoot(2); return true
+        case "e": setRoot(4); return true
+        case "f": setRoot(5); return true
+        case "g": setRoot(7); return true
         default:
             return false
         }
@@ -92,5 +102,10 @@ final class KeyboardHandler {
 
     private func adjustTempo(by delta: Double) {
         state.tempo = max(40, min(240, state.tempo + delta))
+    }
+
+    private func setRoot(_ pc: Int) {
+        state.pending.rootNote = pc
+        if state.followDetection { state.keyRoot = pc }
     }
 }
