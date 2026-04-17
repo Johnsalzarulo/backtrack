@@ -49,9 +49,10 @@ final class Clock: ObservableObject {
 
     private func onTick() {
         if tick == 0 {
-            if !state.pending.isEmpty {
-                audio.stopAllPads()
-            }
+            // Cut pad tails at every bar boundary so long samples don't
+            // bleed across bars — pad voices are re-triggered below by
+            // the generator if the pattern calls for it on tick 0.
+            audio.stopAllPads()
             state.applyPending()
         }
 
