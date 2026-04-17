@@ -31,7 +31,10 @@ final class PitchDetector {
         let timestamp: Date
     }
     private var pitchHistory: [PitchObservation] = []
-    private let historyWindow: TimeInterval = 0.6
+    private let historyWindow: TimeInterval = 0.8
+    // Hysteresis: new root weight must exceed current root's weight by this
+    // factor to trigger a switch. Without this, close calls flicker.
+    private let switchMargin: Float = 1.35
 
     func start() {
         guard !installed else { return }
@@ -128,18 +131,31 @@ final class PitchDetector {
             pitchHistory.removeFirst()
         }
 
-        // Weighted pitch-class histogram. Bias: lower MIDI = more weight.
-        // max(0.35, 2 - midi/40) gives ~1.0 at MIDI 40, ~0.5 at MIDI 60, floor 0.35.
+        // Weighted pitch-class histogram.
+        // - Octave bias: lower MIDI = more weight.
+        // - Bass bonus: notes within 2 semitones of the window's lowest get
+        //   2× weight, so the bass line of a picked pattern dominates the
+        //   upper-arpeggio notes regardless of how many of them there are.
+        guard let lowestMidi = pitchHistory.map(\.midi).min() else { return }
         var weights = [Float](repeating: 0, count: 12)
         for obs in pitchHistory {
-            let bias = max(Float(0.35), Float(2.0) - Float(obs.midi) / Float(40))
-            weights[obs.pitchClass] += bias
+            let octaveBias = max(Float(0.35), Float(2.0) - Float(obs.midi) / Float(40))
+            let bassBonus: Float = obs.midi <= lowestMidi + 2 ? 2.0 : 1.0
+            weights[obs.pitchClass] += octaveBias * bassBonus
         }
         var dominantPc = detectedPc
         var maxWeight: Float = -1
         for (pc, w) in weights.enumerated() where w > maxWeight {
             maxWeight = w
             dominantPc = pc
+        }
+
+        // Hysteresis: don't switch root unless the new dominant clearly
+        // outweighs the current root. Prevents flicker when a picked
+        // pattern briefly touches a non-root neighbor.
+        let currentRootWeight = weights[state.rootNote]
+        if dominantPc != state.rootNote && maxWeight < currentRootWeight * switchMargin {
+            return
         }
 
         // Diatonic snap using the dominant (not the just-detected) pitch class.

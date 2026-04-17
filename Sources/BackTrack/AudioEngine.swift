@@ -288,14 +288,15 @@ final class AudioEngineController: ObservableObject {
         let gen = padFadeGen[idx]
         let voice = padVoices[idx]
         voice.pitch.rate = Float(rate)
-        // Start silent, then ramp up over ~18 ms so the attack isn't jarring
-        // (pad samples start mid-waveform). Generation check aborts the ramp
-        // if the voice is re-triggered before the fade-in finishes.
+        // Start silent, then ramp up over ~150 ms for a gentle swell-in.
+        // Masks detection latency musically and gives the pad more body.
+        // Generation check aborts the ramp if the voice is re-triggered
+        // before the fade-in finishes.
         voice.player.volume = 0
         voice.player.scheduleBuffer(buffer, at: nil, options: .interrupts, completionHandler: nil)
         if !voice.player.isPlaying { voice.player.play() }
-        let steps = 6
-        let stepInterval: TimeInterval = 0.003  // 18 ms total
+        let steps = 15
+        let stepInterval: TimeInterval = 0.010  // 150 ms total
         let target = volume
         for step in 1...steps {
             DispatchQueue.main.asyncAfter(deadline: .now() + Double(step) * stepInterval) { [weak self] in
@@ -305,15 +306,14 @@ final class AudioEngineController: ObservableObject {
         }
     }
 
-    // Fade pad voices to zero over ~16 ms via short DispatchQueue-stepped ramps
-    // on AVAudioPlayerNode.volume, then stop the players. Sample-accurate
-    // ramping isn't available on AVAudioMixerNode, but stepping at 2 ms is far
-    // below the audible threshold for quantization and eliminates the click
-    // that a hard stop() produces mid-sustain. Per-voice generation counters
-    // ensure a new trigger that reuses a voice mid-fade doesn't get stomped.
+    // Fade pad voices to zero over ~150 ms via DispatchQueue-stepped ramps
+    // on AVAudioPlayerNode.volume, then stop the players. Matches the
+    // fade-in duration for a symmetric swell-out; also eliminates clicks
+    // from hard stop() mid-sustain. Per-voice generation counters ensure
+    // a new trigger that reuses a voice mid-fade doesn't get stomped.
     func stopAllPads() {
-        let steps = 8
-        let stepInterval: TimeInterval = 0.002  // 16 ms total
+        let steps = 15
+        let stepInterval: TimeInterval = 0.010  // 150 ms total
         let voices = padVoices
         let startVolumes = voices.map { $0.player.volume }
         for i in 0..<voices.count {

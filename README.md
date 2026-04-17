@@ -149,15 +149,19 @@ fires (~every 23 ms) — no pending queue, no bar or beat quantization.
 as usual. Drums stay locked to the grid regardless.
 
 Instead of snapping to every individual pitch, follow mode keeps a
-rolling ~600 ms histogram of detected pitch classes with a low-note
-bias, and commits the chord for whichever root is dominant over that
-window. This means a picking pattern (root + arpeggiated upper notes)
-locks onto the root rather than chasing every note. Sustained held
-notes win over fleeting passing tones.
+rolling ~800 ms histogram of detected pitch classes, weighted by two
+factors: a general octave bias (lower MIDI = more weight), and a
+bass bonus (notes within 2 semitones of the window's lowest get 2×
+weight). The bass bonus is what locks the root onto a picking
+pattern's lowest note regardless of how many arpeggiated upper notes
+are in the window. Hysteresis on top: the new dominant must outweigh
+the current root by 1.35× to trigger a switch, which prevents
+flicker on close calls.
 
-Pad notes fade in over ~18 ms so mid-sample attacks don't click, and
-the pad voice pool rotates so sustained chords from the previous
-selection are replaced cleanly.
+Pad notes fade in and out over ~150 ms each, both hiding detection
+latency behind a gentle swell and giving the pad more body on
+sustained chords. The pad voice pool rotates so old sustained chords
+are replaced cleanly as new ones arrive.
 
 At complexity 1 (sustained pad) the chord is explicitly re-triggered
 the moment detection changes it. At complexity 2 and 3 the 8th-note
