@@ -30,6 +30,13 @@ final class AppState: ObservableObject {
     @Published var hhLevel: Int = 3
     @Published var padLevel: Int = 3
 
+    // Last-trigger timestamps drive the per-instrument activity indicators
+    // in the HUD; a TimelineView reads these each frame and decays brightness.
+    @Published var kickLastTrigger: Date = .distantPast
+    @Published var snareLastTrigger: Date = .distantPast
+    @Published var hhLastTrigger: Date = .distantPast
+    @Published var padLastTrigger: Date = .distantPast
+
     @Published var detectedNote: String? = nil
     @Published var detectedFrequency: Float? = nil
 

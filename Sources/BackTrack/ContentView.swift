@@ -5,10 +5,13 @@ struct ContentView: View {
 
     private let fg = Color(red: 0.82, green: 0.92, blue: 0.82)
     private let dim = Color(white: 0.45)
+    private let activityDecay: TimeInterval = 0.18
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            statusBlock
+        VStack(alignment: .leading, spacing: 14) {
+            musicalBlock
+            mixBlock
+            detectionBlock
             transportLine
             Spacer(minLength: 0)
             missingBlock
@@ -16,15 +19,17 @@ struct ContentView: View {
             keybindingBlock
         }
         .padding(.horizontal, 24)
-        .padding(.vertical, 20)
+        .padding(.vertical, 18)
         .frame(width: 500, height: 400, alignment: .topLeading)
         .background(Color.black)
         .foregroundColor(fg)
         .font(.system(.body, design: .monospaced))
     }
 
-    private var statusBlock: some View {
-        VStack(alignment: .leading, spacing: 6) {
+    // MARK: - Musical state
+
+    private var musicalBlock: some View {
+        VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
                 labelText("KEY")
                 Text(state.keyString)
@@ -38,76 +43,84 @@ struct ContentView: View {
                 Text("\(Int(state.tempo.rounded()))")
                     .opacity(state.bpmFlash ? 0.35 : 1.0)
             }
-            readout(
-                label: "LVL",
-                value: "\(state.complexity)",
-                pending: state.pending.complexity.map(String.init)
-            )
-            HStack(spacing: 10) {
-                labelText(" ")
-                ForEach(0..<4, id: \.self) { i in
-                    Circle()
-                        .fill(beatColor(i))
-                        .frame(width: 9, height: 9)
+            HStack(spacing: 14) {
+                readout(
+                    label: "LVL",
+                    value: "\(state.complexity)",
+                    pending: state.pending.complexity.map(String.init)
+                )
+                HStack(spacing: 8) {
+                    ForEach(0..<4, id: \.self) { i in
+                        Circle()
+                            .fill(beatColor(i))
+                            .frame(width: 7, height: 7)
+                    }
                 }
             }
-            .padding(.top, 2)
-
-            HStack(spacing: 14) {
-                labelText("MIX")
-                meter("K", level: state.kickLevel)
-                meter("S", level: state.snareLevel)
-                meter("H", level: state.hhLevel)
-                meter("P", level: state.padLevel)
-            }
-            .padding(.top, 2)
-
-            HStack(spacing: 8) {
-                labelText("DET")
-                Text(state.detectedNote ?? "—")
-                    .foregroundColor(state.detectedNote == nil ? dim : fg)
-            }
         }
     }
 
-    private func meter(_ label: String, level: Int) -> some View {
-        HStack(spacing: 4) {
-            Text(label).foregroundColor(dim)
-            HStack(spacing: 0) {
-                Text(String(repeating: "█", count: level))
-                Text(String(repeating: "·", count: AppState.maxLevel - level))
-                    .foregroundColor(dim)
-            }
+    // MARK: - Mix
+
+    private var mixBlock: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            instrumentRow(name: "KICK",  level: state.kickLevel,  last: state.kickLastTrigger)
+            instrumentRow(name: "SNARE", level: state.snareLevel, last: state.snareLastTrigger)
+            instrumentRow(name: "HH",    level: state.hhLevel,    last: state.hhLastTrigger)
+            instrumentRow(name: "PAD",   level: state.padLevel,   last: state.padLastTrigger)
         }
     }
 
-    private func readout(label: String, value: String, pending: String?) -> some View {
+    private func instrumentRow(name: String, level: Int, last: Date) -> some View {
+        HStack(spacing: 12) {
+            Text(name)
+                .foregroundColor(dim)
+                .frame(width: 60, alignment: .leading)
+            levelMeter(level: level)
+                .frame(width: 50, alignment: .leading)
+            activityLight(last: last)
+        }
+    }
+
+    private func levelMeter(level: Int) -> some View {
+        HStack(spacing: 0) {
+            Text(String(repeating: "█", count: level))
+            Text(String(repeating: "·", count: AppState.maxLevel - level))
+                .foregroundColor(dim)
+        }
+    }
+
+    // A small pulse that illuminates on trigger and decays over ~180ms.
+    // TimelineView(.animation) ticks every frame, re-evaluating brightness.
+    private func activityLight(last: Date) -> some View {
+        TimelineView(.animation) { context in
+            let elapsed = context.date.timeIntervalSince(last)
+            let brightness = max(0, 1 - elapsed / activityDecay)
+            Circle()
+                .fill(fg)
+                .opacity(max(0.12, brightness))
+                .frame(width: 8, height: 8)
+        }
+    }
+
+    // MARK: - Detection
+
+    private var detectionBlock: some View {
         HStack(spacing: 8) {
-            labelText(label)
-            Text(value)
-            if let p = pending {
-                Text("→ \(p)").foregroundColor(dim)
-            }
+            labelText("DET")
+            Text(state.detectedNote ?? "—")
+                .foregroundColor(state.detectedNote == nil ? dim : fg)
         }
     }
 
-    private func labelText(_ s: String) -> some View {
-        Text(s)
-            .foregroundColor(dim)
-            .frame(width: 44, alignment: .leading)
-    }
-
-    private func beatColor(_ i: Int) -> Color {
-        if state.isPlaying && i == state.currentBeat {
-            return fg
-        }
-        return dim.opacity(0.45)
-    }
+    // MARK: - Transport
 
     private var transportLine: some View {
         Text(state.isPlaying ? "● PLAYING" : "○ STOPPED")
-            .font(.system(size: 22, weight: .regular, design: .monospaced))
+            .font(.system(size: 20, weight: .regular, design: .monospaced))
     }
+
+    // MARK: - Missing / devices / keybindings (dim footer)
 
     @ViewBuilder
     private var missingBlock: some View {
@@ -142,11 +155,11 @@ struct ContentView: View {
 
     private var keybindingBlock: some View {
         VStack(alignment: .leading, spacing: 3) {
-            row("SPACE", "start / stop", "A–G", "root note")
-            row("T", "tap tempo", "M", "major / minor")
-            row("↑ ↓", "tempo ± 1", "1 2 3", "complexity")
-            row("R", "reload samples", "L", "follow detected pitch")
-            row("K S H P", "mix (kick snare hh pad)", "", "")
+            row("SPACE", "start / stop",    "A–G",   "root note")
+            row("T",     "tap tempo",       "M",     "major / minor")
+            row("↑ ↓",   "tempo ± 1",       "1 2 3", "complexity")
+            row("R",     "reload samples",  "L",     "follow detected pitch")
+            row("K S H P", "instrument volume", "", "")
         }
         .foregroundColor(dim)
         .font(.system(.caption, design: .monospaced))
@@ -154,10 +167,35 @@ struct ContentView: View {
 
     private func row(_ k1: String, _ d1: String, _ k2: String, _ d2: String) -> some View {
         HStack(spacing: 0) {
-            Text(k1).frame(width: 68, alignment: .leading)
+            Text(k1).frame(width: 72, alignment: .leading)
             Text(d1).frame(width: 150, alignment: .leading)
-            Text(k2).frame(width: 68, alignment: .leading)
+            Text(k2).frame(width: 56, alignment: .leading)
             Text(d2)
         }
+    }
+
+    // MARK: - Shared helpers
+
+    private func readout(label: String, value: String, pending: String?) -> some View {
+        HStack(spacing: 8) {
+            labelText(label)
+            Text(value)
+            if let p = pending {
+                Text("→ \(p)").foregroundColor(dim)
+            }
+        }
+    }
+
+    private func labelText(_ s: String) -> some View {
+        Text(s)
+            .foregroundColor(dim)
+            .frame(width: 44, alignment: .leading)
+    }
+
+    private func beatColor(_ i: Int) -> Color {
+        if state.isPlaying && i == state.currentBeat {
+            return fg
+        }
+        return dim.opacity(0.45)
     }
 }

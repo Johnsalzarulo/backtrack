@@ -83,15 +83,17 @@ Pending changes show next to the current value with an arrow
 
 ## HUD
 
+Stacked top-to-bottom in three visual groups: musical state, mix, detection / transport.
+
 | Readout | Meaning |
 |---------|---------|
 | `KEY` | The tonal center you declared. Updates only on your keystroke; never driven by detection. A dim `(follow)` suffix appears here while follow mode is on. |
 | `CHD` | The chord the pad is currently playing. In manual mode it mirrors `KEY`; in follow mode it diverges per the detected pitch. Pending changes commit on the next bar. |
 | `BPM` | Current tempo |
-| `LVL` | Current complexity |
-| Beat dots | Position in bar |
-| `MIX` | Kick / snare / hi-hat / pad volume bars |
+| `LVL` | Current complexity, with inline beat dots showing position in bar |
+| `KICK` / `SNARE` / `HH` / `PAD` | One row per instrument. Each row shows a level meter (0 / 50 / 75 / 100%) and an activity light that pulses on each trigger and decays over ~180 ms. |
 | `DET` | Detected pitch from microphone (or `—`) |
+| `● PLAYING` / `○ STOPPED` | Transport state, prominent |
 | `MIC` | System default input device |
 | `OUT` | System default output device |
 

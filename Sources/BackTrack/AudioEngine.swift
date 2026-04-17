@@ -37,6 +37,7 @@ final class AudioEngineController: ObservableObject {
     private var padVoiceIndex = 0
     private var padBuffer: AVAudioPCMBuffer?
     private var padSamplePitchClass: Int?
+    private var padFadeGen: [Int] = []  // per-voice generation for fade-out arbitration
 
     weak var state: AppState?
 
@@ -65,6 +66,7 @@ final class AudioEngineController: ObservableObject {
             engine.connect(pitch, to: padMixer, format: nil)
             padVoices.append(PadVoice(player: player, pitch: pitch))
         }
+        padFadeGen = Array(repeating: 0, count: padVoices.count)
 
         do {
             try engine.start()
@@ -235,14 +237,19 @@ final class AudioEngineController: ObservableObject {
     // MARK: - Playback
 
     func trigger(_ event: NoteEvent) {
+        let now = Date()
         switch event.voice {
         case .kick:
+            state?.kickLastTrigger = now
             play(buffer: kickBuffer, on: kickPlayer, volume: event.velocity)
         case .snare:
+            state?.snareLastTrigger = now
             play(buffer: snareBuffer, on: snarePlayer, volume: event.velocity)
         case .hihat:
+            state?.hhLastTrigger = now
             play(buffer: hhBuffer, on: hhPlayer, volume: event.velocity)
         case .pad(let offset):
+            state?.padLastTrigger = now
             playPad(semitonesFromRoot: offset, volume: event.velocity)
         }
     }
@@ -268,17 +275,51 @@ final class AudioEngineController: ObservableObject {
         let totalSemitones = Double(rootShift + offset)
         let rate = pow(2.0, totalSemitones / 12.0)
 
-        let voice = padVoices[padVoiceIndex]
+        let idx = padVoiceIndex
         padVoiceIndex = (padVoiceIndex + 1) % padVoices.count
+        padFadeGen[idx] += 1  // invalidate any in-flight fade on this voice
+        let voice = padVoices[idx]
         voice.pitch.rate = Float(rate)
         voice.player.volume = volume
         voice.player.scheduleBuffer(buffer, at: nil, options: .interrupts, completionHandler: nil)
         if !voice.player.isPlaying { voice.player.play() }
     }
 
+    // Fade pad voices to zero over ~16 ms via short DispatchQueue-stepped ramps
+    // on AVAudioPlayerNode.volume, then stop the players. Sample-accurate
+    // ramping isn't available on AVAudioMixerNode, but stepping at 2 ms is far
+    // below the audible threshold for quantization and eliminates the click
+    // that a hard stop() produces mid-sustain. Per-voice generation counters
+    // ensure a new trigger that reuses a voice mid-fade doesn't get stomped.
     func stopAllPads() {
-        for voice in padVoices {
-            voice.player.stop()
+        let steps = 8
+        let stepInterval: TimeInterval = 0.002  // 16 ms total
+        let voices = padVoices
+        let startVolumes = voices.map { $0.player.volume }
+        for i in 0..<voices.count {
+            padFadeGen[i] += 1
+        }
+        let gens = padFadeGen
+
+        for step in 1...steps {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(step) * stepInterval) { [weak self] in
+                guard let self = self else { return }
+                let factor = Float(steps - step) / Float(steps)
+                for (i, voice) in voices.enumerated() {
+                    if self.padFadeGen[i] == gens[i] {
+                        voice.player.volume = startVolumes[i] * factor
+                    }
+                }
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Double(steps + 1) * stepInterval) { [weak self] in
+            guard let self = self else { return }
+            for (i, voice) in voices.enumerated() {
+                if self.padFadeGen[i] == gens[i] {
+                    voice.player.stop()
+                    voice.player.volume = startVolumes[i]
+                }
+            }
         }
     }
 }
