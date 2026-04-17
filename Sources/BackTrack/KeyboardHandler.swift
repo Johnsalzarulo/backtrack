@@ -57,6 +57,9 @@ final class KeyboardHandler {
             state.inputDevice = AudioDevices.defaultInputName()
             state.outputDevice = AudioDevices.defaultOutputName()
             return true
+        case "d":
+            audio.cycleKit()
+            return true
         case "1":
             state.pending.complexity = 1
             return true

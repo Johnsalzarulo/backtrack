@@ -45,6 +45,14 @@ struct ContentView: View {
                 pending: state.pending.complexity.map(String.init)
             )
             HStack(spacing: 8) {
+                labelText("KIT")
+                Text(state.currentKitName)
+                if state.kitNames.count > 1 {
+                    Text("(\(state.currentKitIndex + 1)/\(state.kitNames.count))")
+                        .foregroundColor(dim)
+                }
+            }
+            HStack(spacing: 8) {
                 labelText("DETECTED")
                 Text(state.detectedNote ?? "—")
                     .foregroundColor(state.detectedNote == nil ? dim : fg)
@@ -179,7 +187,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 3) {
             row("SPACE", "start / stop",    "1 2 3", "complexity")
             row("T",     "tap tempo",       "R",     "reload samples")
-            row("↑ ↓",   "tempo ± 1",       "",      "")
+            row("↑ ↓",   "tempo ± 1",       "D",     "cycle drum kit")
             row("K S H", "drum volume",     "P",     "pad mode")
         }
         .foregroundColor(dim)

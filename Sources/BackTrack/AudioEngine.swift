@@ -206,22 +206,88 @@ final class AudioEngineController: ObservableObject {
     private static let supportedExtensions = ["wav", "aif", "aiff", "mp3"]
     private static let extensionGlob = "{wav,aif,aiff,mp3}"
 
-    func loadSamples() {
-        var missing: [String] = []
+    private struct Kit {
+        let name: String
+        let directory: URL
+    }
+    private var kits: [Kit] = []
+    private var currentKitIndex: Int = 0
 
+    func loadSamples() {
         let base = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("BackTrack")
             .appendingPathComponent("Samples")
         let drums = base.appendingPathComponent("drums")
 
-        kickBuffer = loadDrum(name: "kick", in: drums, missing: &missing)
-        snareBuffer = loadDrum(name: "snare", in: drums, missing: &missing)
-        hhBuffer = loadDrum(name: "hh", in: drums, missing: &missing)
+        kits = scanKits(in: drums)
+        if currentKitIndex >= kits.count { currentKitIndex = 0 }
+
+        var missing: [String] = []
+        if kits.isEmpty {
+            missing.append("drums/<kit>/kick.\(Self.extensionGlob) (no kits found)")
+            kickBuffer = nil
+            snareBuffer = nil
+            hhBuffer = nil
+        } else {
+            loadKitBuffers(kits[currentKitIndex], missing: &missing)
+        }
 
         rewireDrumsForBufferFormats()
 
+        let kitNames = kits.map { $0.name }
+        let idx = currentKitIndex
         DispatchQueue.main.async { [weak self] in
             self?.state?.missingSamples = missing
+            self?.state?.kitNames = kitNames
+            self?.state?.currentKitIndex = idx
+        }
+    }
+
+    // A kit is a subdirectory under drums/ that contains kick/snare/hh
+    // samples. If no subdirectories exist but the root has a flat kit
+    // (old layout), treat the root as a single "default" kit.
+    private func scanKits(in dir: URL) -> [Kit] {
+        var found: [Kit] = []
+        if let entries = try? FileManager.default.contentsOfDirectory(
+            at: dir,
+            includingPropertiesForKeys: [.isDirectoryKey]
+        ) {
+            for entry in entries.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+                var isDir: ObjCBool = false
+                let exists = FileManager.default.fileExists(atPath: entry.path, isDirectory: &isDir)
+                if exists && isDir.boolValue {
+                    found.append(Kit(name: entry.lastPathComponent, directory: entry))
+                }
+            }
+        }
+        if found.isEmpty, findDrumFile(base: "kick", in: dir) != nil {
+            found.append(Kit(name: "default", directory: dir))
+        }
+        return found
+    }
+
+    private func loadKitBuffers(_ kit: Kit, missing: inout [String]) {
+        kickBuffer = loadDrum(name: "kick", in: kit, missing: &missing)
+        snareBuffer = loadDrum(name: "snare", in: kit, missing: &missing)
+        hhBuffer = loadDrum(name: "hh", in: kit, missing: &missing)
+    }
+
+    func cycleKit() {
+        guard !kits.isEmpty else { return }
+        selectKit(index: (currentKitIndex + 1) % kits.count)
+    }
+
+    func selectKit(index: Int) {
+        guard !kits.isEmpty else { return }
+        let clamped = ((index % kits.count) + kits.count) % kits.count
+        currentKitIndex = clamped
+        var missing: [String] = []
+        loadKitBuffers(kits[clamped], missing: &missing)
+        rewireDrumsForBufferFormats()
+        let idx = currentKitIndex
+        DispatchQueue.main.async { [weak self] in
+            self?.state?.missingSamples = missing
+            self?.state?.currentKitIndex = idx
         }
     }
 
@@ -247,11 +313,15 @@ final class AudioEngineController: ObservableObject {
         outputEngine.connect(player, to: mixer, format: format)
     }
 
-    private func loadDrum(name: String, in dir: URL, missing: inout [String]) -> AVAudioPCMBuffer? {
-        if let url = findDrumFile(base: name, in: dir) {
-            return loadBuffer(at: url, label: "drums/\(url.lastPathComponent)", missing: &missing)
+    private func loadDrum(name: String, in kit: Kit, missing: inout [String]) -> AVAudioPCMBuffer? {
+        if let url = findDrumFile(base: name, in: kit.directory) {
+            return loadBuffer(
+                at: url,
+                label: "\(kit.name)/\(url.lastPathComponent)",
+                missing: &missing
+            )
         }
-        missing.append("drums/\(name).\(Self.extensionGlob)")
+        missing.append("\(kit.name)/\(name).\(Self.extensionGlob)")
         return nil
     }
 

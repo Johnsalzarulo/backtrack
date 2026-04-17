@@ -16,19 +16,35 @@ Keyboard-driven. Native macOS.
 
 ## Samples
 
-BackTrack loads drum samples from a fixed directory:
+Each drum kit is a subdirectory under `~/BackTrack/Samples/drums/`
+containing `kick`, `snare`, and `hh` samples:
 
 ```
 ~/BackTrack/Samples/
 └── drums/
-    ├── kick.{wav|aif|aiff|mp3}
-    ├── snare.{wav|aif|aiff|mp3}
-    └── hh.{wav|aif|aiff|mp3}
+    ├── acoustic/
+    │   ├── kick.{wav|aif|aiff|mp3}
+    │   ├── snare.{wav|aif|aiff|mp3}
+    │   └── hh.{wav|aif|aiff|mp3}
+    ├── 808/
+    │   ├── kick.wav
+    │   ├── snare.wav
+    │   └── hh.wav
+    └── vintage/
+        └── ...
 ```
 
-Missing samples appear in the HUD under `MISSING SAMPLES`. Press `R` to
-reload from disk without restarting. There are no pad samples — the pad
-is generated live from your mic input.
+Subdirectory names are the kit names. They're loaded alphabetically at
+startup. Press `D` to cycle through kits in real time; the HUD shows
+the current kit name and its position in the list.
+
+If you have flat samples directly at `~/BackTrack/Samples/drums/` from
+an older setup, they're still picked up as a single kit called
+`default`.
+
+Missing samples appear in the HUD under `MISSING SAMPLES`. Press `R`
+to reload (rescans for new kits too). There are no pad samples — the
+pad is generated live from your mic input.
 
 ## Run
 
@@ -53,6 +69,7 @@ Immediate:
 | `T`     | tap tempo (4-tap rolling avg)            |
 | `↑` `↓` | tempo ± 1 BPM                            |
 | `R`     | reload samples + refresh device readout  |
+| `D`     | cycle drum kit                           |
 | `K`     | kick volume (cycles 100 → 75 → 50 → 0 → 100) |
 | `S`     | snare volume                             |
 | `H`     | hi-hat volume                            |
@@ -74,6 +91,7 @@ Three groups, top to bottom.
 |---------|---------|
 | `BPM` | Current tempo |
 | `COMPLEXITY` | Current complexity (1–3) |
+| `KIT` | Active drum kit name, with `(i/n)` counter when multiple kits exist |
 | `DETECTED` | Pitch detected from the microphone (or `—`) — display only, doesn't drive anything |
 
 **Mix block — one row per instrument**

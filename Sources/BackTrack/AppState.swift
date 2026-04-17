@@ -70,6 +70,17 @@ final class AppState: ObservableObject {
     @Published var micLastSignal: Date = .distantPast
     @Published var outLastSignal: Date = .distantPast
 
+    // Discovered drum kits. Each kit is a subdirectory under drums/.
+    @Published var kitNames: [String] = []
+    @Published var currentKitIndex: Int = 0
+
+    var currentKitName: String {
+        guard !kitNames.isEmpty,
+              currentKitIndex >= 0,
+              currentKitIndex < kitNames.count else { return "—" }
+        return kitNames[currentKitIndex]
+    }
+
     static let levelGains: [Float] = [0.0, 0.5, 0.75, 1.0]
     static let maxLevel = levelGains.count - 1
 
