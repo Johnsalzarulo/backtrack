@@ -143,17 +143,25 @@ on keypress while `CHD` shows the pending arrow until the next bar.
 
 ## Follow mode
 
-When `L` is toggled on, each detected pitch is mapped to the nearest
-diatonic scale degree in the current `KEY`, and the corresponding chord
-is applied **immediately** — no pending queue, no bar or beat
-quantization. The pad tracks the voice as fast as detection fires
-(~every 46 ms). `KEY` itself does not move — to re-key mid-song, press
-`A`–`G` / `M` as usual. Drums stay locked to the grid regardless.
+When `L` is toggled on, the pad tracks the voice as fast as detection
+fires (~every 23 ms) — no pending queue, no bar or beat quantization.
+`KEY` itself does not move; to re-key mid-song, press `A`–`G` / `M`
+as usual. Drums stay locked to the grid regardless.
+
+Instead of snapping to every individual pitch, follow mode keeps a
+rolling ~600 ms histogram of detected pitch classes with a low-note
+bias, and commits the chord for whichever root is dominant over that
+window. This means a picking pattern (root + arpeggiated upper notes)
+locks onto the root rather than chasing every note. Sustained held
+notes win over fleeting passing tones.
+
+Pad notes fade in over ~18 ms so mid-sample attacks don't click, and
+the pad voice pool rotates so sustained chords from the previous
+selection are replaced cleanly.
 
 At complexity 1 (sustained pad) the chord is explicitly re-triggered
-the moment detection changes it, so you actually hear the new chord.
-At complexity 2 and 3 the 8th-note gate fires the new chord on its
-next tick, which at typical tempos is under 200 ms away.
+the moment detection changes it. At complexity 2 and 3 the 8th-note
+gate fires the new chord on its next tick.
 
 ## Generators
 

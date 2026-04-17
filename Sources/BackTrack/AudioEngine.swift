@@ -285,11 +285,24 @@ final class AudioEngineController: ObservableObject {
         let idx = padVoiceIndex
         padVoiceIndex = (padVoiceIndex + 1) % padVoices.count
         padFadeGen[idx] += 1  // invalidate any in-flight fade on this voice
+        let gen = padFadeGen[idx]
         let voice = padVoices[idx]
         voice.pitch.rate = Float(rate)
-        voice.player.volume = volume
+        // Start silent, then ramp up over ~18 ms so the attack isn't jarring
+        // (pad samples start mid-waveform). Generation check aborts the ramp
+        // if the voice is re-triggered before the fade-in finishes.
+        voice.player.volume = 0
         voice.player.scheduleBuffer(buffer, at: nil, options: .interrupts, completionHandler: nil)
         if !voice.player.isPlaying { voice.player.play() }
+        let steps = 6
+        let stepInterval: TimeInterval = 0.003  // 18 ms total
+        let target = volume
+        for step in 1...steps {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(step) * stepInterval) { [weak self] in
+                guard let self = self, self.padFadeGen[idx] == gen else { return }
+                voice.player.volume = target * Float(step) / Float(steps)
+            }
+        }
     }
 
     // Fade pad voices to zero over ~16 ms via short DispatchQueue-stepped ramps

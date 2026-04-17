@@ -22,6 +22,17 @@ final class PitchDetector {
         self.audio = audio
     }
 
+    // Rolling pitch-class history for follow-mode root smoothing.
+    // Lets the pad lock onto the dominant (and lowest-biased) note across
+    // a short window instead of chasing every passing pitch in an arpeggio.
+    private struct PitchObservation {
+        let pitchClass: Int
+        let midi: Int
+        let timestamp: Date
+    }
+    private var pitchHistory: [PitchObservation] = []
+    private let historyWindow: TimeInterval = 0.6
+
     func start() {
         guard !installed else { return }
         let input = engine.inputNode
@@ -30,7 +41,9 @@ final class PitchDetector {
             NSLog("BackTrack: no audio input available — pitch detection disabled")
             return
         }
-        input.installTap(onBus: 0, bufferSize: 2048, format: format) { [weak self] buffer, _ in
+        // 1024-sample buffer ≈ 23 ms at 44.1 kHz — half the latency of 2048
+        // and still safe for voice / guitar fundamentals above ~100 Hz.
+        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
             self?.process(buffer)
         }
         engine.prepare()
@@ -81,26 +94,55 @@ final class PitchDetector {
     }
 
     private func publish(note: String?, freq: Float?) {
-        if note == lastPublishedNote && note != nil { return }
+        let noteChanged = note != lastPublishedNote
         lastPublishedNote = note
         DispatchQueue.main.async { [weak self] in
             guard let self = self, let state = self.state else { return }
-            state.detectedNote = note
-            state.detectedFrequency = freq
+            if noteChanged {
+                state.detectedNote = note
+                state.detectedFrequency = freq
+            }
+            // Run the follow-mode update on every detection (not only when
+            // the note name changes) so the rolling pitch history captures
+            // sustained notes and can dominate a picking pattern.
             if state.followDetection, let freq = freq {
                 self.applyFollowImmediately(state: state, frequency: freq)
             }
         }
     }
 
-    // Map detected pitch → nearest diatonic chord in the user's key scope
-    // and apply it immediately (not queued). Follow mode ungrids chord
-    // changes from the bar/beat structure so the pad tracks the voice as
-    // fast as detection fires (~every 46 ms).
+    // Apply the dominant-root diatonic chord immediately (no grid, no pending).
+    // Dominance is computed over a short rolling window of recent detections,
+    // with low notes weighted more heavily — so a picking pattern locks on
+    // the bass root instead of chasing the arpeggio.
     private func applyFollowImmediately(state: AppState, frequency: Float) {
-        let midi = 69.0 + 12.0 * log2(frequency / 440.0)
-        let detectedPc = ((Int(midi.rounded()) % 12) + 12) % 12
+        let midiF = 69.0 + 12.0 * log2(frequency / 440.0)
+        let midi = Int(midiF.rounded())
+        let detectedPc = ((midi % 12) + 12) % 12
 
+        // Append observation, drop expired ones.
+        let now = Date()
+        pitchHistory.append(PitchObservation(pitchClass: detectedPc, midi: midi, timestamp: now))
+        let cutoff = now.addingTimeInterval(-historyWindow)
+        while let first = pitchHistory.first, first.timestamp < cutoff {
+            pitchHistory.removeFirst()
+        }
+
+        // Weighted pitch-class histogram. Bias: lower MIDI = more weight.
+        // max(0.35, 2 - midi/40) gives ~1.0 at MIDI 40, ~0.5 at MIDI 60, floor 0.35.
+        var weights = [Float](repeating: 0, count: 12)
+        for obs in pitchHistory {
+            let bias = max(Float(0.35), Float(2.0) - Float(obs.midi) / Float(40))
+            weights[obs.pitchClass] += bias
+        }
+        var dominantPc = detectedPc
+        var maxWeight: Float = -1
+        for (pc, w) in weights.enumerated() where w > maxWeight {
+            maxWeight = w
+            dominantPc = pc
+        }
+
+        // Diatonic snap using the dominant (not the just-detected) pitch class.
         // Major: maj, min, min, maj, maj, min, min (vii° → min)
         // Minor: min, min, maj, min, min, maj, maj (ii° → min)
         let scale: [Int]
@@ -112,8 +154,7 @@ final class PitchDetector {
             scale = [0, 2, 3, 5, 7, 8, 10]
             qualities = [false, false, true, false, false, true, true]
         }
-
-        let offset = ((detectedPc - state.keyRoot) % 12 + 12) % 12
+        let offset = ((dominantPc - state.keyRoot) % 12 + 12) % 12
         var bestDegree = 0
         var bestDist = Int.max
         for (i, s) in scale.enumerated() {
@@ -124,17 +165,11 @@ final class PitchDetector {
                 bestDegree = i
             }
         }
-
         let chordRoot = (state.keyRoot + scale[bestDegree]) % 12
         let chordIsMajor = qualities[bestDegree]
 
-        if chordRoot == state.rootNote && chordIsMajor == state.isMajor {
-            return
-        }
+        if chordRoot == state.rootNote && chordIsMajor == state.isMajor { return }
 
-        // Apply directly to committed state (not pending). Clear any
-        // stale pending for these fields so a manual press queued right
-        // before doesn't overwrite detection on the next bar.
         audio?.stopAllPads()
         state.rootNote = chordRoot
         state.isMajor = chordIsMajor
