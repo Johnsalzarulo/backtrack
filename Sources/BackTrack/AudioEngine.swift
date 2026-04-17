@@ -12,16 +12,12 @@ struct NoteEvent {
 }
 
 final class AudioEngineController: ObservableObject {
-    // Output engine — everything that hits the speakers lives here:
-    // drum players, and the live-input effect chain which is fed by
-    // buffers captured on the input engine's tap. Decoupling input
-    // and output into separate engines avoids AVAudioEngine's
-    // input/output-device matching requirement and works cleanly
-    // with arbitrary mic/interface/monitor routing.
+    // Output engine: drums + the live-input effect chain which is fed
+    // by buffers captured on the input engine's tap.
     private let outputEngine = AVAudioEngine()
     private let outputMaster = AVAudioMixerNode()
 
-    // Drum graph (outputEngine)
+    // Drum graph
     private let kickMixer = AVAudioMixerNode()
     private let snareMixer = AVAudioMixerNode()
     private let hhMixer = AVAudioMixerNode()
@@ -32,17 +28,28 @@ final class AudioEngineController: ObservableObject {
     private var snareBuffer: AVAudioPCMBuffer?
     private var hhBuffer: AVAudioPCMBuffer?
 
-    // Live-input effect path (outputEngine): liveInputPlayer → EQ → reverb → padMixer → master
+    // Live-input effect path. Fixed topology; PadMode just varies gains +
+    // EQ settings + reverb preset.
+    //   liveInputPlayer → [ dry (EQ) | +12 (pitchUp) | -12 (pitchDown) ]
+    //                   → preReverbMixer → inputReverb → padMixer → master
     private let liveInputPlayer = AVAudioPlayerNode()
     private let inputEQ = AVAudioUnitEQ(numberOfBands: 1)
+    private let pitchUpNode = AVAudioUnitTimePitch()
+    private let pitchDownNode = AVAudioUnitTimePitch()
+    private let dryGain = AVAudioMixerNode()
+    private let pitchUpGain = AVAudioMixerNode()
+    private let pitchDownGain = AVAudioMixerNode()
+    private let preReverbMixer = AVAudioMixerNode()
     private let inputReverb = AVAudioUnitReverb()
     private let padMixer = AVAudioMixerNode()
 
-    // Input engine — captures mic input only, no output routing.
-    // Buffers from its tap are forwarded to liveInputPlayer above.
+    // Input engine: mic capture only, no output routing.
     private let inputEngine = AVAudioEngine()
     private let inputMixer = AVAudioMixerNode()
     private var tapFormat: AVAudioFormat?
+
+    // Signal-present threshold for the MIC/OUT activity dots.
+    private let signalThreshold: Float = 0.01
 
     weak var state: AppState?
     weak var pitchDetector: PitchDetector?
@@ -51,6 +58,7 @@ final class AudioEngineController: ObservableObject {
         setupOutputEngine()
         setupInputEngine()
         wireLiveInputPath()
+        installOutputSignalTap()
         startEngines()
     }
 
@@ -72,20 +80,23 @@ final class AudioEngineController: ObservableObject {
         outputEngine.attach(hhPlayer)
         outputEngine.connect(hhPlayer, to: hhMixer, format: nil)
 
-        let band = inputEQ.bands[0]
-        band.filterType = .highPass
-        band.frequency = 100
-        band.bypass = false
-
-        inputReverb.loadFactoryPreset(.largeHall2)
-        inputReverb.wetDryMix = 85
+        // Pitch shifters run at fixed intervals; gain mixers decide whether
+        // their contribution reaches the pre-reverb sum.
+        pitchUpNode.pitch = 1200       // +12 semitones
+        pitchDownNode.pitch = -1200    // −12 semitones
 
         outputEngine.attach(liveInputPlayer)
         outputEngine.attach(inputEQ)
+        outputEngine.attach(pitchUpNode)
+        outputEngine.attach(pitchDownNode)
+        outputEngine.attach(dryGain)
+        outputEngine.attach(pitchUpGain)
+        outputEngine.attach(pitchDownGain)
+        outputEngine.attach(preReverbMixer)
         outputEngine.attach(inputReverb)
     }
 
-    // MARK: - Input engine setup (capture + tap)
+    // MARK: - Input engine (capture + tap)
 
     private func setupInputEngine() {
         inputEngine.attach(inputMixer)
@@ -102,39 +113,75 @@ final class AudioEngineController: ObservableObject {
         inputMixer.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
             guard let self = self else { return }
             self.pitchDetector?.process(buffer)
-            // Forward captured audio into the output engine's live player.
             self.liveInputPlayer.scheduleBuffer(buffer, at: nil, options: [], completionHandler: nil)
+            self.markSignalIfAudible(buffer, keyPath: \.micLastSignal)
         }
     }
 
     // MARK: - Live-input path wiring
 
-    // Wire liveInputPlayer through EQ + reverb + padMixer using the tap's
-    // format. Done after the tap format is known so every connection in
-    // the chain uses a matching PCM format and AVAudioEngine doesn't
-    // silently drop audio through an implicit conversion.
     private func wireLiveInputPath() {
         guard let format = tapFormat else { return }
-        outputEngine.connect(liveInputPlayer, to: inputEQ, format: format)
-        outputEngine.connect(inputEQ, to: inputReverb, format: format)
+
+        // Fan liveInputPlayer out to three parallel paths.
+        let points: [AVAudioConnectionPoint] = [
+            AVAudioConnectionPoint(node: inputEQ, bus: 0),
+            AVAudioConnectionPoint(node: pitchUpNode, bus: 0),
+            AVAudioConnectionPoint(node: pitchDownNode, bus: 0)
+        ]
+        outputEngine.connect(liveInputPlayer, to: points, fromBus: 0, format: format)
+
+        // Each path → its gain stage → preReverbMixer (one input bus each).
+        outputEngine.connect(inputEQ, to: dryGain, format: format)
+        outputEngine.connect(dryGain, to: preReverbMixer, format: format)
+
+        outputEngine.connect(pitchUpNode, to: pitchUpGain, format: format)
+        outputEngine.connect(pitchUpGain, to: preReverbMixer, format: format)
+
+        outputEngine.connect(pitchDownNode, to: pitchDownGain, format: format)
+        outputEngine.connect(pitchDownGain, to: preReverbMixer, format: format)
+
+        outputEngine.connect(preReverbMixer, to: inputReverb, format: format)
         outputEngine.connect(inputReverb, to: padMixer, format: format)
+    }
+
+    // MARK: - Output signal tap (for OUT activity dot)
+
+    private func installOutputSignalTap() {
+        outputMaster.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
+            self?.markSignalIfAudible(buffer, keyPath: \.outLastSignal)
+        }
+    }
+
+    private func markSignalIfAudible(
+        _ buffer: AVAudioPCMBuffer,
+        keyPath: ReferenceWritableKeyPath<AppState, Date>
+    ) {
+        guard let data = buffer.floatChannelData else { return }
+        let frames = Int(buffer.frameLength)
+        guard frames > 0 else { return }
+        let channel = data[0]
+        var sum: Float = 0
+        for i in 0..<frames {
+            let s = channel[i]
+            sum += s * s
+        }
+        let rms = (sum / Float(frames)).squareRoot()
+        if rms > signalThreshold {
+            DispatchQueue.main.async { [weak self] in
+                self?.state?[keyPath: keyPath] = Date()
+            }
+        }
     }
 
     private func startEngines() {
         outputEngine.prepare()
-        do {
-            try outputEngine.start()
-        } catch {
+        do { try outputEngine.start() } catch {
             NSLog("BackTrack: output engine failed to start: \(error)")
         }
-        // liveInputPlayer must be playing for its scheduled buffers to produce audio.
-        if tapFormat != nil {
-            liveInputPlayer.play()
-        }
+        if tapFormat != nil { liveInputPlayer.play() }
         inputEngine.prepare()
-        do {
-            try inputEngine.start()
-        } catch {
+        do { try inputEngine.start() } catch {
             NSLog("BackTrack: input engine failed to start: \(error)")
         }
     }
@@ -225,19 +272,73 @@ final class AudioEngineController: ObservableObject {
         }
     }
 
-    // MARK: - Volume
+    // MARK: - Volume + pad mode
 
-    func applyVolumes(from state: AppState) {
+    func applyMixVolumes(from state: AppState) {
         kickMixer.outputVolume = AppState.levelGain(state.kickLevel)
         snareMixer.outputVolume = AppState.levelGain(state.snareLevel)
         hhMixer.outputVolume = AppState.levelGain(state.hhLevel)
-        padMixer.outputVolume = AppState.levelGain(state.padLevel)
     }
 
     func setKickVolume(level: Int) { kickMixer.outputVolume = AppState.levelGain(level) }
     func setSnareVolume(level: Int) { snareMixer.outputVolume = AppState.levelGain(level) }
     func setHhVolume(level: Int) { hhMixer.outputVolume = AppState.levelGain(level) }
-    func setPadVolume(level: Int) { padMixer.outputVolume = AppState.levelGain(level) }
+
+    // Each PadMode is a preset: gains on the three parallel paths, the EQ's
+    // single band, and the reverb preset + wet mix. OFF simply mutes padMixer.
+    func apply(mode: PadMode) {
+        let band = inputEQ.bands[0]
+        band.bypass = false
+        band.bandwidth = 1.0
+        band.gain = 0
+
+        switch mode {
+        case .off:
+            padMixer.outputVolume = 0.0
+
+        case .simple:
+            padMixer.outputVolume = 1.0
+            band.filterType = .highPass
+            band.frequency = 100
+            dryGain.outputVolume = 1.0
+            pitchUpGain.outputVolume = 0
+            pitchDownGain.outputVolume = 0
+            inputReverb.loadFactoryPreset(.largeHall2)
+            inputReverb.wetDryMix = 85
+
+        case .shimmer:
+            padMixer.outputVolume = 1.0
+            band.filterType = .highPass
+            band.frequency = 150
+            dryGain.outputVolume = 1.0
+            pitchUpGain.outputVolume = 0.7
+            pitchDownGain.outputVolume = 0
+            inputReverb.loadFactoryPreset(.cathedral)
+            inputReverb.wetDryMix = 95
+
+        case .synth:
+            padMixer.outputVolume = 1.0
+            band.filterType = .lowPass
+            band.frequency = 2000
+            dryGain.outputVolume = 0.6
+            pitchUpGain.outputVolume = 0
+            pitchDownGain.outputVolume = 0.7
+            inputReverb.loadFactoryPreset(.cathedral)
+            inputReverb.wetDryMix = 92
+
+        case .strings:
+            padMixer.outputVolume = 1.0
+            band.filterType = .parametric
+            band.frequency = 800
+            band.bandwidth = 1.0
+            band.gain = 4
+            dryGain.outputVolume = 1.0
+            pitchUpGain.outputVolume = 0.35
+            pitchDownGain.outputVolume = 0
+            inputReverb.loadFactoryPreset(.largeHall)
+            inputReverb.wetDryMix = 80
+        }
+    }
 
     // MARK: - Playback
 

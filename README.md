@@ -56,7 +56,7 @@ Immediate:
 | `K`     | kick volume (cycles 100 → 75 → 50 → 0 → 100) |
 | `S`     | snare volume                             |
 | `H`     | hi-hat volume                            |
-| `P`     | pad volume (live-effect wet level)       |
+| `P`     | cycle pad mode (OFF → SIMPLE → SHIMMER → SYNTH → STRINGS → OFF) |
 
 Queued (commit on beat 1 of the next bar):
 
@@ -81,7 +81,7 @@ Three groups, top to bottom.
 | Row | Behavior |
 |-----|----------|
 | `KICK` / `SNARE` / `HH` | Activity light on the left pulses on each trigger and decays over ~180 ms; then the name; then a level meter (0 / 50 / 75 / 100%) |
-| `PAD` | Live effect chain. Dim static dot on the left (no discrete triggers); level meter sets wet output |
+| `PAD` | Live effect chain. Activity light tracks mic signal; row displays the current pad mode (OFF / SIMPLE / SHIMMER / SYNTH / STRINGS) instead of a meter |
 
 **Transport block**
 
@@ -94,23 +94,38 @@ Three groups, top to bottom.
 
 | Readout | Meaning |
 |---------|---------|
-| `MIC` | System default input device |
-| `OUT` | System default output device |
+| `MIC` | System default input device, with a small activity dot that lights when the mic has audible signal |
+| `OUT` | System default output device, with a small activity dot that lights whenever anything is leaving the output bus |
 
 ## Pad effect
 
-The pad is a live processing chain on the mic input:
+The pad is a live processing chain on the mic input. Buffers are
+captured on the input engine's tap and forwarded into a player node
+in the output engine, which runs them through three parallel paths
+(dry, +12 pitch shift, −12 pitch shift) into a pre-reverb mixer, then
+through a reverb and the pad mixer:
 
 ```
-mic → high-pass EQ (~100 Hz) → large-hall reverb (85% wet) → pad mixer → out
+input → tap → liveInputPlayer → [ dry (EQ) | +12 | −12 ]
+                               → preReverbMixer → reverb → padMixer → out
 ```
 
 Because it's a direct effect rather than a sample trigger, it tracks
 everything you play with essentially zero interpretive latency: strum a
 chord and you hear a reverbed swell of that exact chord; finger-pick a
-pattern and the arpeggio blurs into a soft wash. The `P` key controls
-the pad mixer's output volume, so it doubles as a wet-level knob — 0
-silences the effect entirely.
+pattern and the arpeggio blurs into a soft wash.
+
+The `P` key cycles through five modes. Each mode is a preset: the gains
+on the three parallel paths, the EQ's filter + frequency, and the
+reverb preset + wet mix. Topology stays constant.
+
+| Mode | Character |
+|------|-----------|
+| `OFF` | Pad mixer muted; no live effect output |
+| `SIMPLE` | High-pass at 100 Hz, large hall reverb 85% wet. Dry baseline. |
+| `SHIMMER` | Dry + +12 octave layer, cathedral reverb 95% wet, gentle high-pass. Classic octave-up shimmer. |
+| `SYNTH` | Low-pass at 2 kHz + −12 sub-octave layer + cathedral reverb. Dark, sustained, synth-swell feel. |
+| `STRINGS` | Mid-boost parametric EQ + subtle +12 blend + large hall 80% wet. Warm orchestral-ish. |
 
 ## Pitch detection
 

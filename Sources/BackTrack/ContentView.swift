@@ -72,23 +72,31 @@ struct ContentView: View {
             instrumentRow(name: "KICK",  level: state.kickLevel,  last: state.kickLastTrigger)
             instrumentRow(name: "SNARE", level: state.snareLevel, last: state.snareLastTrigger)
             instrumentRow(name: "HH",    level: state.hhLevel,    last: state.hhLastTrigger)
-            instrumentRow(name: "PAD",   level: state.padLevel,   last: nil)
+            padRow
         }
     }
 
-    // `last` is nil for the live-processed pad (no discrete triggers), in
-    // which case we show a static dim dot so the row alignment matches.
-    private func instrumentRow(name: String, level: Int, last: Date?) -> some View {
+    private func instrumentRow(name: String, level: Int, last: Date) -> some View {
         HStack(spacing: 12) {
-            if let last = last {
-                activityLight(last: last)
-            } else {
-                Circle().fill(dim).opacity(0.3).frame(width: 8, height: 8)
-            }
+            activityLight(last: last)
             Text(name)
                 .foregroundColor(dim)
                 .frame(width: 60, alignment: .leading)
             levelMeter(level: level)
+        }
+    }
+
+    // Pad row shows its current effect mode instead of a volume meter.
+    // Activity light uses the mic-signal timestamp since the pad IS the
+    // live-processed input.
+    private var padRow: some View {
+        HStack(spacing: 12) {
+            activityLight(last: state.micLastSignal)
+            Text("PAD")
+                .foregroundColor(dim)
+                .frame(width: 60, alignment: .leading)
+            Text(state.padMode.displayName)
+                .foregroundColor(state.padMode == .off ? dim : fg)
         }
     }
 
@@ -141,10 +149,12 @@ struct ContentView: View {
     private var devicesBlock: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 8) {
+                smallSignalDot(last: state.micLastSignal)
                 Text("MIC").frame(width: 44, alignment: .leading)
                 Text(state.inputDevice ?? "—")
             }
             HStack(spacing: 8) {
+                smallSignalDot(last: state.outLastSignal)
                 Text("OUT").frame(width: 44, alignment: .leading)
                 Text(state.outputDevice ?? "—")
             }
@@ -153,12 +163,24 @@ struct ContentView: View {
         .font(.system(.caption, design: .monospaced))
     }
 
+    // Smaller-than-instrument dot sized to match caption font.
+    private func smallSignalDot(last: Date) -> some View {
+        TimelineView(.animation) { context in
+            let elapsed = context.date.timeIntervalSince(last)
+            let brightness = max(0, 1 - elapsed / 0.35)
+            Circle()
+                .fill(fg)
+                .opacity(max(0.12, brightness))
+                .frame(width: 6, height: 6)
+        }
+    }
+
     private var keybindingBlock: some View {
         VStack(alignment: .leading, spacing: 3) {
             row("SPACE", "start / stop",    "1 2 3", "complexity")
             row("T",     "tap tempo",       "R",     "reload samples")
             row("↑ ↓",   "tempo ± 1",       "",      "")
-            row("K S H P", "instrument volume", "", "")
+            row("K S H", "drum volume",     "P",     "pad mode")
         }
         .foregroundColor(dim)
         .font(.system(.caption, design: .monospaced))

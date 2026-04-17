@@ -36,7 +36,8 @@ final class Coordinator: ObservableObject {
 
     func bootstrap() {
         audio.loadSamples()
-        audio.applyVolumes(from: state)
+        audio.applyMixVolumes(from: state)
+        audio.apply(mode: state.padMode)
         keyboard.install()
         refreshDevices()
     }

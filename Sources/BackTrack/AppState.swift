@@ -9,6 +9,30 @@ struct PendingChanges {
     }
 }
 
+enum PadMode: Int, CaseIterable {
+    case off
+    case simple
+    case shimmer
+    case synth
+    case strings
+
+    var displayName: String {
+        switch self {
+        case .off:     return "OFF"
+        case .simple:  return "SIMPLE"
+        case .shimmer: return "SHIMMER"
+        case .synth:   return "SYNTH"
+        case .strings: return "STRINGS"
+        }
+    }
+
+    var next: PadMode {
+        let all = PadMode.allCases
+        let i = all.firstIndex(of: self) ?? 0
+        return all[(i + 1) % all.count]
+    }
+}
+
 final class AppState: ObservableObject {
     static let noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
@@ -24,7 +48,10 @@ final class AppState: ObservableObject {
     @Published var kickLevel: Int = 3
     @Published var snareLevel: Int = 3
     @Published var hhLevel: Int = 3
-    @Published var padLevel: Int = 3
+
+    // Pad is no longer a volume-cycle instrument; P cycles through
+    // pre-baked effect-chain presets defined by PadMode.
+    @Published var padMode: PadMode = .simple
 
     // Last-trigger timestamps drive the per-instrument activity indicators
     // in the HUD. Pad is continuous (live-processed) so has no trigger.
@@ -37,6 +64,11 @@ final class AppState: ObservableObject {
 
     @Published var inputDevice: String? = nil
     @Published var outputDevice: String? = nil
+
+    // Signal-present indicators for MIC and OUT rows: updated whenever
+    // the respective tap sees RMS above a small threshold.
+    @Published var micLastSignal: Date = .distantPast
+    @Published var outLastSignal: Date = .distantPast
 
     static let levelGains: [Float] = [0.0, 0.5, 0.75, 1.0]
     static let maxLevel = levelGains.count - 1

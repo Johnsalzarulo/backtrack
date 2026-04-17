@@ -79,8 +79,8 @@ final class KeyboardHandler {
             audio.setHhVolume(level: state.hhLevel)
             return true
         case "p":
-            state.padLevel = AppState.cycleDown(state.padLevel)
-            audio.setPadVolume(level: state.padLevel)
+            state.padMode = state.padMode.next
+            audio.apply(mode: state.padMode)
             return true
         default:
             return false
