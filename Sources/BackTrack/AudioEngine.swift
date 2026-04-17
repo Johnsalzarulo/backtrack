@@ -12,25 +12,27 @@ struct NoteEvent {
 }
 
 final class AudioEngineController: ObservableObject {
-    private let engine = AVAudioEngine()
-    private let masterMixer = AVAudioMixerNode()
-
+    // Drum engine — output only. Isolated from the input engine so
+    // the mic and the output device can be on different hardware
+    // without AVAudioEngine choking on the mismatch.
+    private let drumEngine = AVAudioEngine()
+    private let drumMaster = AVAudioMixerNode()
     private let kickMixer = AVAudioMixerNode()
     private let snareMixer = AVAudioMixerNode()
     private let hhMixer = AVAudioMixerNode()
-    private let padMixer = AVAudioMixerNode()
-
     private let kickPlayer = AVAudioPlayerNode()
     private let snarePlayer = AVAudioPlayerNode()
     private let hhPlayer = AVAudioPlayerNode()
-
     private var kickBuffer: AVAudioPCMBuffer?
     private var snareBuffer: AVAudioPCMBuffer?
     private var hhBuffer: AVAudioPCMBuffer?
 
-    // Live input processing chain: mic → EQ (high-pass) → reverb → padMixer.
-    // The padMixer's outputVolume is still the P key in the HUD — turning it
-    // down silences the wet effect entirely.
+    // Input processing engine — mic → EQ → reverb → padMixer → output.
+    // Outputs to the system default output just like the drum engine;
+    // macOS's HAL mixes both streams on the device.
+    private let inputEngine = AVAudioEngine()
+    private let padMixer = AVAudioMixerNode()
+    private let inputMixer = AVAudioMixerNode()  // tap point, avoids tapping inputNode directly
     private let inputEQ = AVAudioUnitEQ(numberOfBands: 1)
     private let inputReverb = AVAudioUnitReverb()
     private var inputWired = false
@@ -39,60 +41,80 @@ final class AudioEngineController: ObservableObject {
     weak var pitchDetector: PitchDetector?
 
     init() {
-        engine.attach(masterMixer)
-        engine.connect(masterMixer, to: engine.mainMixerNode, format: nil)
+        setupDrumEngine()
+        setupInputEngine()
+        startEngines()
+    }
 
-        for sub in [kickMixer, snareMixer, hhMixer, padMixer] {
-            engine.attach(sub)
-            engine.connect(sub, to: masterMixer, format: nil)
+    // MARK: - Drum engine
+
+    private func setupDrumEngine() {
+        drumEngine.attach(drumMaster)
+        drumEngine.connect(drumMaster, to: drumEngine.mainMixerNode, format: nil)
+
+        for sub in [kickMixer, snareMixer, hhMixer] {
+            drumEngine.attach(sub)
+            drumEngine.connect(sub, to: drumMaster, format: nil)
         }
 
-        engine.attach(kickPlayer)
-        engine.connect(kickPlayer, to: kickMixer, format: nil)
-        engine.attach(snarePlayer)
-        engine.connect(snarePlayer, to: snareMixer, format: nil)
-        engine.attach(hhPlayer)
-        engine.connect(hhPlayer, to: hhMixer, format: nil)
+        drumEngine.attach(kickPlayer)
+        drumEngine.connect(kickPlayer, to: kickMixer, format: nil)
+        drumEngine.attach(snarePlayer)
+        drumEngine.connect(snarePlayer, to: snareMixer, format: nil)
+        drumEngine.attach(hhPlayer)
+        drumEngine.connect(hhPlayer, to: hhMixer, format: nil)
+    }
 
-        // Input processing chain setup
+    // MARK: - Input processing engine
+
+    private func setupInputEngine() {
+        inputEngine.attach(padMixer)
+        inputEngine.connect(padMixer, to: inputEngine.mainMixerNode, format: nil)
+
         let band = inputEQ.bands[0]
         band.filterType = .highPass
         band.frequency = 100
         band.bypass = false
 
         inputReverb.loadFactoryPreset(.largeHall2)
-        inputReverb.wetDryMix = 85  // mostly wet — the dry through-sound is louder
+        inputReverb.wetDryMix = 85
 
-        engine.attach(inputEQ)
-        engine.attach(inputReverb)
+        inputEngine.attach(inputMixer)
+        inputEngine.attach(inputEQ)
+        inputEngine.attach(inputReverb)
 
-        wireInputChain()
-
-        do {
-            try engine.start()
-        } catch {
-            NSLog("BackTrack: audio engine failed to start: \(error)")
-        }
-    }
-
-    private func wireInputChain() {
-        let input = engine.inputNode
+        let input = inputEngine.inputNode
         let format = input.inputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else {
             NSLog("BackTrack: no audio input — live pad processing disabled")
             return
         }
-        engine.connect(input, to: inputEQ, format: format)
-        engine.connect(inputEQ, to: inputReverb, format: format)
-        engine.connect(inputReverb, to: padMixer, format: nil)
+        inputEngine.connect(input, to: inputMixer, format: format)
+        inputEngine.connect(inputMixer, to: inputEQ, format: format)
+        inputEngine.connect(inputEQ, to: inputReverb, format: format)
+        inputEngine.connect(inputReverb, to: padMixer, format: nil)
 
-        // Tap for pitch detection (display only).
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
+        // Tap the intermediate mixer, not the input node directly, so the
+        // tap and the processing chain don't contend for the same node.
+        inputMixer.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
             self?.pitchDetector?.process(buffer)
         }
 
         inputWired = true
     }
+
+    private func startEngines() {
+        drumEngine.prepare()
+        do { try drumEngine.start() } catch {
+            NSLog("BackTrack: drum engine failed to start: \(error)")
+        }
+        inputEngine.prepare()
+        do { try inputEngine.start() } catch {
+            NSLog("BackTrack: input engine failed to start: \(error)")
+        }
+    }
+
+    // MARK: - Sample loading
 
     private static let supportedExtensions = ["wav", "aif", "aiff", "mp3"]
     private static let extensionGlob = "{wav,aif,aiff,mp3}"
@@ -109,33 +131,30 @@ final class AudioEngineController: ObservableObject {
         snareBuffer = loadDrum(name: "snare", in: drums, missing: &missing)
         hhBuffer = loadDrum(name: "hh", in: drums, missing: &missing)
 
-        rewireForBufferFormats()
+        rewireDrumsForBufferFormats()
 
         DispatchQueue.main.async { [weak self] in
             self?.state?.missingSamples = missing
         }
     }
 
-    // Reconnect each drum chain using the loaded buffer's native format so
-    // AVAudioEngine doesn't silently resample a 44.1k buffer through a 48k
-    // graph (shifts pitch by ~1.5 semitones).
-    private func rewireForBufferFormats() {
-        let wasRunning = engine.isRunning
-        if wasRunning { engine.pause() }
+    private func rewireDrumsForBufferFormats() {
+        let wasRunning = drumEngine.isRunning
+        if wasRunning { drumEngine.pause() }
         if let buf = kickBuffer { reconnectDrum(kickPlayer, mixer: kickMixer, format: buf.format) }
         if let buf = snareBuffer { reconnectDrum(snarePlayer, mixer: snareMixer, format: buf.format) }
         if let buf = hhBuffer { reconnectDrum(hhPlayer, mixer: hhMixer, format: buf.format) }
         if wasRunning {
-            do { try engine.start() } catch {
-                NSLog("BackTrack: audio engine failed to restart after rewire: \(error)")
+            do { try drumEngine.start() } catch {
+                NSLog("BackTrack: drum engine failed to restart after rewire: \(error)")
             }
         }
     }
 
     private func reconnectDrum(_ player: AVAudioPlayerNode, mixer: AVAudioMixerNode, format: AVAudioFormat) {
         player.stop()
-        engine.disconnectNodeOutput(player)
-        engine.connect(player, to: mixer, format: format)
+        drumEngine.disconnectNodeOutput(player)
+        drumEngine.connect(player, to: mixer, format: format)
     }
 
     private func loadDrum(name: String, in dir: URL, missing: inout [String]) -> AVAudioPCMBuffer? {
