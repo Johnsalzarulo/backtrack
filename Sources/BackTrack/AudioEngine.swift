@@ -28,6 +28,12 @@ final class AudioEngineController: ObservableObject {
     private var snareBuffer: AVAudioPCMBuffer?
     private var hhBuffer: AVAudioPCMBuffer?
 
+    // Track the format each drum player is currently wired with, so we only
+    // disconnect/reconnect when a kit actually introduces a different format.
+    private var kickConnectedFormat: AVAudioFormat?
+    private var snareConnectedFormat: AVAudioFormat?
+    private var hhConnectedFormat: AVAudioFormat?
+
     // Live-input effect path. Fixed topology; PadMode varies gains,
     // EQ settings, distortion/delay wet mix, and reverb preset:
     //   liveInputPlayer → [ dry (EQ) | +12 (pitchUp) | -12 (pitchDown) ]
@@ -291,20 +297,33 @@ final class AudioEngineController: ObservableObject {
         }
     }
 
+    // Only reconnect a drum player when its currently-wired connection
+    // format differs from the new buffer's native format. When all kits
+    // share the same format (typical), cycling kits is a pure buffer-pointer
+    // swap — no graph reconfig, no audio glitch, no engine pause needed.
+    // When formats do differ, reconnect in place without pausing; AVAudioEngine
+    // supports dynamic reconnection while running.
     private func rewireDrumsForBufferFormats() {
-        let wasRunning = outputEngine.isRunning
-        if wasRunning { outputEngine.pause() }
-        if let buf = kickBuffer { reconnectDrum(kickPlayer, mixer: kickMixer, format: buf.format) }
-        if let buf = snareBuffer { reconnectDrum(snarePlayer, mixer: snareMixer, format: buf.format) }
-        if let buf = hhBuffer { reconnectDrum(hhPlayer, mixer: hhMixer, format: buf.format) }
-        if wasRunning {
-            do { try outputEngine.start() } catch {
-                NSLog("BackTrack: output engine failed to restart after rewire: \(error)")
-            }
-            if tapFormat != nil, !liveInputPlayer.isPlaying {
-                liveInputPlayer.play()
-            }
+        if let buf = kickBuffer,
+           !formatsMatch(kickConnectedFormat, buf.format) {
+            reconnectDrum(kickPlayer, mixer: kickMixer, format: buf.format)
+            kickConnectedFormat = buf.format
         }
+        if let buf = snareBuffer,
+           !formatsMatch(snareConnectedFormat, buf.format) {
+            reconnectDrum(snarePlayer, mixer: snareMixer, format: buf.format)
+            snareConnectedFormat = buf.format
+        }
+        if let buf = hhBuffer,
+           !formatsMatch(hhConnectedFormat, buf.format) {
+            reconnectDrum(hhPlayer, mixer: hhMixer, format: buf.format)
+            hhConnectedFormat = buf.format
+        }
+    }
+
+    private func formatsMatch(_ a: AVAudioFormat?, _ b: AVAudioFormat) -> Bool {
+        guard let a = a else { return false }
+        return a.isEqual(b)
     }
 
     private func reconnectDrum(_ player: AVAudioPlayerNode, mixer: AVAudioMixerNode, format: AVAudioFormat) {
