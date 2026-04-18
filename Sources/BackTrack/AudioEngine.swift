@@ -44,6 +44,18 @@ final class AudioEngineController: ObservableObject {
     // EQ settings, distortion/delay wet mix, and reverb preset:
     //   liveInputPlayer → [ dry (EQ) | +12 (pitchUp) | -12 (pitchDown) ]
     //                   → preReverbMixer → distortion → delay → reverb → padMixer → master
+    //
+    // All nodes in this chain run at Self.padFormat (canonical). The
+    // input tap converts each captured buffer into padFormat before
+    // handing it to liveInputPlayer.scheduleBuffer, so AVAudioEngine
+    // never has to resolve a format mismatch — some device combos
+    // return -10868 kAudioUnitErr_FormatNotSupported when asked to.
+    private static let padFormat: AVAudioFormat = AVAudioFormat(
+        commonFormat: .pcmFormatFloat32,
+        sampleRate: 48000,
+        channels: 2,
+        interleaved: false
+    )!
     private let liveInputPlayer = AVAudioPlayerNode()
     private let inputEQ = AVAudioUnitEQ(numberOfBands: 1)
     private let pitchUpNode = AVAudioUnitTimePitch()
@@ -61,6 +73,7 @@ final class AudioEngineController: ObservableObject {
     private let inputEngine = AVAudioEngine()
     private let inputMixer = AVAudioMixerNode()
     private var tapFormat: AVAudioFormat?
+    private var tapToPadConverter: AVAudioConverter?
 
     // Signal-present threshold for the MIC/OUT activity dots.
     private let signalThreshold: Float = 0.01
@@ -134,21 +147,53 @@ final class AudioEngineController: ObservableObject {
         }
         inputEngine.connect(input, to: inputMixer, format: format)
         tapFormat = format
+        tapToPadConverter = AVAudioConverter(from: format, to: Self.padFormat)
 
         inputMixer.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
             guard let self = self else { return }
             self.pitchDetector?.process(buffer)
-            self.liveInputPlayer.scheduleBuffer(buffer, at: nil, options: [], completionHandler: nil)
             self.markSignalIfAudible(buffer, keyPath: \.micLastSignal)
+            if let converted = self.convertToPadFormat(buffer) {
+                self.liveInputPlayer.scheduleBuffer(converted, at: nil, options: [], completionHandler: nil)
+            }
         }
+    }
+
+    // Convert a tap buffer into Self.padFormat so the entire pad chain
+    // runs at a single, known format. Allocating a fresh output buffer
+    // per tap callback — a few KB — is cheap and keeps this lock-free.
+    private func convertToPadFormat(_ input: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+        guard let converter = tapToPadConverter else { return nil }
+        let ratio = Self.padFormat.sampleRate / input.format.sampleRate
+        let capacity = AVAudioFrameCount(Double(input.frameLength) * ratio + 64)
+        guard let output = AVAudioPCMBuffer(pcmFormat: Self.padFormat, frameCapacity: capacity) else {
+            return nil
+        }
+        var consumed = false
+        var err: NSError?
+        let status = converter.convert(to: output, error: &err) { _, outStatus in
+            if consumed {
+                outStatus.pointee = .endOfStream
+                return nil
+            }
+            consumed = true
+            outStatus.pointee = .haveData
+            return input
+        }
+        if status == .error || err != nil { return nil }
+        return output
     }
 
     // MARK: - Live-input path wiring
 
+    // Every connection uses Self.padFormat so AVAudioEngine never has to
+    // reconcile a weird device format with the master mixer's output format
+    // mid-graph. Tap callback already converts captured audio to this
+    // format before scheduling on liveInputPlayer.
     private func wireLiveInputPath() {
-        guard let format = tapFormat else { return }
+        guard tapFormat != nil else { return }
+        let format = Self.padFormat
 
-        // Fan liveInputPlayer out to three parallel paths.
         let points: [AVAudioConnectionPoint] = [
             AVAudioConnectionPoint(node: inputEQ, bus: 0),
             AVAudioConnectionPoint(node: pitchUpNode, bus: 0),
@@ -156,7 +201,6 @@ final class AudioEngineController: ObservableObject {
         ]
         outputEngine.connect(liveInputPlayer, to: points, fromBus: 0, format: format)
 
-        // Each path → its gain stage → preReverbMixer (one input bus each).
         outputEngine.connect(inputEQ, to: dryGain, format: format)
         outputEngine.connect(dryGain, to: preReverbMixer, format: format)
 
@@ -166,9 +210,6 @@ final class AudioEngineController: ObservableObject {
         outputEngine.connect(pitchDownNode, to: pitchDownGain, format: format)
         outputEngine.connect(pitchDownGain, to: preReverbMixer, format: format)
 
-        // preReverbMixer → distortion → delay → reverb → padMixer.
-        // Distortion and delay sit inline but are effectively bypassed
-        // (wetDryMix = 0) unless the current PadMode enables them.
         outputEngine.connect(preReverbMixer, to: distortion, format: format)
         outputEngine.connect(distortion, to: delay, format: format)
         outputEngine.connect(delay, to: inputReverb, format: format)
