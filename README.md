@@ -154,14 +154,26 @@ Volume cycle: `100 → 75 → 50 → 0 → 100`.
 
 ## HUD
 
-- **Header**: song name, key, tempo.
-- **Structure**: all parts in play order, current one wrapped in `▸ ◂`, bar counter.
-- **Chord line**: current chord large, next bar's chord dim to the right.
-- **Lyrics**: full text of the active part.
-- **Mix**: compact chips for KICK / SNARE / HH / PAD / BASS with activity dot and level meter. PAD and BASS show the active sound name as a subtitle.
+Two-column layout, 1000×560. The left column is stable (performance
+info that can't shift); the right column holds the variable-length
+song header + lyrics so long verses don't push the left-column
+readouts around.
+
+**Left column:**
+
+- **Structure**: all parts in play order, current one wrapped in `▸ ◂`. Wraps to multiple lines for long structures.
+- **Bar counter**: `bar N / M` plus a one-cell-per-bar progress bar (`█░░░`) so remaining bars in instrumental sections are glanceable.
+- **Chord line**: current chord large (40pt), next bar's chord dim to the right, and four 1 / 2 / 3 / 4 beat dots on the right that track the current beat so you can come in on the one.
+- **Mix**: two rows of chips — drums (KICK / SNARE / HH) and harmonic (PAD / BASS). Each has an activity dot, name, level meter. PAD and BASS show the active sound name as a subtitle.
 - **Transport**: `● PLAYING` / `○ STOPPED`.
-- **Upper right**: system output device with a signal-present dot.
 - **Issues**: `MISSING SAMPLES` and `SONG ISSUES` blocks appear when files are missing or a song file fails to parse.
+- **Keybindings**.
+
+**Right column:**
+
+- **Song header**: name, key, tempo.
+- **Lyrics**: full text of the active part, larger and line-spaced for readability at arm's length.
+- **OUT**: system default output device with a signal-present dot.
 
 ## Drum patterns (`patterns.json`)
 

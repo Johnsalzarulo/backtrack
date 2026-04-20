@@ -100,7 +100,37 @@ struct ContentView: View {
                     .foregroundColor(dim)
                     .font(.system(size: 22, design: .monospaced))
             }
+            Spacer(minLength: 0)
+            beatDots
         }
+    }
+
+    // 1 / 2 / 3 / 4 beat counter next to the chord display so you can see
+    // where the downbeat is and come in on the one. Leftmost dot is
+    // beat 1; lit dot tracks the current beat.
+    private var beatDots: some View {
+        VStack(alignment: .center, spacing: 4) {
+            HStack(spacing: 14) {
+                ForEach(0..<4, id: \.self) { i in
+                    Circle()
+                        .fill(beatDotColor(i))
+                        .frame(width: 14, height: 14)
+                }
+            }
+            HStack(spacing: 14) {
+                ForEach(0..<4, id: \.self) { i in
+                    Text("\(i + 1)")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(dim)
+                        .frame(width: 14)
+                }
+            }
+        }
+    }
+
+    private func beatDotColor(_ i: Int) -> Color {
+        if state.isPlaying && i == state.currentBeat { return fg }
+        return dim.opacity(0.4)
     }
 
     // Mix split into two rows — drums on top, harmonic on bottom — so the
