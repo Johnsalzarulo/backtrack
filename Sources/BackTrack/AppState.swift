@@ -39,21 +39,20 @@ final class AppState: ObservableObject {
     }
 
     var currentChord: Chord? {
-        guard let part = currentPart, currentBar < part.chords.count else { return nil }
-        return part.chords[currentBar]
+        guard let part = currentPart else { return nil }
+        return part.chord(atBar: currentBar)
     }
 
     var nextChord: Chord? {
         guard let part = currentPart else { return nil }
-        if currentBar + 1 < part.chords.count {
-            return part.chords[currentBar + 1]
+        if currentBar + 1 < part.bars {
+            return part.chord(atBar: currentBar + 1)
         }
-        // Next bar is in the next part.
+        // Next bar belongs to the next part.
         guard let song = currentSong,
               currentPartIndex + 1 < song.structure.count,
-              let nextPart = song.parts[song.structure[currentPartIndex + 1]],
-              !nextPart.chords.isEmpty else { return nil }
-        return nextPart.chords[0]
+              let nextPart = song.parts[song.structure[currentPartIndex + 1]] else { return nil }
+        return nextPart.chord(atBar: 0)
     }
 
     // MARK: - Per-instrument mix (0-3: 0%, 50%, 75%, 100%)

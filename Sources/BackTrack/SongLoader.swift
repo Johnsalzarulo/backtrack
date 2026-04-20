@@ -102,13 +102,12 @@ enum SongLoader {
         guard (1...10).contains(part.pattern) else {
             throw SongValidationError("part '\(name)' pattern \(part.pattern) out of range (1-10)")
         }
-        guard part.bars > 0 else {
-            throw SongValidationError("part '\(name)' bars must be > 0")
+        guard !part.chords.isEmpty else {
+            throw SongValidationError("part '\(name)' chords cannot be empty")
         }
-        guard part.chords.count == part.bars else {
-            throw SongValidationError(
-                "part '\(name)' has \(part.chords.count) chords but bars = \(part.bars)"
-            )
+        let repeats = part.repeats ?? 1
+        guard repeats >= 1 else {
+            throw SongValidationError("part '\(name)' repeats must be >= 1")
         }
         let padLevel = part.pad ?? 0
         let bassLevel = part.bass ?? 0
@@ -131,8 +130,8 @@ enum SongLoader {
         return Part(
             name: name,
             pattern: part.pattern,
-            bars: part.bars,
             chords: parsed,
+            repeats: repeats,
             padLevel: padLevel,
             bassLevel: bassLevel,
             lyrics: part.lyrics ?? ""

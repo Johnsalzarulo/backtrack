@@ -175,8 +175,7 @@ final class Clock: ObservableObject {
     // fade-out runs on older voice-pool slots; new triggers below use
     // the next pool slots and fade in cleanly on top.
     private func fireTick0(part: Part) {
-        guard state.currentBar < part.chords.count else { return }
-        let chord = part.chords[state.currentBar]
+        guard let chord = part.chord(atBar: state.currentBar) else { return }
         let chordKey = "\(chord.rootPitchClass)-\(chord.quality)"
         let previousKey = lastChordKey
         let changed = (chordKey != previousKey)
@@ -194,8 +193,7 @@ final class Clock: ObservableObject {
     }
 
     private func fireTickN(part: Part, tick: Int) {
-        guard state.currentBar < part.chords.count else { return }
-        let chord = part.chords[state.currentBar]
+        guard let chord = part.chord(atBar: state.currentBar) else { return }
         for e in Generators.drums(pattern: part.pattern, tick: tick) { audio.trigger(e) }
         for e in Generators.pad(level: part.padLevel, chord: chord, tick: tick, chordChanged: false) {
             audio.trigger(e)

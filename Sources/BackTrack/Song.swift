@@ -17,8 +17,8 @@ struct SongJSON: Decodable {
 
 struct PartJSON: Decodable {
     let pattern: Int
-    let bars: Int
     let chords: [String]
+    let repeats: Int?
     let pad: Int?
     let bass: Int?
     let lyrics: String?
@@ -46,9 +46,19 @@ struct Song {
 struct Part {
     let name: String
     let pattern: Int           // 1..10, references patterns.json slot
-    let bars: Int
-    let chords: [Chord]        // length == bars
+    let chords: [Chord]        // the progression; looped `repeats` times
+    let repeats: Int           // how many times the progression cycles (>= 1)
     let padLevel: Int          // 0..3
     let bassLevel: Int         // 0..3
     let lyrics: String         // empty string if not provided
+
+    // Derived: total bar count for this part.
+    var bars: Int { chords.count * repeats }
+
+    // Chord active on the given bar index (0-based), wrapping around the
+    // progression. Callers should check `bar < bars` before.
+    func chord(atBar bar: Int) -> Chord? {
+        guard !chords.isEmpty else { return nil }
+        return chords[bar % chords.count]
+    }
 }

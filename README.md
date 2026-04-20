@@ -58,14 +58,14 @@ scans the directory; any malformed songs surface in the HUD's
   "name": "Song Title",
   "key": "D major",
   "bpm": 90,
-  "kit": "default",
-  "pad": "strings",
+  "kit": "Vinyl",
+  "pad": "soft",
   "bass": "soft",
   "parts": {
     "verse": {
       "pattern": 5,
-      "bars": 4,
       "chords": ["Bm", "G", "D", "D"],
+      "repeats": 2,
       "pad": 2,
       "bass": 0,
       "lyrics": "line one\nline two"
@@ -79,14 +79,21 @@ scans the directory; any malformed songs surface in the HUD's
 |-------|-------|---------|
 | `name`, `key`, `bpm` | song | Display + tempo. `key` is informational. |
 | `kit` | song | Drum kit folder name under `drums/`. |
-| `pad`, `bass` | song | Pad/bass *sound* folder name (strings). Required only if any part uses them. |
+| `pad`, `bass` | song | Pad/bass *sound* folder name. Required only if any part uses them. |
 | `parts` | song | Dictionary of part definitions, referenced by name. |
 | `structure` | song | Array of part names, in play order. The same name can appear multiple times. |
 | `pattern` | part | Drum pattern 1–10 (index into `patterns.json`). |
-| `bars` | part | Bar count. `chords.length` must equal this. |
-| `chords` | part | Array of chord symbols, one per bar. |
+| `chords` | part | The chord progression of the part — one symbol per bar of the progression. |
+| `repeats` | part | How many times the chord progression cycles. Optional, default 1. Total bars = `chords.length × repeats`. |
 | `pad`, `bass` | part | Complexity 0–3 (0 = silent). Default 0. |
 | `lyrics` | part | Optional multi-line string. |
+
+**Thinking in progressions**: `chords` defines one cycle of harmonic
+movement; `repeats` says how many cycles that part plays through. A
+verse that says "Bm G D D, repeated twice" is `chords: ["Bm","G","D","D"]`
+and `repeats: 2` — eight bars total. For a part with an asymmetric
+progression that shouldn't loop, set `repeats: 1` and list every bar's
+chord in `chords`.
 
 ### Chord notation
 
