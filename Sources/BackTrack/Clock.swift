@@ -5,14 +5,17 @@ final class Clock: ObservableObject {
     let audio: AudioEngineController
 
     private var timer: DispatchSourceTimer?
-    private var tick: Int = 0
+    private var tick: Int = 0              // 0..15 within current bar
     private var tapTimes: [Date] = []
     private var scheduledTempo: Double = 0
+    private var lastChordKey: String = ""  // tracks chord-change for pad drone
 
     init(state: AppState, audio: AudioEngineController) {
         self.state = state
         self.audio = audio
     }
+
+    // MARK: - Transport
 
     func toggleTransport() {
         if state.isPlaying { stop() } else { start() }
@@ -20,7 +23,19 @@ final class Clock: ObservableObject {
 
     func start() {
         guard !state.isPlaying else { return }
+        guard let song = state.currentSong, !song.structure.isEmpty else { return }
+
+        // Apply song-level setup: kit, pad sound, bass sound, tempo.
+        audio.selectDrumKit(named: song.kit)
+        if let pad = song.padSound { audio.selectPadSound(named: pad) }
+        if let bass = song.bassSound { audio.selectBassSound(named: bass) }
+        state.tempo = song.bpm
+
         tick = 0
+        state.currentPartIndex = 0
+        state.currentBar = 0
+        state.pendingPartIndex = nil
+        lastChordKey = ""
         state.isPlaying = true
         state.currentBeat = 0
         scheduleTimer(immediate: true)
@@ -31,7 +46,55 @@ final class Clock: ObservableObject {
         timer = nil
         state.isPlaying = false
         state.currentBeat = 0
+        audio.stopAllPadAndBass()
     }
+
+    // MARK: - Part navigation (queued to next bar)
+
+    func queueNextPart() {
+        guard let song = state.currentSong, !song.structure.isEmpty else { return }
+        let next = state.currentPartIndex + 1
+        if next < song.structure.count {
+            state.pendingPartIndex = next
+        }
+    }
+
+    func queuePreviousPart() {
+        let prev = state.currentPartIndex - 1
+        if prev >= 0 {
+            state.pendingPartIndex = prev
+        }
+    }
+
+    // MARK: - Song navigation (immediate, stops playback)
+
+    func nextSong() {
+        guard !state.songs.isEmpty else { return }
+        if state.isPlaying { stop() }
+        state.currentSongIndex = (state.currentSongIndex + 1) % state.songs.count
+        resetSongPosition()
+    }
+
+    func previousSong() {
+        guard !state.songs.isEmpty else { return }
+        if state.isPlaying { stop() }
+        let n = state.songs.count
+        state.currentSongIndex = ((state.currentSongIndex - 1) % n + n) % n
+        resetSongPosition()
+    }
+
+    private func resetSongPosition() {
+        state.currentPartIndex = 0
+        state.currentBar = 0
+        state.pendingPartIndex = nil
+        lastChordKey = ""
+        tick = 0
+        if let song = state.currentSong {
+            state.tempo = song.bpm
+        }
+    }
+
+    // MARK: - Timer
 
     private func scheduleTimer(immediate: Bool) {
         timer?.cancel()
@@ -47,19 +110,90 @@ final class Clock: ObservableObject {
     }
 
     private func onTick() {
+        guard let song = state.currentSong else { stop(); return }
+        guard state.currentPartIndex < song.structure.count,
+              let part = state.currentPart else { stop(); return }
+
+        // Bar boundary: apply pending part jump, or auto-advance if the
+        // current part has finished its bars.
         if tick == 0 {
-            state.applyPending()
+            if let pending = state.pendingPartIndex {
+                state.currentPartIndex = pending
+                state.currentBar = 0
+                state.pendingPartIndex = nil
+                audio.stopAllPadAndBass()
+                lastChordKey = ""
+                // Re-fetch part for this tick with the new index.
+                guard let newPart = state.currentPart else { stop(); return }
+                fireTick0(part: newPart)
+                scheduleTickAdvance()
+                return
+            }
+            if state.currentBar >= part.bars {
+                // Part finished — advance.
+                let next = state.currentPartIndex + 1
+                if next >= song.structure.count {
+                    stop()
+                    return
+                }
+                state.currentPartIndex = next
+                state.currentBar = 0
+                audio.stopAllPadAndBass()
+                lastChordKey = ""
+                guard let newPart = state.currentPart else { stop(); return }
+                fireTick0(part: newPart)
+                scheduleTickAdvance()
+                return
+            }
+            fireTick0(part: part)
+        } else {
+            fireTickN(part: part, tick: tick)
         }
 
-        for e in Generators.drums(state: state, tick: tick) { audio.trigger(e) }
+        scheduleTickAdvance()
+    }
 
+    private func scheduleTickAdvance() {
+        // Update beat indicator + advance tick counter.
         state.currentBeat = tick / 4
-        tick = (tick + 1) % Generators.ticksPerBar
-
+        tick += 1
+        if tick >= Generators.ticksPerBar {
+            tick = 0
+            state.currentBar += 1
+        }
         if state.tempo != scheduledTempo {
             scheduleTimer(immediate: false)
         }
     }
+
+    // Tick 0 of a bar: evaluate chord change + fire all voices that hit on
+    // the downbeat (drums tick 0 events + pad level 1 if chord changed +
+    // pad level 2/3 initial hits + bass level 1/2/3 downbeat).
+    private func fireTick0(part: Part) {
+        guard state.currentBar < part.chords.count else { return }
+        let chord = part.chords[state.currentBar]
+        let chordKey = "\(chord.rootPitchClass)-\(chord.quality)"
+        let changed = (chordKey != lastChordKey)
+        lastChordKey = chordKey
+
+        for e in Generators.drums(pattern: part.pattern, tick: 0) { audio.trigger(e) }
+        for e in Generators.pad(level: part.padLevel, chord: chord, tick: 0, chordChanged: changed) {
+            audio.trigger(e)
+        }
+        for e in Generators.bass(level: part.bassLevel, chord: chord, tick: 0) { audio.trigger(e) }
+    }
+
+    private func fireTickN(part: Part, tick: Int) {
+        guard state.currentBar < part.chords.count else { return }
+        let chord = part.chords[state.currentBar]
+        for e in Generators.drums(pattern: part.pattern, tick: tick) { audio.trigger(e) }
+        for e in Generators.pad(level: part.padLevel, chord: chord, tick: tick, chordChanged: false) {
+            audio.trigger(e)
+        }
+        for e in Generators.bass(level: part.bassLevel, chord: chord, tick: tick) { audio.trigger(e) }
+    }
+
+    // MARK: - Tap tempo
 
     func tapTempo() {
         let now = Date()
@@ -70,7 +204,6 @@ final class Clock: ObservableObject {
         if tapTimes.count > 4 {
             tapTimes.removeFirst(tapTimes.count - 4)
         }
-
         if tapTimes.count >= 2 {
             var intervals: [TimeInterval] = []
             for i in 1..<tapTimes.count {
@@ -81,14 +214,12 @@ final class Clock: ObservableObject {
                 let bpm = 60.0 / avg
                 state.tempo = max(40, min(240, bpm))
             }
-            audio.updateDelayTime()
             if state.isPlaying {
                 tick = 0
                 state.currentBeat = 0
                 scheduleTimer(immediate: true)
             }
         }
-
         state.bpmFlash = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
             self?.state.bpmFlash = false

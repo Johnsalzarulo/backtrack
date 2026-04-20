@@ -6,21 +6,30 @@ struct NoteEvent {
         case kick
         case snare
         case hihat
+        case pad(pitchClass: Int)   // 0-11; engine pitches pad sample to this class
+        case bass(pitchClass: Int)  // 0-11; engine pitches bass sample to this class
     }
     let voice: Voice
     let velocity: Float
 }
 
 final class AudioEngineController: ObservableObject {
-    // Output engine: drums + the live-input effect chain which is fed
-    // by buffers captured on the input engine's tap.
-    private let outputEngine = AVAudioEngine()
-    private let outputMaster = AVAudioMixerNode()
+    // Output-only engine: drums + pitched pad voices + pitched bass voices.
+    // All live input / effect-chain machinery is gone — this is a
+    // straight backing-track player now.
+    private let engine = AVAudioEngine()
+    private let masterMixer = AVAudioMixerNode()
 
-    // Drum graph
+    // Per-instrument mixers so K/S/H/P/B can tweak levels independently.
     private let kickMixer = AVAudioMixerNode()
     private let snareMixer = AVAudioMixerNode()
     private let hhMixer = AVAudioMixerNode()
+    private let padMixer = AVAudioMixerNode()
+    private let bassMixer = AVAudioMixerNode()
+
+    // Drum players — one per drum, interrupts on re-trigger (the hard drum
+    // attack masks the cut). Connected at canonical drum format so a kit
+    // swap is a pure buffer-pointer swap.
     private let kickPlayer = AVAudioPlayerNode()
     private let snarePlayer = AVAudioPlayerNode()
     private let hhPlayer = AVAudioPlayerNode()
@@ -28,280 +37,148 @@ final class AudioEngineController: ObservableObject {
     private var snareBuffer: AVAudioPCMBuffer?
     private var hhBuffer: AVAudioPCMBuffer?
 
-    // All drum buffers are normalized to this format at load time so the
-    // drum players never need their connections reconfigured — cycling a
-    // kit becomes a pure buffer-pointer swap with zero graph changes.
-    // This eliminates the reconnect code path entirely, which was the
-    // source of intermittent crashes when cycling kits during playback.
-    private static let drumFormat: AVAudioFormat = AVAudioFormat(
+    // Canonical format all buffers are normalized to, so no player
+    // connection ever needs reconfiguration on kit/sound cycle.
+    private static let canonicalFormat: AVAudioFormat = AVAudioFormat(
         commonFormat: .pcmFormatFloat32,
         sampleRate: 44100,
         channels: 2,
         interleaved: false
     )!
 
-    // Live-input effect path. Fixed topology; PadMode varies gains,
-    // EQ settings, distortion/delay wet mix, and reverb preset:
-    //   liveInputPlayer → [ dry (EQ) | +12 (pitchUp) | -12 (pitchDown) ]
-    //                   → preReverbMixer → distortion → delay → reverb → padMixer → master
-    //
-    // All nodes in this chain run at Self.padFormat (canonical). The
-    // input tap converts each captured buffer into padFormat before
-    // handing it to liveInputPlayer.scheduleBuffer, so AVAudioEngine
-    // never has to resolve a format mismatch — some device combos
-    // return -10868 kAudioUnitErr_FormatNotSupported when asked to.
-    private static let padFormat: AVAudioFormat = AVAudioFormat(
-        commonFormat: .pcmFormatFloat32,
-        sampleRate: 48000,
-        channels: 2,
-        interleaved: false
-    )!
-    private let liveInputPlayer = AVAudioPlayerNode()
-    private let inputEQ = AVAudioUnitEQ(numberOfBands: 1)
-    private let pitchUpNode = AVAudioUnitTimePitch()
-    private let pitchDownNode = AVAudioUnitTimePitch()
-    private let dryGain = AVAudioMixerNode()
-    private let pitchUpGain = AVAudioMixerNode()
-    private let pitchDownGain = AVAudioMixerNode()
-    private let preReverbMixer = AVAudioMixerNode()
-    private let distortion = AVAudioUnitDistortion()
-    private let delay = AVAudioUnitDelay()
-    private let inputReverb = AVAudioUnitReverb()
-    private let padMixer = AVAudioMixerNode()
+    // Pad voice pool — 8 voices for chord stacks / arpeggios. Each voice:
+    // player → varispeed (pitch shift) → padMixer.
+    private struct PitchedVoice {
+        let player: AVAudioPlayerNode
+        let pitch: AVAudioUnitVarispeed
+    }
+    private var padVoices: [PitchedVoice] = []
+    private var padVoiceIndex = 0
+    private var padFadeGen: [Int] = []
+    private var padBuffer: AVAudioPCMBuffer?
+    private var padSourcePitchClass: Int?
 
-    // Input engine: mic capture only, no output routing.
-    private let inputEngine = AVAudioEngine()
-    private let inputMixer = AVAudioMixerNode()
-    private var tapFormat: AVAudioFormat?
-    private var tapToPadConverter: AVAudioConverter?
+    // Bass voice pool — 4 voices is enough for overlapping note transitions.
+    private var bassVoices: [PitchedVoice] = []
+    private var bassVoiceIndex = 0
+    private var bassFadeGen: [Int] = []
+    private var bassBuffer: AVAudioPCMBuffer?
+    private var bassSourcePitchClass: Int?
 
-    // Signal-present threshold for the MIC/OUT activity dots.
+    // Signal-present indicator for the OUT row.
     private let signalThreshold: Float = 0.01
 
+    // Sound kits — each instrument scans its own directory for subfolders.
+    private struct SoundKit {
+        let name: String
+        let directory: URL
+    }
+    private var drumKits: [SoundKit] = []
+    private var padSounds: [SoundKit] = []
+    private var bassSounds: [SoundKit] = []
+
     weak var state: AppState?
-    weak var pitchDetector: PitchDetector?
 
     init() {
-        setupOutputEngine()
-        setupInputEngine()
-        wireLiveInputPath()
-        installOutputSignalTap()
-        startEngines()
+        setupGraph()
+        startEngine()
     }
 
-    // MARK: - Output engine setup
+    // MARK: - Graph setup
 
-    private func setupOutputEngine() {
-        outputEngine.attach(outputMaster)
-        outputEngine.connect(outputMaster, to: outputEngine.mainMixerNode, format: nil)
+    private func setupGraph() {
+        engine.attach(masterMixer)
+        engine.connect(masterMixer, to: engine.mainMixerNode, format: nil)
 
-        for sub in [kickMixer, snareMixer, hhMixer, padMixer] {
-            outputEngine.attach(sub)
-            outputEngine.connect(sub, to: outputMaster, format: nil)
+        for sub in [kickMixer, snareMixer, hhMixer, padMixer, bassMixer] {
+            engine.attach(sub)
+            engine.connect(sub, to: masterMixer, format: nil)
         }
 
-        // Connect drum players with the canonical drum format. All loaded
-        // buffers are normalized to this format, so scheduleBuffer never
-        // hits a format mismatch and the players never need reconnection.
-        outputEngine.attach(kickPlayer)
-        outputEngine.connect(kickPlayer, to: kickMixer, format: Self.drumFormat)
-        outputEngine.attach(snarePlayer)
-        outputEngine.connect(snarePlayer, to: snareMixer, format: Self.drumFormat)
-        outputEngine.attach(hhPlayer)
-        outputEngine.connect(hhPlayer, to: hhMixer, format: Self.drumFormat)
+        engine.attach(kickPlayer)
+        engine.connect(kickPlayer, to: kickMixer, format: Self.canonicalFormat)
+        engine.attach(snarePlayer)
+        engine.connect(snarePlayer, to: snareMixer, format: Self.canonicalFormat)
+        engine.attach(hhPlayer)
+        engine.connect(hhPlayer, to: hhMixer, format: Self.canonicalFormat)
 
-        // Pitch shifters run at fixed intervals; gain mixers decide whether
-        // their contribution reaches the pre-reverb sum.
-        pitchUpNode.pitch = 1200       // +12 semitones
-        pitchDownNode.pitch = -1200    // −12 semitones
-
-        // Defaults — apply(mode:) overrides these.
-        distortion.wetDryMix = 0
-        delay.wetDryMix = 0
-        delay.delayTime = 0.5
-        delay.feedback = 50
-
-        outputEngine.attach(liveInputPlayer)
-        outputEngine.attach(inputEQ)
-        outputEngine.attach(pitchUpNode)
-        outputEngine.attach(pitchDownNode)
-        outputEngine.attach(dryGain)
-        outputEngine.attach(pitchUpGain)
-        outputEngine.attach(pitchDownGain)
-        outputEngine.attach(preReverbMixer)
-        outputEngine.attach(distortion)
-        outputEngine.attach(delay)
-        outputEngine.attach(inputReverb)
-    }
-
-    // MARK: - Input engine (capture + tap)
-
-    private func setupInputEngine() {
-        inputEngine.attach(inputMixer)
-
-        let input = inputEngine.inputNode
-        let format = input.inputFormat(forBus: 0)
-        guard format.sampleRate > 0, format.channelCount > 0 else {
-            NSLog("BackTrack: no audio input — live pad processing disabled")
-            return
+        for _ in 0..<8 {
+            let player = AVAudioPlayerNode()
+            let pitch = AVAudioUnitVarispeed()
+            engine.attach(player)
+            engine.attach(pitch)
+            engine.connect(player, to: pitch, format: Self.canonicalFormat)
+            engine.connect(pitch, to: padMixer, format: Self.canonicalFormat)
+            padVoices.append(PitchedVoice(player: player, pitch: pitch))
         }
-        inputEngine.connect(input, to: inputMixer, format: format)
-        tapFormat = format
-        tapToPadConverter = AVAudioConverter(from: format, to: Self.padFormat)
+        padFadeGen = Array(repeating: 0, count: padVoices.count)
 
-        inputMixer.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
-            guard let self = self else { return }
-            self.pitchDetector?.process(buffer)
-            self.markSignalIfAudible(buffer, keyPath: \.micLastSignal)
-            if let converted = self.convertToPadFormat(buffer) {
-                self.liveInputPlayer.scheduleBuffer(converted, at: nil, options: [], completionHandler: nil)
-            }
+        for _ in 0..<4 {
+            let player = AVAudioPlayerNode()
+            let pitch = AVAudioUnitVarispeed()
+            engine.attach(player)
+            engine.attach(pitch)
+            engine.connect(player, to: pitch, format: Self.canonicalFormat)
+            engine.connect(pitch, to: bassMixer, format: Self.canonicalFormat)
+            bassVoices.append(PitchedVoice(player: player, pitch: pitch))
+        }
+        bassFadeGen = Array(repeating: 0, count: bassVoices.count)
+
+        // Tap master for the OUT activity dot.
+        masterMixer.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
+            self?.markOutSignal(buffer)
         }
     }
 
-    // Convert a tap buffer into Self.padFormat so the entire pad chain
-    // runs at a single, known format. Allocating a fresh output buffer
-    // per tap callback — a few KB — is cheap and keeps this lock-free.
-    private func convertToPadFormat(_ input: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
-        guard let converter = tapToPadConverter else { return nil }
-        let ratio = Self.padFormat.sampleRate / input.format.sampleRate
-        let capacity = AVAudioFrameCount(Double(input.frameLength) * ratio + 64)
-        guard let output = AVAudioPCMBuffer(pcmFormat: Self.padFormat, frameCapacity: capacity) else {
-            return nil
-        }
-        var consumed = false
-        var err: NSError?
-        let status = converter.convert(to: output, error: &err) { _, outStatus in
-            if consumed {
-                outStatus.pointee = .endOfStream
-                return nil
-            }
-            consumed = true
-            outStatus.pointee = .haveData
-            return input
-        }
-        if status == .error || err != nil { return nil }
-        return output
-    }
-
-    // MARK: - Live-input path wiring
-
-    // Every connection uses Self.padFormat so AVAudioEngine never has to
-    // reconcile a weird device format with the master mixer's output format
-    // mid-graph. Tap callback already converts captured audio to this
-    // format before scheduling on liveInputPlayer.
-    private func wireLiveInputPath() {
-        guard tapFormat != nil else { return }
-        let format = Self.padFormat
-
-        let points: [AVAudioConnectionPoint] = [
-            AVAudioConnectionPoint(node: inputEQ, bus: 0),
-            AVAudioConnectionPoint(node: pitchUpNode, bus: 0),
-            AVAudioConnectionPoint(node: pitchDownNode, bus: 0)
-        ]
-        outputEngine.connect(liveInputPlayer, to: points, fromBus: 0, format: format)
-
-        outputEngine.connect(inputEQ, to: dryGain, format: format)
-        outputEngine.connect(dryGain, to: preReverbMixer, format: format)
-
-        outputEngine.connect(pitchUpNode, to: pitchUpGain, format: format)
-        outputEngine.connect(pitchUpGain, to: preReverbMixer, format: format)
-
-        outputEngine.connect(pitchDownNode, to: pitchDownGain, format: format)
-        outputEngine.connect(pitchDownGain, to: preReverbMixer, format: format)
-
-        outputEngine.connect(preReverbMixer, to: distortion, format: format)
-        outputEngine.connect(distortion, to: delay, format: format)
-        outputEngine.connect(delay, to: inputReverb, format: format)
-        outputEngine.connect(inputReverb, to: padMixer, format: format)
-    }
-
-    // MARK: - Output signal tap (for OUT activity dot)
-
-    private func installOutputSignalTap() {
-        outputMaster.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
-            self?.markSignalIfAudible(buffer, keyPath: \.outLastSignal)
+    private func startEngine() {
+        engine.prepare()
+        do { try engine.start() } catch {
+            NSLog("BackTrack: audio engine failed to start: \(error)")
         }
     }
 
-    private func markSignalIfAudible(
-        _ buffer: AVAudioPCMBuffer,
-        keyPath: ReferenceWritableKeyPath<AppState, Date>
-    ) {
+    private func markOutSignal(_ buffer: AVAudioPCMBuffer) {
         guard let data = buffer.floatChannelData else { return }
         let frames = Int(buffer.frameLength)
         guard frames > 0 else { return }
-        let channel = data[0]
+        let ch = data[0]
         var sum: Float = 0
-        for i in 0..<frames {
-            let s = channel[i]
-            sum += s * s
-        }
+        for i in 0..<frames { sum += ch[i] * ch[i] }
         let rms = (sum / Float(frames)).squareRoot()
         if rms > signalThreshold {
             DispatchQueue.main.async { [weak self] in
-                self?.state?[keyPath: keyPath] = Date()
+                self?.state?.outLastSignal = Date()
             }
         }
     }
 
-    private func startEngines() {
-        outputEngine.prepare()
-        do { try outputEngine.start() } catch {
-            NSLog("BackTrack: output engine failed to start: \(error)")
-        }
-        if tapFormat != nil { liveInputPlayer.play() }
-        inputEngine.prepare()
-        do { try inputEngine.start() } catch {
-            NSLog("BackTrack: input engine failed to start: \(error)")
-        }
-    }
-
-    // MARK: - Sample loading
+    // MARK: - Sample discovery
 
     private static let supportedExtensions = ["wav", "aif", "aiff", "mp3"]
     private static let extensionGlob = "{wav,aif,aiff,mp3}"
 
-    private struct Kit {
-        let name: String
-        let directory: URL
-    }
-    private var kits: [Kit] = []
-    private var currentKitIndex: Int = 0
-
-    func loadSamples() {
+    func loadAllSamples() {
         let base = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("BackTrack")
             .appendingPathComponent("Samples")
-        let drums = base.appendingPathComponent("drums")
 
-        kits = scanKits(in: drums)
-        if currentKitIndex >= kits.count { currentKitIndex = 0 }
+        drumKits = scanKits(in: base.appendingPathComponent("drums"))
+        padSounds = scanKits(in: base.appendingPathComponent("pads"))
+        bassSounds = scanKits(in: base.appendingPathComponent("bass"))
 
-        var missing: [String] = []
-        if kits.isEmpty {
-            missing.append("drums/<kit>/kick.\(Self.extensionGlob) (no kits found)")
-            kickBuffer = nil
-            snareBuffer = nil
-            hhBuffer = nil
-        } else {
-            loadKitBuffers(kits[currentKitIndex], missing: &missing)
-        }
+        // Load whichever sound is currently selected (or the first available).
+        applyInitialSelections()
 
-        let kitNames = kits.map { $0.name }
-        let idx = currentKitIndex
         DispatchQueue.main.async { [weak self] in
-            self?.state?.missingSamples = missing
-            self?.state?.kitNames = kitNames
-            self?.state?.currentKitIndex = idx
+            guard let self = self, let state = self.state else { return }
+            state.drumKitNames = self.drumKits.map { $0.name }
+            state.padSoundNames = self.padSounds.map { $0.name }
+            state.bassSoundNames = self.bassSounds.map { $0.name }
         }
     }
 
-    // A kit is a subdirectory under drums/ that contains kick/snare/hh
-    // samples. If no subdirectories exist but the root has a flat kit
-    // (old layout), treat the root as a single "default" kit.
-    private func scanKits(in dir: URL) -> [Kit] {
-        var found: [Kit] = []
+    private func scanKits(in dir: URL) -> [SoundKit] {
+        var found: [SoundKit] = []
         if let entries = try? FileManager.default.contentsOfDirectory(
             at: dir,
             includingPropertiesForKeys: [.isDirectoryKey]
@@ -310,69 +187,185 @@ final class AudioEngineController: ObservableObject {
                 var isDir: ObjCBool = false
                 let exists = FileManager.default.fileExists(atPath: entry.path, isDirectory: &isDir)
                 if exists && isDir.boolValue {
-                    found.append(Kit(name: entry.lastPathComponent, directory: entry))
+                    found.append(SoundKit(name: entry.lastPathComponent, directory: entry))
                 }
             }
-        }
-        if found.isEmpty, findDrumFile(base: "kick", in: dir) != nil {
-            found.append(Kit(name: "default", directory: dir))
         }
         return found
     }
 
-    private func loadKitBuffers(_ kit: Kit, missing: inout [String]) {
+    private func applyInitialSelections() {
+        var missing: [String] = []
+        if let first = drumKits.first {
+            loadDrumKit(first, missing: &missing)
+        } else {
+            missing.append("drums/<kit>/ (no drum kits found)")
+        }
+        if let first = padSounds.first {
+            loadPadSound(first, missing: &missing)
+        } else if !padSounds.isEmpty {
+            missing.append("pads/<sound>/pad_<NOTE>.\(Self.extensionGlob)")
+        }
+        if let first = bassSounds.first {
+            loadBassSound(first, missing: &missing)
+        } else if !bassSounds.isEmpty {
+            missing.append("bass/<sound>/bass_<NOTE>.\(Self.extensionGlob)")
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            self?.state?.missingSamples = missing
+        }
+    }
+
+    // MARK: - Kit selection (by name, called from SongPlayer when song loads)
+
+    func selectDrumKit(named name: String) {
+        guard let kit = drumKits.first(where: { $0.name == name }) else {
+            appendMissing("drum kit '\(name)' not found")
+            return
+        }
+        var missing: [String] = []
+        loadDrumKit(kit, missing: &missing)
+        mergeMissing(missing)
+    }
+
+    func selectPadSound(named name: String) {
+        guard let kit = padSounds.first(where: { $0.name == name }) else {
+            appendMissing("pad sound '\(name)' not found")
+            return
+        }
+        var missing: [String] = []
+        loadPadSound(kit, missing: &missing)
+        mergeMissing(missing)
+    }
+
+    func selectBassSound(named name: String) {
+        guard let kit = bassSounds.first(where: { $0.name == name }) else {
+            appendMissing("bass sound '\(name)' not found")
+            return
+        }
+        var missing: [String] = []
+        loadBassSound(kit, missing: &missing)
+        mergeMissing(missing)
+    }
+
+    private func appendMissing(_ s: String) {
+        DispatchQueue.main.async { [weak self] in
+            self?.state?.missingSamples.append(s)
+        }
+    }
+
+    private func mergeMissing(_ entries: [String]) {
+        guard !entries.isEmpty else { return }
+        DispatchQueue.main.async { [weak self] in
+            self?.state?.missingSamples.append(contentsOf: entries)
+        }
+    }
+
+    // MARK: - Loading
+
+    private func loadDrumKit(_ kit: SoundKit, missing: inout [String]) {
         kickBuffer = loadDrum(name: "kick", in: kit, missing: &missing)
         snareBuffer = loadDrum(name: "snare", in: kit, missing: &missing)
         hhBuffer = loadDrum(name: "hh", in: kit, missing: &missing)
     }
 
-    func cycleKit() {
-        guard !kits.isEmpty else { return }
-        selectKit(index: (currentKitIndex + 1) % kits.count)
+    private func loadPadSound(_ kit: SoundKit, missing: inout [String]) {
+        let (buf, pc) = loadPitchedSample(prefix: "pad_", in: kit, missing: &missing)
+        padBuffer = buf
+        padSourcePitchClass = pc
     }
 
-    func selectKit(index: Int) {
-        guard !kits.isEmpty else { return }
-        let clamped = ((index % kits.count) + kits.count) % kits.count
-        currentKitIndex = clamped
-        var missing: [String] = []
-        loadKitBuffers(kits[clamped], missing: &missing)
-        // No graph reconfiguration needed: loaded buffers are already
-        // converted to Self.drumFormat, which matches the drum players'
-        // connection format.
-        let idx = currentKitIndex
-        DispatchQueue.main.async { [weak self] in
-            self?.state?.missingSamples = missing
-            self?.state?.currentKitIndex = idx
-        }
+    private func loadBassSound(_ kit: SoundKit, missing: inout [String]) {
+        let (buf, pc) = loadPitchedSample(prefix: "bass_", in: kit, missing: &missing)
+        bassBuffer = buf
+        bassSourcePitchClass = pc
     }
 
-    private func loadDrum(name: String, in kit: Kit, missing: inout [String]) -> AVAudioPCMBuffer? {
-        if let url = findDrumFile(base: name, in: kit.directory) {
-            return loadBuffer(
-                at: url,
-                label: "\(kit.name)/\(url.lastPathComponent)",
-                missing: &missing
-            )
+    private func loadDrum(name: String, in kit: SoundKit, missing: inout [String]) -> AVAudioPCMBuffer? {
+        if let url = findFile(base: name, in: kit.directory) {
+            return loadBuffer(at: url, label: "\(kit.name)/\(url.lastPathComponent)", missing: &missing)
         }
         missing.append("\(kit.name)/\(name).\(Self.extensionGlob)")
         return nil
     }
 
-    private func findDrumFile(base: String, in dir: URL) -> URL? {
+    // Finds and loads a `<prefix><NOTE>.<ext>` file (e.g., pad_C.wav).
+    // Returns the normalized buffer plus the parsed source pitch class.
+    private func loadPitchedSample(
+        prefix: String,
+        in kit: SoundKit,
+        missing: inout [String]
+    ) -> (AVAudioPCMBuffer?, Int?) {
+        guard let url = findPitchedFile(prefix: prefix, in: kit.directory) else {
+            missing.append("\(kit.name)/\(prefix)<NOTE>.\(Self.extensionGlob)")
+            return (nil, nil)
+        }
+        guard let pc = parsePitchClass(url.lastPathComponent, prefix: prefix) else {
+            missing.append("\(kit.name)/\(url.lastPathComponent) (unparseable pitch)")
+            return (nil, nil)
+        }
+        let buf = loadBuffer(at: url, label: "\(kit.name)/\(url.lastPathComponent)", missing: &missing)
+        return (buf, pc)
+    }
+
+    private func findFile(base: String, in dir: URL) -> URL? {
         for ext in Self.supportedExtensions {
             let url = dir.appendingPathComponent("\(base).\(ext)")
-            if FileManager.default.fileExists(atPath: url.path) {
-                return url
-            }
+            if FileManager.default.fileExists(atPath: url.path) { return url }
         }
         return nil
     }
 
-    // Loads a drum file and normalizes it to Self.drumFormat so the player
-    // connections never need reconnecting for a kit with different native
-    // formats. Returns nil on any failure so the caller reports it as
-    // missing rather than leaving a mismatched-format buffer in place.
+    private func findPitchedFile(prefix: String, in dir: URL) -> URL? {
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: dir,
+            includingPropertiesForKeys: nil
+        ) else { return nil }
+        let lowerPrefix = prefix.lowercased()
+        return entries.first { url in
+            let name = url.lastPathComponent.lowercased()
+            guard name.hasPrefix(lowerPrefix) else { return false }
+            let ext = (name as NSString).pathExtension
+            return Self.supportedExtensions.contains(ext)
+        }
+    }
+
+    // Parse the pitch class from filenames like `pad_C.aif`, `pad_F#.wav`,
+    // `pad_Bb.mp3`, `pad_C3.aif`. Octave digits are ignored.
+    private func parsePitchClass(_ filename: String, prefix: String) -> Int? {
+        let prefixLower = prefix.lowercased()
+        let nameLower = filename.lowercased()
+        guard nameLower.hasPrefix(prefixLower) else { return nil }
+        let afterPrefix = nameLower.index(nameLower.startIndex, offsetBy: prefixLower.count)
+        let dot = nameLower.lastIndex(of: ".") ?? nameLower.endIndex
+        guard afterPrefix < dot else { return nil }
+        let noteStr = String(nameLower[afterPrefix..<dot]).uppercased()
+        guard let first = noteStr.first else { return nil }
+        var pc: Int
+        switch first {
+        case "C": pc = 0
+        case "D": pc = 2
+        case "E": pc = 4
+        case "F": pc = 5
+        case "G": pc = 7
+        case "A": pc = 9
+        case "B": pc = 11
+        default: return nil
+        }
+        let idx = noteStr.index(after: noteStr.startIndex)
+        if idx < noteStr.endIndex {
+            switch noteStr[idx] {
+            case "#": pc += 1
+            case "B": pc -= 1
+            default: break
+            }
+        }
+        return ((pc % 12) + 12) % 12
+    }
+
+    // Read a file and normalize to canonicalFormat so players never need
+    // reconfig. Returns nil on failure.
     private func loadBuffer(at url: URL, label: String, missing: inout [String]) -> AVAudioPCMBuffer? {
         guard FileManager.default.fileExists(atPath: url.path) else {
             missing.append(label)
@@ -380,21 +373,16 @@ final class AudioEngineController: ObservableObject {
         }
         do {
             let file = try AVAudioFile(forReading: url)
-            guard let nativeBuffer = AVAudioPCMBuffer(
+            guard let native = AVAudioPCMBuffer(
                 pcmFormat: file.processingFormat,
                 frameCapacity: AVAudioFrameCount(file.length)
             ) else {
                 missing.append(label)
                 return nil
             }
-            try file.read(into: nativeBuffer)
-
-            if nativeBuffer.format.isEqual(Self.drumFormat) {
-                return nativeBuffer
-            }
-            if let converted = convertToDrumFormat(nativeBuffer) {
-                return converted
-            }
+            try file.read(into: native)
+            if native.format.isEqual(Self.canonicalFormat) { return native }
+            if let converted = convertToCanonical(native) { return converted }
             missing.append("\(label) (format conversion failed)")
             return nil
         } catch {
@@ -403,18 +391,18 @@ final class AudioEngineController: ObservableObject {
         }
     }
 
-    private func convertToDrumFormat(_ input: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
-        guard let converter = AVAudioConverter(from: input.format, to: Self.drumFormat) else {
+    private func convertToCanonical(_ input: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+        guard let converter = AVAudioConverter(from: input.format, to: Self.canonicalFormat) else {
             return nil
         }
-        let ratio = Self.drumFormat.sampleRate / input.format.sampleRate
+        let ratio = Self.canonicalFormat.sampleRate / input.format.sampleRate
         let capacity = AVAudioFrameCount(Double(input.frameLength) * ratio + 1024)
-        guard let output = AVAudioPCMBuffer(pcmFormat: Self.drumFormat, frameCapacity: capacity) else {
+        guard let out = AVAudioPCMBuffer(pcmFormat: Self.canonicalFormat, frameCapacity: capacity) else {
             return nil
         }
         var consumed = false
         var err: NSError?
-        let status = converter.convert(to: output, error: &err) { _, outStatus in
+        let status = converter.convert(to: out, error: &err) { _, outStatus in
             if consumed {
                 outStatus.pointee = .endOfStream
                 return nil
@@ -424,104 +412,24 @@ final class AudioEngineController: ObservableObject {
             return input
         }
         if status == .error || err != nil { return nil }
-        return output
+        return out
     }
 
-    // MARK: - Volume + pad mode
+    // MARK: - Volume
 
     func applyMixVolumes(from state: AppState) {
         kickMixer.outputVolume = AppState.levelGain(state.kickLevel)
         snareMixer.outputVolume = AppState.levelGain(state.snareLevel)
         hhMixer.outputVolume = AppState.levelGain(state.hhLevel)
+        padMixer.outputVolume = AppState.levelGain(state.padVolume)
+        bassMixer.outputVolume = AppState.levelGain(state.bassVolume)
     }
 
     func setKickVolume(level: Int) { kickMixer.outputVolume = AppState.levelGain(level) }
     func setSnareVolume(level: Int) { snareMixer.outputVolume = AppState.levelGain(level) }
     func setHhVolume(level: Int) { hhMixer.outputVolume = AppState.levelGain(level) }
-
-    // Each PadMode is a preset: gains on the three parallel paths, the EQ
-    // band, distortion/delay wet mix, and reverb preset + wet mix. OFF
-    // simply mutes padMixer.
-    func apply(mode: PadMode) {
-        let band = inputEQ.bands[0]
-        band.bypass = false
-        band.bandwidth = 1.0
-        band.gain = 0
-
-        // Keep the BPM-synced delay time current even for modes that don't
-        // use delay — harmless if delay.wetDryMix = 0.
-        updateDelayTime()
-
-        switch mode {
-        case .off:
-            padMixer.outputVolume = 0.0
-
-        case .simple:
-            // High-pass + quarter-note delay (BPM-synced) + large hall.
-            padMixer.outputVolume = 1.0
-            band.filterType = .highPass
-            band.frequency = 100
-            dryGain.outputVolume = 1.0
-            pitchUpGain.outputVolume = 0
-            pitchDownGain.outputVolume = 0
-            distortion.wetDryMix = 0
-            delay.feedback = 60
-            delay.lowPassCutoff = 8000  // slightly dark echoes
-            delay.wetDryMix = 35
-            inputReverb.loadFactoryPreset(.largeHall2)
-            inputReverb.wetDryMix = 75
-
-        case .shimmer:
-            // Dry + strong +12 layer, shorter reverb so it arrives sooner.
-            padMixer.outputVolume = 1.0
-            band.filterType = .highPass
-            band.frequency = 150
-            dryGain.outputVolume = 1.0
-            pitchUpGain.outputVolume = 0.85
-            pitchDownGain.outputVolume = 0
-            distortion.wetDryMix = 0
-            delay.wetDryMix = 0
-            inputReverb.loadFactoryPreset(.largeHall2)  // was cathedral — faster attack
-            inputReverb.wetDryMix = 80
-
-        case .synth:
-            // Dark + sub-octave + mild grit. Shorter reverb = less sustain.
-            padMixer.outputVolume = 1.0
-            band.filterType = .lowPass
-            band.frequency = 2500
-            dryGain.outputVolume = 0.6
-            pitchUpGain.outputVolume = 0
-            pitchDownGain.outputVolume = 0.7
-            distortion.loadFactoryPreset(.multiDistortedCubed)
-            distortion.preGain = -6
-            distortion.wetDryMix = 25
-            delay.wetDryMix = 0
-            inputReverb.loadFactoryPreset(.mediumHall)
-            inputReverb.wetDryMix = 70
-
-        case .strings:
-            // Mid-boost + subtle +12 + shorter reverb for faster response.
-            padMixer.outputVolume = 1.0
-            band.filterType = .parametric
-            band.frequency = 800
-            band.bandwidth = 1.0
-            band.gain = 4
-            dryGain.outputVolume = 1.0
-            pitchUpGain.outputVolume = 0.25
-            pitchDownGain.outputVolume = 0
-            distortion.wetDryMix = 0
-            delay.wetDryMix = 0
-            inputReverb.loadFactoryPreset(.mediumHall)  // was largeHall — more immediate
-            inputReverb.wetDryMix = 65
-        }
-    }
-
-    // Update the BPM-synced delay time (quarter note). Called from apply(mode:)
-    // and from anywhere the tempo changes.
-    func updateDelayTime() {
-        let bpm = max(40, min(240, state?.tempo ?? 90))
-        delay.delayTime = 60.0 / bpm
-    }
+    func setPadVolume(level: Int) { padMixer.outputVolume = AppState.levelGain(level) }
+    func setBassVolume(level: Int) { bassMixer.outputVolume = AppState.levelGain(level) }
 
     // MARK: - Playback
 
@@ -537,21 +445,118 @@ final class AudioEngineController: ObservableObject {
         case .hihat:
             state?.hhLastTrigger = now
             play(buffer: hhBuffer, on: hhPlayer, volume: event.velocity)
+        case .pad(let pc):
+            state?.padLastTrigger = now
+            playPad(pitchClass: pc, volume: event.velocity)
+        case .bass(let pc):
+            state?.bassLastTrigger = now
+            playBass(pitchClass: pc, volume: event.velocity)
         }
     }
 
     private func play(buffer: AVAudioPCMBuffer?, on player: AVAudioPlayerNode, volume: Float) {
-        guard let buffer = buffer else { return }
-        // Defensive: refuse to schedule a buffer whose format doesn't match
-        // the player's connection format. scheduleBuffer with a mismatched
-        // format throws an Obj-C exception that Swift can't catch, which
-        // would crash the app.
-        guard buffer.format.isEqual(Self.drumFormat) else {
-            NSLog("BackTrack: drum buffer format mismatch, skipping trigger")
-            return
-        }
+        guard let buffer = buffer,
+              buffer.format.isEqual(Self.canonicalFormat) else { return }
         player.volume = volume
         player.scheduleBuffer(buffer, at: nil, options: .interrupts, completionHandler: nil)
         if !player.isPlaying { player.play() }
     }
+
+    // Choose the shortest interval from source→target pitch class so the
+    // sample stays in its recorded register instead of jumping octaves.
+    private func rateFor(pitchClass target: Int, source: Int) -> Float {
+        var shift = target - source
+        if shift > 6 { shift -= 12 }
+        if shift < -5 { shift += 12 }
+        return Float(pow(2.0, Double(shift) / 12.0))
+    }
+
+    private func playPad(pitchClass: Int, volume: Float) {
+        guard let buffer = padBuffer, let source = padSourcePitchClass else { return }
+        let rate = rateFor(pitchClass: pitchClass, source: source)
+        let idx = padVoiceIndex
+        padVoiceIndex = (padVoiceIndex + 1) % padVoices.count
+        padFadeGen[idx] += 1
+        let gen = padFadeGen[idx]
+        let voice = padVoices[idx]
+        voice.pitch.rate = rate
+        voice.player.volume = 0
+        voice.player.scheduleBuffer(buffer, at: nil, options: .interrupts, completionHandler: nil)
+        if !voice.player.isPlaying { voice.player.play() }
+
+        let steps = 15
+        let stepInterval: TimeInterval = 0.010   // ~150 ms swell-in
+        for step in 1...steps {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(step) * stepInterval) { [weak self] in
+                guard let self = self, self.padFadeGen[idx] == gen else { return }
+                voice.player.volume = volume * Float(step) / Float(steps)
+            }
+        }
+    }
+
+    private func playBass(pitchClass: Int, volume: Float) {
+        guard let buffer = bassBuffer, let source = bassSourcePitchClass else { return }
+        let rate = rateFor(pitchClass: pitchClass, source: source)
+        let idx = bassVoiceIndex
+        bassVoiceIndex = (bassVoiceIndex + 1) % bassVoices.count
+        bassFadeGen[idx] += 1
+        let gen = bassFadeGen[idx]
+        let voice = bassVoices[idx]
+        voice.pitch.rate = rate
+        voice.player.volume = 0
+        voice.player.scheduleBuffer(buffer, at: nil, options: .interrupts, completionHandler: nil)
+        if !voice.player.isPlaying { voice.player.play() }
+
+        // Bass wants a fast attack so the groove stays tight — ~12 ms.
+        let steps = 4
+        let stepInterval: TimeInterval = 0.003
+        for step in 1...steps {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(step) * stepInterval) { [weak self] in
+                guard let self = self, self.bassFadeGen[idx] == gen else { return }
+                voice.player.volume = volume * Float(step) / Float(steps)
+            }
+        }
+    }
+
+    // Stop all pad + bass voices with a short fade. Used on part-change so
+    // sustained drone chords don't bleed into the new chord.
+    func stopAllPadAndBass() {
+        let steps = 8
+        let stepInterval: TimeInterval = 0.006  // ~48 ms fade-out
+
+        let padList = padVoices
+        let padStart = padList.map { $0.player.volume }
+        for i in 0..<padList.count { padFadeGen[i] += 1 }
+        let padGens = padFadeGen
+
+        let bassList = bassVoices
+        let bassStart = bassList.map { $0.player.volume }
+        for i in 0..<bassList.count { bassFadeGen[i] += 1 }
+        let bassGens = bassFadeGen
+
+        for step in 1...steps {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(step) * stepInterval) { [weak self] in
+                guard let self = self else { return }
+                let factor = Float(steps - step) / Float(steps)
+                for (i, voice) in padList.enumerated() where self.padFadeGen[i] == padGens[i] {
+                    voice.player.volume = padStart[i] * factor
+                }
+                for (i, voice) in bassList.enumerated() where self.bassFadeGen[i] == bassGens[i] {
+                    voice.player.volume = bassStart[i] * factor
+                }
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Double(steps + 1) * stepInterval) { [weak self] in
+            guard let self = self else { return }
+            for (i, voice) in padList.enumerated() where self.padFadeGen[i] == padGens[i] {
+                voice.player.stop()
+                voice.player.volume = padStart[i]
+            }
+            for (i, voice) in bassList.enumerated() where self.bassFadeGen[i] == bassGens[i] {
+                voice.player.stop()
+                voice.player.volume = bassStart[i]
+            }
+        }
+    }
 }
+

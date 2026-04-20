@@ -1,13 +1,6 @@
 import Foundation
 
-// User-editable pattern definition matching the JSON schema at
-// ~/BackTrack/Samples/patterns.json. Each grid is a string of 16
-// characters (one per 16th-note tick in the bar):
-//   `X` — full hit (velocity 1.0)
-//   `x` — ghost hit (velocity 0.35)
-//   `.` — rest
-// Spaces are ignored, so you can write `X... X... X... X...` for
-// readability.
+// Drum pattern definition (from ~/BackTrack/Samples/patterns.json).
 struct PatternDefinition: Codable {
     let name: String
     let kick: String
@@ -23,6 +16,8 @@ struct PatternDefinition: Codable {
 enum Generators {
     static let ticksPerBar = 16
 
+    // MARK: - Drum patterns (1-10 from patterns.json)
+
     private struct CompiledPattern {
         let name: String
         let kick: [Int: Float]
@@ -30,11 +25,8 @@ enum Generators {
         let hh: [Int: Float]
     }
 
-    // Active compiled patterns. Starts as the built-in defaults; loadPatterns
-    // overrides slots that the user defines in patterns.json.
     private static var patterns: [CompiledPattern] = defaultDefinitions.map(compile)
 
-    // Default file location — same samples directory users already write to.
     static func defaultPatternsURL() -> URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("BackTrack")
@@ -47,9 +39,7 @@ enum Generators {
     }
 
     static func loadPatterns(from url: URL) {
-        // Always start from defaults so users can override a subset.
         var result = defaultDefinitions.map(compile)
-
         guard FileManager.default.fileExists(atPath: url.path) else {
             patterns = result
             return
@@ -66,8 +56,8 @@ enum Generators {
         patterns = result
     }
 
-    static func drums(state: AppState, tick: Int) -> [NoteEvent] {
-        let idx = max(0, min(patterns.count - 1, state.pattern - 1))
+    static func drums(pattern: Int, tick: Int) -> [NoteEvent] {
+        let idx = max(0, min(patterns.count - 1, pattern - 1))
         let p = patterns[idx]
         var events: [NoteEvent] = []
         if let v = p.kick[tick] { events.append(.init(voice: .kick, velocity: v)) }
@@ -80,8 +70,6 @@ enum Generators {
         let idx = max(0, min(patterns.count - 1, i))
         return patterns[idx].name
     }
-
-    // MARK: - Compilation
 
     private static func compile(_ def: PatternDefinition) -> CompiledPattern {
         CompiledPattern(
@@ -100,17 +88,105 @@ enum Generators {
             switch c {
             case "X", "O": map[i] = 1.0
             case "x", "o": map[i] = 0.35
-            default: break  // '.' and any other char treated as rest
+            default: break
             }
         }
         return map
     }
 
-    // MARK: - Built-in defaults
+    // MARK: - Pad generator (per-chord, levels 0-3)
 
-    // Ten patterns grouped in threes by feel (straight / rock / boom-bap),
-    // each group ramping simple → busy. Pattern 10 is a sparse outlier
-    // that resets the cycle.
+    // Emits pad events for `tick` within a bar that has `chord` as its
+    // active chord. `chordChanged` is true only on the first tick of a
+    // bar where the chord differs from the previous bar (or the song
+    // just started) — used to decide whether level-1 drone retriggers.
+    static func pad(level: Int, chord: Chord, tick: Int, chordChanged: Bool) -> [NoteEvent] {
+        guard level > 0 else { return [] }
+
+        let root = chord.rootPitchClass
+        let third = (root + (chord.quality == .minor ? 3 : 4)) % 12
+        let fifth = (root + 7) % 12
+        let seventh: Int = {
+            switch chord.ext {
+            case .none: return (root + 10) % 12   // default to dom7 color for LVL 3 extension
+            case .dom7: return (root + 10) % 12
+            case .maj7: return (root + 11) % 12
+            }
+        }()
+        let ninth = (root + 14) % 12
+
+        switch level {
+        case 1:
+            // Drone: root + 5, one trigger per chord change on the
+            // downbeat of the bar where the chord appears.
+            if tick == 0 && chordChanged {
+                return [
+                    .init(voice: .pad(pitchClass: root), velocity: 0.55),
+                    .init(voice: .pad(pitchClass: fifth), velocity: 0.55)
+                ]
+            }
+            return []
+
+        case 2:
+            // Stabs: full triad on quarter notes.
+            if tick % 4 == 0 {
+                return [
+                    .init(voice: .pad(pitchClass: root), velocity: 0.45),
+                    .init(voice: .pad(pitchClass: third), velocity: 0.45),
+                    .init(voice: .pad(pitchClass: fifth), velocity: 0.45)
+                ]
+            }
+            return []
+
+        case 3:
+            // Arpeggio: extended chord (+ 7th, 9th) cycling on 8th notes.
+            if tick % 2 == 0 {
+                let notes = [root, third, fifth, seventh, ninth]
+                let idx = (tick / 2) % notes.count
+                return [.init(voice: .pad(pitchClass: notes[idx]), velocity: 0.55)]
+            }
+            return []
+
+        default:
+            return []
+        }
+    }
+
+    // MARK: - Bass generator (per-chord root, levels 0-3)
+
+    static func bass(level: Int, chord: Chord, tick: Int) -> [NoteEvent] {
+        guard level > 0 else { return [] }
+        let root = chord.rootPitchClass
+
+        switch level {
+        case 1:
+            // Whole: root on beat 1 of the bar.
+            if tick == 0 {
+                return [.init(voice: .bass(pitchClass: root), velocity: 1.0)]
+            }
+            return []
+
+        case 2:
+            // Half: root on beats 1 and 3.
+            if tick == 0 || tick == 8 {
+                return [.init(voice: .bass(pitchClass: root), velocity: 1.0)]
+            }
+            return []
+
+        case 3:
+            // Pump: root on every quarter.
+            if tick % 4 == 0 {
+                return [.init(voice: .bass(pitchClass: root), velocity: 1.0)]
+            }
+            return []
+
+        default:
+            return []
+        }
+    }
+
+    // MARK: - Built-in pattern defaults (used if patterns.json absent)
+
     private static let defaultDefinitions: [PatternDefinition] = [
         PatternDefinition(
             name: "Minimal pulse",

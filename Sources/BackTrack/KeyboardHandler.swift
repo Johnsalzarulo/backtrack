@@ -22,9 +22,7 @@ final class KeyboardHandler {
     }
 
     deinit {
-        if let monitor = monitor {
-            NSEvent.removeMonitor(monitor)
-        }
+        if let monitor = monitor { NSEvent.removeMonitor(monitor) }
     }
 
     private func handle(_ event: NSEvent) -> Bool {
@@ -34,11 +32,17 @@ final class KeyboardHandler {
         case 49: // Space
             clock.toggleTransport()
             return true
-        case 126: // Up arrow
-            adjustTempo(by: 1)
+        case 123: // Left — previous song (stops playback)
+            clock.previousSong()
             return true
-        case 125: // Down arrow
-            adjustTempo(by: -1)
+        case 124: // Right — next song
+            clock.nextSong()
+            return true
+        case 125: // Down — previous part (queued to next bar)
+            clock.queuePreviousPart()
+            return true
+        case 126: // Up — next part (queued to next bar)
+            clock.queueNextPart()
             return true
         default:
             break
@@ -53,21 +57,7 @@ final class KeyboardHandler {
             clock.tapTempo()
             return true
         case "r":
-            audio.loadSamples()
-            Generators.loadPatterns()
-            state.inputDevice = AudioDevices.defaultInputName()
-            state.outputDevice = AudioDevices.defaultOutputName()
-            return true
-        case "d":
-            audio.cycleKit()
-            return true
-        case "1", "2", "3", "4", "5", "6", "7", "8", "9":
-            if let n = Int(chars) {
-                state.pending.pattern = n
-            }
-            return true
-        case "0":
-            state.pending.pattern = 10
+            reloadEverything()
             return true
         case "k":
             state.kickLevel = AppState.cycleDown(state.kickLevel)
@@ -82,16 +72,28 @@ final class KeyboardHandler {
             audio.setHhVolume(level: state.hhLevel)
             return true
         case "p":
-            state.padMode = state.padMode.next
-            audio.apply(mode: state.padMode)
+            state.padVolume = AppState.cycleDown(state.padVolume)
+            audio.setPadVolume(level: state.padVolume)
+            return true
+        case "b":
+            state.bassVolume = AppState.cycleDown(state.bassVolume)
+            audio.setBassVolume(level: state.bassVolume)
             return true
         default:
             return false
         }
     }
 
-    private func adjustTempo(by delta: Double) {
-        state.tempo = max(40, min(240, state.tempo + delta))
-        audio.updateDelayTime()
+    private func reloadEverything() {
+        audio.loadAllSamples()
+        Generators.loadPatterns()
+        let result = SongLoader.loadAll()
+        state.songs = result.songs
+        state.songIssues = result.issues
+        state.outputDevice = AudioDevices.defaultOutputName()
+        // Keep index in range.
+        if state.currentSongIndex >= state.songs.count {
+            state.currentSongIndex = max(0, state.songs.count - 1)
+        }
     }
 }

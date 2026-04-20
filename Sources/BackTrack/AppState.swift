@@ -1,85 +1,90 @@
 import Foundation
 import SwiftUI
 
-struct PendingChanges {
-    var pattern: Int?
-
-    var isEmpty: Bool {
-        pattern == nil
-    }
-}
-
-enum PadMode: Int, CaseIterable {
-    case off
-    case simple
-    case shimmer
-    case synth
-    case strings
-
-    var displayName: String {
-        switch self {
-        case .off:     return "OFF"
-        case .simple:  return "SIMPLE"
-        case .shimmer: return "SHIMMER"
-        case .synth:   return "SYNTH"
-        case .strings: return "STRINGS"
-        }
-    }
-
-    var next: PadMode {
-        let all = PadMode.allCases
-        let i = all.firstIndex(of: self) ?? 0
-        return all[(i + 1) % all.count]
-    }
-}
-
 final class AppState: ObservableObject {
-    static let noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+    // MARK: - Transport + tempo
 
     @Published var tempo: Double = 100
     @Published var isPlaying: Bool = false
-    @Published var pattern: Int = 2  // 1–10; default is the classic kick1&3 / snare2&4 / hh quarters
     @Published var currentBeat: Int = 0
-    @Published var pending: PendingChanges = PendingChanges()
     @Published var bpmFlash: Bool = false
-    @Published var missingSamples: [String] = []
 
-    // Volume levels 0–3: indexes into Self.levelGains (0%, 50%, 75%, 100%).
+    // MARK: - Song state
+
+    @Published var songs: [Song] = []
+    @Published var currentSongIndex: Int = 0
+    @Published var songIssues: [String] = []
+
+    @Published var currentPartIndex: Int = 0    // index into current song's structure
+    @Published var currentBar: Int = 0          // bar within current part (0-based)
+    @Published var pendingPartIndex: Int? = nil // queued part jump on next bar
+
+    var currentSong: Song? {
+        guard !songs.isEmpty, currentSongIndex >= 0, currentSongIndex < songs.count else {
+            return nil
+        }
+        return songs[currentSongIndex]
+    }
+
+    var currentPartName: String? {
+        guard let song = currentSong,
+              currentPartIndex >= 0,
+              currentPartIndex < song.structure.count else { return nil }
+        return song.structure[currentPartIndex]
+    }
+
+    var currentPart: Part? {
+        guard let name = currentPartName, let song = currentSong else { return nil }
+        return song.parts[name]
+    }
+
+    var currentChord: Chord? {
+        guard let part = currentPart, currentBar < part.chords.count else { return nil }
+        return part.chords[currentBar]
+    }
+
+    var nextChord: Chord? {
+        guard let part = currentPart else { return nil }
+        if currentBar + 1 < part.chords.count {
+            return part.chords[currentBar + 1]
+        }
+        // Next bar is in the next part.
+        guard let song = currentSong,
+              currentPartIndex + 1 < song.structure.count,
+              let nextPart = song.parts[song.structure[currentPartIndex + 1]],
+              !nextPart.chords.isEmpty else { return nil }
+        return nextPart.chords[0]
+    }
+
+    // MARK: - Per-instrument mix (0-3: 0%, 50%, 75%, 100%)
+
     @Published var kickLevel: Int = 3
     @Published var snareLevel: Int = 3
     @Published var hhLevel: Int = 3
+    @Published var padVolume: Int = 3
+    @Published var bassVolume: Int = 3
 
-    // Pad is no longer a volume-cycle instrument; P cycles through
-    // pre-baked effect-chain presets defined by PadMode.
-    @Published var padMode: PadMode = .off
+    // MARK: - Activity timestamps (HUD dots)
 
-    // Last-trigger timestamps drive the per-instrument activity indicators
-    // in the HUD. Pad is continuous (live-processed) so has no trigger.
     @Published var kickLastTrigger: Date = .distantPast
     @Published var snareLastTrigger: Date = .distantPast
     @Published var hhLastTrigger: Date = .distantPast
-
-    @Published var detectedNote: String? = nil
-    @Published var detectedFrequency: Float? = nil
-
-    @Published var inputDevice: String? = nil
-    @Published var outputDevice: String? = nil
-
-    // Signal-present indicators for MIC and OUT rows: updated whenever
-    // the respective tap sees RMS above a small threshold.
-    @Published var micLastSignal: Date = .distantPast
+    @Published var padLastTrigger: Date = .distantPast
+    @Published var bassLastTrigger: Date = .distantPast
     @Published var outLastSignal: Date = .distantPast
 
-    // Discovered drum kits. Each kit is a subdirectory under drums/.
-    @Published var kitNames: [String] = []
-    @Published var currentKitIndex: Int = 0
+    // MARK: - Sample directories (discovered at load)
 
-    var currentKitName: String {
-        guard !kitNames.isEmpty,
-              currentKitIndex >= 0,
-              currentKitIndex < kitNames.count else { return "—" }
-        return kitNames[currentKitIndex]
-    }
+    @Published var drumKitNames: [String] = []
+    @Published var padSoundNames: [String] = []
+    @Published var bassSoundNames: [String] = []
+    @Published var missingSamples: [String] = []
+
+    // MARK: - Device display
+
+    @Published var outputDevice: String? = nil
+
+    // MARK: - Volume helpers
 
     static let levelGains: [Float] = [0.0, 0.5, 0.75, 1.0]
     static let maxLevel = levelGains.count - 1
@@ -90,10 +95,5 @@ final class AppState: ObservableObject {
 
     static func cycleDown(_ level: Int) -> Int {
         level == 0 ? maxLevel : level - 1
-    }
-
-    func applyPending() {
-        if let p = pending.pattern { pattern = p }
-        pending = PendingChanges()
     }
 }
