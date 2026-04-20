@@ -87,6 +87,7 @@ scans the directory; any malformed songs surface in the HUD's
 | `repeats` | part | How many times the chord progression cycles. Optional, default 1. Total bars = `chords.length × repeats`. |
 | `pad`, `bass` | part | Complexity 0–3 (0 = silent). Default 0. |
 | `lyrics` | part | Optional multi-line string. |
+| `visual` | part | Optional filename of an animated GIF under `~/BackTrack/Visuals/gifs/`. Displayed as a CSS-cover background behind the synth visuals. |
 
 **Thinking in progressions**: `chords` defines one cycle of harmonic
 movement; `repeats` says how many cycles that part plays through. A
@@ -237,16 +238,22 @@ fast. In-app keyboard audition:
 
 ## Visuals window
 
-Second window that renders console-style geometric visuals reactive to
-the same trigger timestamps the HUD uses. Drag it to a secondary
-monitor or a projector and manually full-screen it when performing.
+Second window that renders per-part background clips + console-style
+geometric visuals reactive to the same trigger timestamps the HUD
+uses. Drag it to a secondary monitor or a projector; press `F` to
+toggle macOS native full-screen.
 
-Layer order (back to front):
+Background layer — animated GIFs placed at
+`~/BackTrack/Visuals/gifs/` and referenced per part via the `visual`
+field. Scaled CSS-cover style: fills both axes, preserves aspect
+ratio, crops whatever overflows.
+
+Synth layer (on top of the background, back to front):
 
 | Voice | Shape |
 |-------|-------|
 | *idle* | Thin always-on border for projector / screen alignment |
-| Pad | 12 spinning sun-rays around the center; brightness tracks pad activity |
+| Pad | 12 spinning spokes in a donut band (22–48% of min dim); brightness tracks pad activity; only visible while the pad is firing |
 | Kick | Thick outer border flash |
 | Bass | Ring at ~40% radius |
 | HH | Ring at ~13% radius around the snare dot |
@@ -254,7 +261,7 @@ Layer order (back to front):
 
 Everything is sized proportionally to `min(width, height)` so it holds
 up on any aspect ratio. Pale-green monochrome to match the HUD.
-Toggle visibility with `V`.
+Toggle visibility with `V`; full-screen with `F`.
 
 ## Files
 
@@ -270,3 +277,4 @@ Toggle visibility with `V`.
 - `Song.swift` — Song / Part structs + raw JSON schema
 - `SongLoader.swift` — directory scan + validation
 - `VisualsView.swift` — Canvas-based console visuals window
+- `GifView.swift` — animated-GIF background layer with CSS-cover scaling

@@ -53,6 +53,22 @@ final class AppState: ObservableObject {
         return part.chord(atBar: currentBar)
     }
 
+    // Resolves the current part's `visual` filename to a full URL under
+    // ~/BackTrack/Visuals/gifs/. Returns nil if the field is unset or
+    // the file doesn't exist on disk.
+    var currentPartVisualURL: URL? {
+        guard let part = currentPart,
+              let name = part.visual,
+              !name.isEmpty else { return nil }
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("BackTrack")
+            .appendingPathComponent("Visuals")
+            .appendingPathComponent("gifs")
+            .appendingPathComponent(name)
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return url
+    }
+
     var nextChord: Chord? {
         guard let part = currentPart else { return nil }
         if currentBar + 1 < part.bars {

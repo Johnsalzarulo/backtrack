@@ -29,10 +29,19 @@ struct VisualsView: View {
     private let padDecay: TimeInterval = 0.45
 
     var body: some View {
-        TimelineView(.animation) { context in
-            Canvas { ctx, size in
-                render(ctx: ctx, size: size, now: context.date)
+        ZStack {
+            // Bottom layer: per-part GIF background, CSS-cover scaling.
+            if let url = state.currentPartVisualURL {
+                GifView(url: url)
+                    .ignoresSafeArea()
             }
+            // Top layer: console-style synth visuals.
+            TimelineView(.animation) { context in
+                Canvas { ctx, size in
+                    render(ctx: ctx, size: size, now: context.date)
+                }
+            }
+            .ignoresSafeArea()
         }
         .background(Color.black)
         .ignoresSafeArea()

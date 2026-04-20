@@ -22,6 +22,7 @@ struct PartJSON: Codable {
     let pad: Int?
     let bass: Int?
     let lyrics: String?
+    let visual: String?   // filename under ~/BackTrack/Visuals/gifs/
 }
 
 // Compiled, validated song ready for the playback engine.
@@ -52,6 +53,7 @@ struct Part {
     let padLevel: Int          // 0..3
     let bassLevel: Int         // 0..3
     let lyrics: String         // empty string if not provided
+    let visual: String?        // optional gif filename under Visuals/gifs/
 
     // Derived: total bar count for this part.
     var bars: Int { chords.count * repeats }

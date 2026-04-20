@@ -140,7 +140,8 @@ final class KeyboardHandler {
             repeats: existing.repeats,
             padLevel: existing.padLevel,
             bassLevel: existing.bassLevel,
-            lyrics: existing.lyrics
+            lyrics: existing.lyrics,
+            visual: existing.visual
         )
         var newParts = state.songs[songIdx].parts
         newParts[partName] = updatedPart

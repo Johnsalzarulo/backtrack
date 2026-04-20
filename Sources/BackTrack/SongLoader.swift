@@ -122,7 +122,8 @@ enum SongLoader {
                 repeats: part.repeats > 1 ? part.repeats : nil,
                 pad: part.padLevel > 0 ? part.padLevel : nil,
                 bass: part.bassLevel > 0 ? part.bassLevel : nil,
-                lyrics: part.lyrics.isEmpty ? nil : part.lyrics
+                lyrics: part.lyrics.isEmpty ? nil : part.lyrics,
+                visual: part.visual
             )
         }
         return SongJSON(
@@ -175,7 +176,8 @@ enum SongLoader {
             repeats: repeats,
             padLevel: padLevel,
             bassLevel: bassLevel,
-            lyrics: part.lyrics ?? ""
+            lyrics: part.lyrics ?? "",
+            visual: part.visual
         )
     }
 }
