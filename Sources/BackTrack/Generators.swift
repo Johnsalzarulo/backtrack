@@ -109,20 +109,18 @@ enum Generators {
     // active chord. `chordChanged` is true only on the first tick of a
     // bar where the chord differs from the previous bar (or the song
     // just started) — used to decide whether level-1 drone retriggers.
+    //
+    // All levels only use the chord's actual tones (via chord.intervals):
+    // plain triads get root / 3rd / 5th, explicit 7th chords add the 7th.
+    // We never synthesize a 7th or 9th for a plain triad — that was
+    // landing out of key on diatonic progressions (e.g. implicit dom7
+    // on a G chord in D major adds F natural).
     static func pad(level: Int, chord: Chord, tick: Int, chordChanged: Bool) -> [NoteEvent] {
         guard level > 0 else { return [] }
 
         let root = chord.rootPitchClass
         let third = (root + (chord.quality == .minor ? 3 : 4)) % 12
         let fifth = (root + 7) % 12
-        let seventh: Int = {
-            switch chord.ext {
-            case .none: return (root + 10) % 12   // default to dom7 color for LVL 3 extension
-            case .dom7: return (root + 10) % 12
-            case .maj7: return (root + 11) % 12
-            }
-        }()
-        let ninth = (root + 14) % 12
 
         switch level {
         case 1:
@@ -148,11 +146,13 @@ enum Generators {
             return []
 
         case 3:
-            // Arpeggio: extended chord (+ 7th, 9th) cycling on 8th notes.
+            // Arpeggio: cycle the chord's own tones on 8th notes.
+            // Triads give root-3-5-root-3-5-... ; 7th chords add the
+            // 7th into the cycle. Tick 0 always lands on the root.
             if tick % 2 == 0 {
-                let notes = [root, third, fifth, seventh, ninth]
+                let notes = chord.intervals.map { (root + $0) % 12 }
                 let idx = (tick / 2) % notes.count
-                return [.init(voice: .pad(pitchClass: notes[idx]), velocity: 0.55)]
+                return [.init(voice: .pad(pitchClass: notes[idx]), velocity: 0.5)]
             }
             return []
 

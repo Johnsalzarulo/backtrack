@@ -109,7 +109,7 @@ is a parse error.
 | 0 | Silent |
 | 1 | Drone — root + 5th, one trigger per chord change, sustained |
 | 2 | Stabs — full triad retriggered on quarter notes |
-| 3 | Arpeggio — extended chord (root / 3rd / 5th / 7th / 9th) on 8th notes |
+| 3 | Arpeggio — cycle the chord's own tones on 8th notes (triad = root / 3rd / 5th; explicit 7th chords add the 7th). Never synthesizes extensions, so it stays diatonic. |
 
 On chord changes within a part (and on part transitions), the previous
 chord's pad and bass voices are faded out so long sustained samples
