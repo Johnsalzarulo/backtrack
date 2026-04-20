@@ -90,6 +90,9 @@ final class KeyboardHandler {
         case "v":
             state.visualsOpen.toggle()
             return true
+        case "f":
+            toggleVisualsFullScreen()
+            return true
         case "[":
             cyclePatternForCurrentPart(direction: -1)
             return true
@@ -176,6 +179,20 @@ final class KeyboardHandler {
             }
         }
         state.pendingPatternSaves.removeAll()
+    }
+
+    // Put the visuals window into (or out of) macOS native full-screen.
+    // The title bar auto-hides in full-screen and the window covers the
+    // entire display, which is the cleanest answer for projector use.
+    // Open the window first if it was closed.
+    private func toggleVisualsFullScreen() {
+        if !state.visualsOpen {
+            state.visualsOpen = true
+        }
+        DispatchQueue.main.async {
+            guard let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "visuals" }) else { return }
+            window.toggleFullScreen(nil)
+        }
     }
 
     private func reloadEverything() {

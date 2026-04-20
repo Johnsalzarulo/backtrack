@@ -297,7 +297,7 @@ struct ContentView: View {
             row("K S H", "drum volume",         "P B",   "pad / bass volume")
             row("[ ]",   "audition pattern",    "L",     "loop current part")
             row("⌘ S",   "save pattern edit",   "V",     "show / hide visuals")
-            row("R",     "reload everything",   "",      "")
+            row("F",     "visuals full-screen", "R",     "reload everything")
         }
         .foregroundColor(dim)
         .font(.system(.caption, design: .monospaced))

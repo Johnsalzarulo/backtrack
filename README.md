@@ -151,6 +151,7 @@ swift build -c release
 | `[` / `]` | Previous / next drum pattern for the current part. Change is live (next bar) but in-memory only until saved. |
 | `⌘ S` | Save in-memory pattern edits back to the song's JSON. |
 | `V` | Show / hide the visuals window. |
+| `F` | Toggle the visuals window into macOS native full-screen (title bar auto-hides, window covers the display). Opens the window first if it was closed. |
 | `K` / `S` / `H` | Cycle kick / snare / hi-hat volume |
 | `P` / `B` | Cycle pad / bass volume |
 
