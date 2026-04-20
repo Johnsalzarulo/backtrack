@@ -76,27 +76,30 @@ struct VisualsView: View {
         )
     }
 
-    // Spinning ray arms radiating from center. Baseline brightness keeps
-    // them visible during idle/loud sections too; pad activity brightens.
+    // Spinning ray segments in a donut band around the center. Only
+    // visible when the pad has fired recently — idle shows just the
+    // border. Each ray starts at an inner radius (past the HH ring)
+    // and extends outward into the bass-ring zone.
     private func drawPadRays(ctx: GraphicsContext, center: CGPoint, minDim: CGFloat, now: Date) {
         let padB = brightness(last: state.padLastTrigger, now: now, decay: padDecay)
-        let baseline = 0.10
-        let opacity = min(1.0, baseline + padB * 0.55)
-        if opacity < 0.01 { return }
+        guard padB > 0 else { return }
 
-        let rayLength = minDim * 0.45
+        let innerRadius = minDim * 0.22
+        let outerRadius = minDim * 0.48
         let thickness = minDim * 0.004
         let rotation = now.timeIntervalSinceReferenceDate
             .truncatingRemainder(dividingBy: rotationPeriod) / rotationPeriod * 2 * .pi
 
         for i in 0..<rayCount {
             let angle = rotation + Double(i) * 2 * .pi / Double(rayCount)
-            let endX = center.x + CGFloat(cos(angle)) * rayLength
-            let endY = center.y + CGFloat(sin(angle)) * rayLength
+            let cosA = CGFloat(cos(angle))
+            let sinA = CGFloat(sin(angle))
+            let start = CGPoint(x: center.x + cosA * innerRadius, y: center.y + sinA * innerRadius)
+            let end = CGPoint(x: center.x + cosA * outerRadius, y: center.y + sinA * outerRadius)
             var path = Path()
-            path.move(to: center)
-            path.addLine(to: CGPoint(x: endX, y: endY))
-            ctx.stroke(path, with: .color(fg.opacity(opacity)), lineWidth: thickness)
+            path.move(to: start)
+            path.addLine(to: end)
+            ctx.stroke(path, with: .color(fg.opacity(padB)), lineWidth: thickness)
         }
     }
 
