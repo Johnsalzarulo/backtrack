@@ -285,15 +285,54 @@ struct ContentView: View {
 
     @ViewBuilder
     private var lyricsBlock: some View {
-        if let part = state.currentPart, !part.lyrics.isEmpty {
-            Text(part.lyrics)
-                .font(.system(size: 16, design: .monospaced))
-                .lineSpacing(6)
-                .fixedSize(horizontal: false, vertical: true)
-        } else {
-            Text(" ")
-                .font(.system(size: 16, design: .monospaced))
+        VStack(alignment: .leading, spacing: 16) {
+            // Active part's lyrics.
+            if let part = state.currentPart, !part.lyrics.isEmpty {
+                Text(part.lyrics)
+                    .font(.system(size: 16, design: .monospaced))
+                    .lineSpacing(6)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text(" ")
+                    .font(.system(size: 16, design: .monospaced))
+            }
+
+            // Peek of what's coming next so the first lyric of a chorus /
+            // verse isn't a surprise — especially useful when starting from
+            // an instrumental intro.
+            if let preview = nextPartPreview {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("NEXT — \(preview.name.uppercased())")
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundColor(dim)
+                    if !preview.firstLine.isEmpty {
+                        Text(preview.firstLine)
+                            .font(.system(size: 14, design: .monospaced))
+                            .foregroundColor(dim.opacity(0.75))
+                    }
+                }
+            }
         }
+    }
+
+    // Next part to play: a queued jump if set, otherwise the next entry
+    // in the song structure. Nil on the last part of the song with no
+    // pending jump (song ends here).
+    private var nextPartPreview: (name: String, firstLine: String)? {
+        guard let song = state.currentSong else { return nil }
+        let nextIdx: Int
+        if let pending = state.pendingPartIndex {
+            nextIdx = pending
+        } else if state.currentPartIndex + 1 < song.structure.count {
+            nextIdx = state.currentPartIndex + 1
+        } else {
+            return nil
+        }
+        guard nextIdx >= 0 && nextIdx < song.structure.count else { return nil }
+        let name = song.structure[nextIdx]
+        guard let part = song.parts[name] else { return nil }
+        let first = part.lyrics.split(separator: "\n").first.map(String.init) ?? ""
+        return (name, first)
     }
 
     private var outDeviceBlock: some View {
