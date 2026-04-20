@@ -82,7 +82,7 @@ scans the directory; any malformed songs surface in the HUD's
 | `pad`, `bass` | song | Pad/bass *sound* folder name. Required only if any part uses them. |
 | `parts` | song | Dictionary of part definitions, referenced by name. |
 | `structure` | song | Array of part names, in play order. The same name can appear multiple times. |
-| `pattern` | part | Drum pattern 1–10 (index into `patterns.json`). |
+| `pattern` | part | Drum pattern name from `patterns.json` (e.g. `"Rock basic"`, `"Four on the floor"`). |
 | `chords` | part | The chord progression of the part — one symbol per bar of the progression. |
 | `repeats` | part | How many times the chord progression cycles. Optional, default 1. Total bars = `chords.length × repeats`. |
 | `pad`, `bass` | part | Complexity 0–3 (0 = silent). Default 0. |
@@ -177,10 +177,42 @@ readouts around.
 
 ## Drum patterns (`patterns.json`)
 
-Optional file at `~/BackTrack/Samples/patterns.json` overrides the ten
-built-in patterns. See the existing file for format; grids are strings
-of 16 characters where `X` is a full hit, `x` is a ghost, `.` is a rest,
-and spaces are ignored.
+`~/BackTrack/Samples/patterns.json` defines every drum pattern by name.
+Each pattern is an object with `name`, `kick`, `snare`, `hh` — grids
+are 16-character strings where `X` is a full hit, `x` is a ghost, `.`
+is a rest, and spaces are ignored. Songs reference patterns by the
+`name` string. Pattern names are unique; redefining a name overrides
+the built-in default.
+
+The shipped library ships 22 patterns, indie-rock-leaning:
+
+| Name | Feel |
+|------|------|
+| Minimal pulse | Kick 1 only, hi-hat quarters |
+| 4/4 | Classic kick 1&3 / snare 2&4 / quarter hats |
+| 4/4 Drive | Four-on-floor kick, snare 2&4, ghosted 8th hats |
+| Rock minimal | Kick 1, snare 3, 8th hats |
+| Rock basic | Kick 1 + 1+, snare 3, 8th hats |
+| Rock 16th | Kick 1, 2+, 4+, snare 3, 8th hats |
+| Boom-bap min | Kick 1, snare 3, hats on 2 & 4 |
+| Boom-bap | Kick 1&3, snare 3 + ghost 4e, 8th hats |
+| Boom-bap max | Same backbone, more driving feel |
+| Kicks | Kick 1&3, quarter hats, no snare |
+| Backbeat 8ths | Kick 1&3, snare 2&4, 8th hats |
+| Backbeat ghosts | Backbeat + ghost snare on 4e |
+| Four on the floor | Kick every quarter, snare 2&4, 8th hats |
+| Motorik | Four-on-floor, ghost snares, 16th hats (kraut rock) |
+| Driving 8ths | Kick 1, 2+, 3, 4+, snare 2&4, 8th hats |
+| Half-time | Kick 1, snare 3, quarter hats — slow indie |
+| Stop-time | Kick 1&3, snare 2&4, no hats — dramatic drops |
+| Offbeat hats | Kick 1&3, snare 2&4, hats only on offbeats |
+| Chorus lift | Kick 1, 2+, 3, 4, snare 2&4, 16th hats — big chorus |
+| Snare build | Kick 1, snare roll on beat 4 — fill into chorus |
+| Verse hush | Kick 1&3, no snare, ghost hats 2&4 — whispered verse |
+| Outro wind-down | Kick 1, snare 4, quarter hats — tapered exit |
+
+Edit the file to customize any of them or add your own. Auto-reloads
+on save (within ~1 s).
 
 ## Files
 

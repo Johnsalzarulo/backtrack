@@ -99,8 +99,10 @@ enum SongLoader {
     }
 
     private static func compile(part: PartJSON, name: String) throws -> Part {
-        guard (1...10).contains(part.pattern) else {
-            throw SongValidationError("part '\(name)' pattern \(part.pattern) out of range (1-10)")
+        guard Generators.allPatternNames().contains(part.pattern) else {
+            throw SongValidationError(
+                "part '\(name)' references pattern '\(part.pattern)' which isn't defined in patterns.json"
+            )
         }
         guard !part.chords.isEmpty else {
             throw SongValidationError("part '\(name)' chords cannot be empty")

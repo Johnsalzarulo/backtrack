@@ -25,7 +25,10 @@ enum Generators {
         let hh: [Int: Float]
     }
 
-    private static var patterns: [CompiledPattern] = defaultDefinitions.map(compile)
+    // Keyed by pattern name. Songs reference patterns by their name string;
+    // unknown names fall through to silence (and are also caught at song
+    // load time via allPatternNames()).
+    private static var patterns: [String: CompiledPattern] = compileAll(defaultDefinitions)
 
     static func defaultPatternsURL() -> URL {
         FileManager.default.homeDirectoryForCurrentUser
@@ -39,7 +42,9 @@ enum Generators {
     }
 
     static func loadPatterns(from url: URL) {
-        var result = defaultDefinitions.map(compile)
+        // Start with built-in defaults; patterns.json overrides by name and
+        // also contributes any new names.
+        var result = compileAll(defaultDefinitions)
         guard FileManager.default.fileExists(atPath: url.path) else {
             patterns = result
             return
@@ -47,8 +52,8 @@ enum Generators {
         do {
             let data = try Data(contentsOf: url)
             let defs = try JSONDecoder().decode([PatternDefinition].self, from: data)
-            for (i, def) in defs.enumerated() where i < result.count {
-                result[i] = compile(def)
+            for def in defs {
+                result[def.name] = compile(def)
             }
         } catch {
             NSLog("BackTrack: failed to load patterns.json: \(error)")
@@ -56,9 +61,8 @@ enum Generators {
         patterns = result
     }
 
-    static func drums(pattern: Int, tick: Int) -> [NoteEvent] {
-        let idx = max(0, min(patterns.count - 1, pattern - 1))
-        let p = patterns[idx]
+    static func drums(pattern name: String, tick: Int) -> [NoteEvent] {
+        guard let p = patterns[name] else { return [] }
         var events: [NoteEvent] = []
         if let v = p.kick[tick] { events.append(.init(voice: .kick, velocity: v)) }
         if let v = p.snare[tick] { events.append(.init(voice: .snare, velocity: v)) }
@@ -66,9 +70,14 @@ enum Generators {
         return events
     }
 
-    static func patternName(forIndex i: Int) -> String {
-        let idx = max(0, min(patterns.count - 1, i))
-        return patterns[idx].name
+    static func allPatternNames() -> Set<String> {
+        Set(patterns.keys)
+    }
+
+    private static func compileAll(_ defs: [PatternDefinition]) -> [String: CompiledPattern] {
+        var result: [String: CompiledPattern] = [:]
+        for def in defs { result[def.name] = compile(def) }
+        return result
     }
 
     private static func compile(_ def: PatternDefinition) -> CompiledPattern {

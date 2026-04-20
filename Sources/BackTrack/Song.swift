@@ -16,7 +16,7 @@ struct SongJSON: Decodable {
 }
 
 struct PartJSON: Decodable {
-    let pattern: Int
+    let pattern: String
     let chords: [String]
     let repeats: Int?
     let pad: Int?
@@ -45,7 +45,7 @@ struct Song {
 
 struct Part {
     let name: String
-    let pattern: Int           // 1..10, references patterns.json slot
+    let pattern: String        // name in patterns.json
     let chords: [Chord]        // the progression; looped `repeats` times
     let repeats: Int           // how many times the progression cycles (>= 1)
     let padLevel: Int          // 0..3
