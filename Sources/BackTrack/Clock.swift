@@ -31,8 +31,12 @@ final class Clock: ObservableObject {
         if let bass = song.bassSound { audio.selectBassSound(named: bass) }
         state.tempo = song.bpm
 
+        // Respect whatever part the user arrowed to while stopped —
+        // don't forcibly rewind to the intro on each Space press.
+        if state.currentPartIndex < 0 || state.currentPartIndex >= song.structure.count {
+            state.currentPartIndex = 0
+        }
         tick = 0
-        state.currentPartIndex = 0
         state.currentBar = 0
         state.pendingPartIndex = nil
         lastChordKey = ""
@@ -49,20 +53,27 @@ final class Clock: ObservableObject {
         audio.stopAllPadAndBass()
     }
 
-    // MARK: - Part navigation (queued to next bar)
+    // MARK: - Part navigation
 
-    func queueNextPart() {
+    // Arrow keys. While playing, part changes queue to the next bar and
+    // accumulate if pressed repeatedly (pressing up 3× queues three
+    // parts ahead). While stopped, the selection changes immediately so
+    // Space starts from wherever the user has arrowed to. Both wrap
+    // around so up from the last part jumps to the first, and vice versa.
+    func nextPart() { stepPart(by: 1) }
+    func previousPart() { stepPart(by: -1) }
+
+    private func stepPart(by direction: Int) {
         guard let song = state.currentSong, !song.structure.isEmpty else { return }
-        let next = state.currentPartIndex + 1
-        if next < song.structure.count {
-            state.pendingPartIndex = next
-        }
-    }
-
-    func queuePreviousPart() {
-        let prev = state.currentPartIndex - 1
-        if prev >= 0 {
-            state.pendingPartIndex = prev
+        let count = song.structure.count
+        if state.isPlaying {
+            let base = state.pendingPartIndex ?? state.currentPartIndex
+            state.pendingPartIndex = ((base + direction) % count + count) % count
+        } else {
+            state.currentPartIndex = ((state.currentPartIndex + direction) % count + count) % count
+            state.currentBar = 0
+            state.pendingPartIndex = nil
+            lastChordKey = ""
         }
     }
 

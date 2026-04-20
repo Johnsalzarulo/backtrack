@@ -144,9 +144,9 @@ swift build -c release
 |-----|--------|
 | `Space` | Start / stop |
 | `←` / `→` | Previous / next song (stops playback) |
-| `↑` / `↓` | Next / previous part (queued to next bar) |
+| `↑` / `↓` | Next / previous part. Wraps around (up from last part → first). While stopped: immediate; Space starts from the selected part. While playing: queued to next bar; repeated presses accumulate. |
 | `T` | Tap tempo (live override) |
-| `R` | Reload songs, samples, and patterns from disk |
+| `R` | Reload songs, samples, and patterns from disk (samples only need this — song JSONs and `patterns.json` auto-reload within ~1 s of being saved) |
 | `K` / `S` / `H` | Cycle kick / snare / hi-hat volume |
 | `P` / `B` | Cycle pad / bass volume |
 

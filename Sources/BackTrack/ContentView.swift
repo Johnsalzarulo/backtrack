@@ -58,9 +58,12 @@ struct ContentView: View {
                     }
                 }
                 if let part = state.currentPart {
-                    Text("bar \(state.currentBar + 1) / \(part.bars)")
-                        .foregroundColor(dim)
-                        .font(.system(.caption, design: .monospaced))
+                    HStack(spacing: 10) {
+                        Text("bar \(state.currentBar + 1) / \(part.bars)")
+                        Text(partProgressBar(current: state.currentBar, total: part.bars))
+                    }
+                    .foregroundColor(dim)
+                    .font(.system(.caption, design: .monospaced))
                 }
             } else {
                 Text("no songs loaded").foregroundColor(dim)
@@ -71,6 +74,15 @@ struct ContentView: View {
     private func partBadge(name: String, isActive: Bool, isQueued: Bool) -> some View {
         Text(isActive ? "▸\(name.uppercased())◂" : name)
             .foregroundColor(isActive ? fg : (isQueued ? accent.opacity(0.8) : dim))
+    }
+
+    // One cell per bar: filled (█) through the current bar, empty (░) for
+    // bars remaining. Makes "how many bars are left" glanceable during
+    // instrumental sections with no lyrics.
+    private func partProgressBar(current: Int, total: Int) -> String {
+        let filled = max(0, min(total, current + 1))
+        let empty = max(0, total - filled)
+        return String(repeating: "█", count: filled) + String(repeating: "░", count: empty)
     }
 
     private var divider: some View {

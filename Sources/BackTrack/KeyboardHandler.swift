@@ -38,11 +38,11 @@ final class KeyboardHandler {
         case 124: // Right — next song
             clock.nextSong()
             return true
-        case 125: // Down — previous part (queued to next bar)
-            clock.queuePreviousPart()
+        case 125: // Down — previous part (wraps; immediate when stopped, queued when playing)
+            clock.previousPart()
             return true
-        case 126: // Up — next part (queued to next bar)
-            clock.queueNextPart()
+        case 126: // Up — next part (wraps; immediate when stopped, queued when playing)
+            clock.nextPart()
             return true
         default:
             break

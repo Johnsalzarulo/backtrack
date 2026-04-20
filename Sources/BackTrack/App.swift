@@ -18,6 +18,8 @@ final class Coordinator: ObservableObject {
     let clock: Clock
     let keyboard: KeyboardHandler
 
+    private var fileWatcher: FileWatcher?
+
     init() {
         let state = AppState()
         let audio = AudioEngineController()
@@ -33,15 +35,60 @@ final class Coordinator: ObservableObject {
     func bootstrap() {
         audio.loadAllSamples()
         Generators.loadPatterns()
-        let result = SongLoader.loadAll()
-        state.songs = result.songs
-        state.songIssues = result.issues
+        reloadSongs()
         if let first = state.songs.first {
             state.tempo = first.bpm
         }
         audio.applyMixVolumes(from: state)
         keyboard.install()
         state.outputDevice = AudioDevices.defaultOutputName()
+
+        // Poll song JSONs + patterns.json for edits so the app picks up
+        // changes without a manual R press. Samples are expensive to
+        // reload and changed rarely, so they stay on manual R.
+        fileWatcher = FileWatcher(
+            paths: {
+                var urls: [URL] = []
+                let songsDir = SongLoader.defaultDirectory()
+                if let entries = try? FileManager.default.contentsOfDirectory(
+                    at: songsDir,
+                    includingPropertiesForKeys: nil
+                ) {
+                    urls.append(contentsOf: entries.filter { $0.pathExtension.lowercased() == "json" })
+                }
+                urls.append(Generators.defaultPatternsURL())
+                return urls
+            },
+            onChange: { [weak self] in
+                self?.onWatchedFilesChanged()
+            }
+        )
+        fileWatcher?.start()
+    }
+
+    private func onWatchedFilesChanged() {
+        Generators.loadPatterns()
+        reloadSongs()
+    }
+
+    func reloadSongs() {
+        let result = SongLoader.loadAll()
+        state.songs = result.songs
+        state.songIssues = result.issues
+
+        // Keep the user's current song/part selection if still valid.
+        if state.currentSongIndex >= state.songs.count {
+            state.currentSongIndex = max(0, state.songs.count - 1)
+        }
+        if let song = state.currentSong {
+            if state.currentPartIndex >= song.structure.count {
+                state.currentPartIndex = 0
+                state.currentBar = 0
+            }
+        } else {
+            state.currentPartIndex = 0
+            state.currentBar = 0
+        }
     }
 }
 
