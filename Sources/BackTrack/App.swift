@@ -143,5 +143,11 @@ struct BackTrackApp: App {
         }
         .windowResizability(.contentSize)
         .windowStyle(.titleBar)
+
+        Window("BackTrack Visuals", id: "visuals") {
+            VisualsView()
+                .environmentObject(coord.state)
+        }
+        .defaultSize(width: 800, height: 600)
     }
 }

@@ -20,6 +20,11 @@ final class AppState: ObservableObject {
     @Published var pendingPartIndex: Int? = nil // queued part jump on next bar
     @Published var loopCurrentPart: Bool = false // toggle: part repeats instead of advancing
 
+    // Tracks whether the secondary visuals window should be visible. V
+    // key toggles; ContentView observes this via onChange to call
+    // openWindow / dismissWindow.
+    @Published var visualsOpen: Bool = true
+
     // Pattern edits made via [ / ] that haven't been written back to JSON yet.
     // Key format: "<songName>/<partName>". Cleared on Cmd+S save.
     @Published var pendingPatternSaves: [String: String] = [:]

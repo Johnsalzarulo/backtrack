@@ -87,6 +87,9 @@ final class KeyboardHandler {
         case "l":
             state.loopCurrentPart.toggle()
             return true
+        case "v":
+            state.visualsOpen.toggle()
+            return true
         case "[":
             cyclePatternForCurrentPart(direction: -1)
             return true

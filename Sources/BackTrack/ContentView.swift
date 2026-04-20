@@ -1,7 +1,9 @@
 import SwiftUI
+import AppKit
 
 struct ContentView: View {
     @EnvironmentObject var state: AppState
+    @Environment(\.openWindow) private var openWindow
 
     private let fg = Color(red: 0.82, green: 0.92, blue: 0.82)
     private let dim = Color(white: 0.45)
@@ -27,6 +29,22 @@ struct ContentView: View {
         .background(Color.black)
         .foregroundColor(fg)
         .font(.system(.body, design: .monospaced))
+        .onChange(of: state.visualsOpen) { open in
+            if open {
+                openWindow(id: "visuals")
+            } else {
+                closeVisualsWindow()
+            }
+        }
+    }
+
+    // macOS 13 doesn't have SwiftUI.dismissWindow (macOS 14+). Walk
+    // NSApp.windows — SwiftUI sets NSWindow.identifier from the Window
+    // scene's id so matching on "visuals" finds the right one.
+    private func closeVisualsWindow() {
+        for window in NSApp.windows where window.identifier?.rawValue == "visuals" {
+            window.close()
+        }
     }
 
     // MARK: - Left column (fixed layout)
@@ -278,7 +296,8 @@ struct ContentView: View {
             row("↑ ↓",   "next / prev part",    "T",     "tap tempo")
             row("K S H", "drum volume",         "P B",   "pad / bass volume")
             row("[ ]",   "audition pattern",    "L",     "loop current part")
-            row("⌘ S",   "save pattern edit",   "R",     "reload everything")
+            row("⌘ S",   "save pattern edit",   "V",     "show / hide visuals")
+            row("R",     "reload everything",   "",      "")
         }
         .foregroundColor(dim)
         .font(.system(.caption, design: .monospaced))

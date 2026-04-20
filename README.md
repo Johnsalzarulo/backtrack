@@ -150,6 +150,7 @@ swift build -c release
 | `L` | Toggle loop-current-part — disables auto-advance so the part repeats indefinitely. Great for auditioning drum patterns. |
 | `[` / `]` | Previous / next drum pattern for the current part. Change is live (next bar) but in-memory only until saved. |
 | `⌘ S` | Save in-memory pattern edits back to the song's JSON. |
+| `V` | Show / hide the visuals window. |
 | `K` / `S` / `H` | Cycle kick / snare / hi-hat volume |
 | `P` / `B` | Cycle pad / bass volume |
 
@@ -233,6 +234,27 @@ fast. In-app keyboard audition:
 5. If you don't save, the pattern reverts to whatever's on disk the
    next time you reload.
 
+## Visuals window
+
+Second window that renders console-style geometric visuals reactive to
+the same trigger timestamps the HUD uses. Drag it to a secondary
+monitor or a projector and manually full-screen it when performing.
+
+Layer order (back to front):
+
+| Voice | Shape |
+|-------|-------|
+| *idle* | Thin always-on border for projector / screen alignment |
+| Pad | 12 spinning sun-rays around the center; brightness tracks pad activity |
+| Kick | Thick outer border flash |
+| Bass | Ring at ~40% radius |
+| HH | Ring at ~13% radius around the snare dot |
+| Snare | Filled dot in the center |
+
+Everything is sized proportionally to `min(width, height)` so it holds
+up on any aspect ratio. Pale-green monochrome to match the HUD.
+Toggle visibility with `V`.
+
 ## Files
 
 - `App.swift` — entry point, coordinator wiring
@@ -246,3 +268,4 @@ fast. In-app keyboard audition:
 - `KeyboardHandler.swift` — NSEvent local monitor
 - `Song.swift` — Song / Part structs + raw JSON schema
 - `SongLoader.swift` — directory scan + validation
+- `VisualsView.swift` — Canvas-based console visuals window
