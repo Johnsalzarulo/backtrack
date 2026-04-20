@@ -133,57 +133,69 @@ struct ContentView: View {
         return dim.opacity(0.4)
     }
 
-    // Mix split into two rows — drums on top, harmonic on bottom — so the
-    // left column doesn't have to be wide enough to fit five chips in a line.
+    // One row per role (drums / pad / bass). Each row surfaces:
+    //   - activity light that fires on any trigger into that role
+    //   - the role label
+    //   - relevant meta: current drum pattern + kit, or pad/bass sound
+    // Volume still cycles via K/S/H/P/B keys — it's audible feedback so we
+    // don't need it in the HUD too.
     private var mixBlock: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 24) {
-                instrumentChip(name: "KICK", level: state.kickLevel, last: state.kickLastTrigger)
-                instrumentChip(name: "SNARE", level: state.snareLevel, last: state.snareLastTrigger)
-                instrumentChip(name: "HH", level: state.hhLevel, last: state.hhLastTrigger)
-            }
-            HStack(spacing: 24) {
-                instrumentChip(name: "PAD", level: state.padVolume, last: state.padLastTrigger, subtitle: padSubtitle)
-                instrumentChip(name: "BASS", level: state.bassVolume, last: state.bassLastTrigger, subtitle: bassSubtitle)
+        VStack(alignment: .leading, spacing: 10) {
+            drumsRow
+            padRow
+            bassRow
+        }
+    }
+
+    private var drumsRow: some View {
+        HStack(spacing: 14) {
+            drumsActivityLight
+            Text("DRUMS").foregroundColor(dim).frame(width: 60, alignment: .leading)
+            metaPair(label: "Pattern", value: state.currentPart?.pattern)
+            metaPair(label: "Kit", value: state.currentSong?.kit)
+        }
+    }
+
+    private var padRow: some View {
+        HStack(spacing: 14) {
+            activityLight(last: state.padLastTrigger)
+            Text("PAD").foregroundColor(dim).frame(width: 60, alignment: .leading)
+            metaPair(label: "Sound", value: state.currentSong?.padSound)
+            mutedBadge(level: state.padVolume)
+        }
+    }
+
+    private var bassRow: some View {
+        HStack(spacing: 14) {
+            activityLight(last: state.bassLastTrigger)
+            Text("BASS").foregroundColor(dim).frame(width: 60, alignment: .leading)
+            metaPair(label: "Sound", value: state.currentSong?.bassSound)
+            mutedBadge(level: state.bassVolume)
+        }
+    }
+
+    // Aggregate drums light — fires on any kick / snare / hh hit.
+    private var drumsActivityLight: some View {
+        let latest = max(state.kickLastTrigger, max(state.snareLastTrigger, state.hhLastTrigger))
+        return activityLight(last: latest)
+    }
+
+    @ViewBuilder
+    private func metaPair(label: String, value: String?) -> some View {
+        if let value = value, !value.isEmpty {
+            HStack(spacing: 6) {
+                Text("\(label):").foregroundColor(dim.opacity(0.7))
+                Text(value)
             }
         }
     }
 
-    private var padSubtitle: String? {
-        guard let song = state.currentSong, let sound = song.padSound else { return nil }
-        return sound
-    }
-
-    private var bassSubtitle: String? {
-        guard let song = state.currentSong, let sound = song.bassSound else { return nil }
-        return sound
-    }
-
-    private func instrumentChip(
-        name: String,
-        level: Int,
-        last: Date,
-        subtitle: String? = nil
-    ) -> some View {
-        HStack(spacing: 6) {
-            activityLight(last: last)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(name).foregroundColor(dim).font(.system(.caption, design: .monospaced))
-                levelMeter(level: level).font(.system(.caption, design: .monospaced))
-                if let subtitle = subtitle {
-                    Text(subtitle)
-                        .foregroundColor(dim.opacity(0.8))
-                        .font(.system(size: 10, design: .monospaced))
-                }
-            }
-        }
-    }
-
-    private func levelMeter(level: Int) -> some View {
-        HStack(spacing: 0) {
-            Text(String(repeating: "█", count: level))
-            Text(String(repeating: "·", count: AppState.maxLevel - level))
-                .foregroundColor(dim)
+    // Surface muted-ness only — partial volumes are audible feedback, but
+    // "why is the bass silent?" deserves a HUD cue.
+    @ViewBuilder
+    private func mutedBadge(level: Int) -> some View {
+        if level == 0 {
+            Text("(muted)").foregroundColor(dim.opacity(0.6))
         }
     }
 

@@ -164,7 +164,7 @@ readouts around.
 - **Structure**: all parts in play order, current one wrapped in `▸ ◂`. Wraps to multiple lines for long structures.
 - **Bar counter**: `bar N / M` plus a one-cell-per-bar progress bar (`█░░░`) so remaining bars in instrumental sections are glanceable.
 - **Chord line**: current chord large (40pt), next bar's chord dim to the right, and four 1 / 2 / 3 / 4 beat dots on the right that track the current beat so you can come in on the one.
-- **Mix**: two rows of chips — drums (KICK / SNARE / HH) and harmonic (PAD / BASS). Each has an activity dot, name, level meter. PAD and BASS show the active sound name as a subtitle.
+- **Mix**: three rows, one per role. `DRUMS` shows the current pattern + kit; `PAD` / `BASS` show the active sound. Each row has its own activity light (drums light fires on any kick / snare / hh hit). Volumes cycle via K / S / H / P / B — muted rows get a dim `(muted)` badge.
 - **Transport**: `● PLAYING` / `○ STOPPED`.
 - **Issues**: `MISSING SAMPLES` and `SONG ISSUES` blocks appear when files are missing or a song file fails to parse.
 - **Keybindings**.
