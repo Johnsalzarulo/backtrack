@@ -169,12 +169,22 @@ final class Clock: ObservableObject {
     // Tick 0 of a bar: evaluate chord change + fire all voices that hit on
     // the downbeat (drums tick 0 events + pad level 1 if chord changed +
     // pad level 2/3 initial hits + bass level 1/2/3 downbeat).
+    //
+    // On chord change, fade out the previous chord's pad + bass voices so
+    // long sustained samples don't bleed into the new chord. The
+    // fade-out runs on older voice-pool slots; new triggers below use
+    // the next pool slots and fade in cleanly on top.
     private func fireTick0(part: Part) {
         guard state.currentBar < part.chords.count else { return }
         let chord = part.chords[state.currentBar]
         let chordKey = "\(chord.rootPitchClass)-\(chord.quality)"
-        let changed = (chordKey != lastChordKey)
+        let previousKey = lastChordKey
+        let changed = (chordKey != previousKey)
         lastChordKey = chordKey
+
+        if changed && !previousKey.isEmpty {
+            audio.stopAllPadAndBass()
+        }
 
         for e in Generators.drums(pattern: part.pattern, tick: 0) { audio.trigger(e) }
         for e in Generators.pad(level: part.padLevel, chord: chord, tick: 0, chordChanged: changed) {

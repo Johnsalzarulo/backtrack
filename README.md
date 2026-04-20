@@ -104,6 +104,11 @@ is a parse error.
 | 2 | Stabs — full triad retriggered on quarter notes |
 | 3 | Arpeggio — extended chord (root / 3rd / 5th / 7th / 9th) on 8th notes |
 
+On chord changes within a part (and on part transitions), the previous
+chord's pad and bass voices are faded out so long sustained samples
+don't bleed across the transition. Same-chord bars keep the drone
+ringing.
+
 ### Bass complexity
 
 | Level | Behavior |
