@@ -147,6 +147,9 @@ swift build -c release
 | `↑` / `↓` | Next / previous part. Wraps around (up from last part → first). While stopped: immediate; Space starts from the selected part. While playing: queued to next bar; repeated presses accumulate. |
 | `T` | Tap tempo (live override) |
 | `R` | Reload songs, samples, and patterns from disk (samples only need this — song JSONs and `patterns.json` auto-reload within ~1 s of being saved) |
+| `L` | Toggle loop-current-part — disables auto-advance so the part repeats indefinitely. Great for auditioning drum patterns. |
+| `[` / `]` | Previous / next drum pattern for the current part. Change is live (next bar) but in-memory only until saved. |
+| `⌘ S` | Save in-memory pattern edits back to the song's JSON. |
 | `K` / `S` / `H` | Cycle kick / snare / hi-hat volume |
 | `P` / `B` | Cycle pad / bass volume |
 
@@ -164,7 +167,8 @@ readouts around.
 - **Structure**: all parts in play order, current one wrapped in `▸ ◂`. Wraps to multiple lines for long structures.
 - **Bar counter**: `bar N / M` plus a one-cell-per-bar progress bar (`█░░░`) so remaining bars in instrumental sections are glanceable.
 - **Chord line**: current chord large (40pt), next bar's chord dim to the right, and four 1 / 2 / 3 / 4 beat dots on the right that track the current beat so you can come in on the one.
-- **Mix**: three rows, one per role. `DRUMS` shows the current pattern + kit; `PAD` / `BASS` show the active sound. Each row has its own activity light (drums light fires on any kick / snare / hh hit). Volumes cycle via K / S / H / P / B — muted rows get a dim `(muted)` badge.
+- **Mix**: three rows, one per role. `DRUMS` shows the current pattern + kit; `PAD` / `BASS` show the active sound. Each row has its own activity light (drums light fires on any kick / snare / hh hit). Volumes cycle via K / S / H / P / B — muted rows get a dim `(muted)` badge. A `*` after the pattern name means the current part has unsaved in-memory pattern edits.
+- **Loop badge**: when loop-current-part is on (`L` toggle), a bright `LOOP` appears in the structure header.
 - **Transport**: `● PLAYING` / `○ STOPPED`.
 - **Issues**: `MISSING SAMPLES` and `SONG ISSUES` blocks appear when files are missing or a song file fails to parse.
 - **Keybindings**.
@@ -213,6 +217,21 @@ The shipped library ships 22 patterns, indie-rock-leaning:
 
 Edit the file to customize any of them or add your own. Auto-reloads
 on save (within ~1 s).
+
+### Auditioning patterns live
+
+Finding the right pattern by editing the JSON and reloading gets old
+fast. In-app keyboard audition:
+
+1. Play the song, navigate to the part in question with `↑ ↓`.
+2. Press `L` to loop the current part indefinitely.
+3. `[` / `]` cycle through every pattern in `patterns.json` — the
+   change is live on the next bar. A `*` appears next to the pattern
+   name to remind you the edit is in-memory only.
+4. When you find one you like, `⌘ S` saves it back to the song's
+   JSON (pretty-printed, sorted keys). `L` again to exit loop mode.
+5. If you don't save, the pattern reverts to whatever's on disk the
+   next time you reload.
 
 ## Files
 

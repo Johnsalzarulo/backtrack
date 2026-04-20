@@ -45,7 +45,7 @@ enum SongLoader {
             do {
                 let data = try Data(contentsOf: url)
                 let raw = try JSONDecoder().decode(SongJSON.self, from: data)
-                let song = try compile(raw, sourceFilename: url.lastPathComponent)
+                let song = try compile(raw, sourceURL: url)
                 songs.append(song)
             } catch let error as SongValidationError {
                 issues.append("\(url.lastPathComponent): \(error.description)")
@@ -59,7 +59,7 @@ enum SongLoader {
 
     // MARK: - Compilation
 
-    private static func compile(_ raw: SongJSON, sourceFilename: String) throws -> Song {
+    private static func compile(_ raw: SongJSON, sourceURL: URL) throws -> Song {
         var parts: [String: Part] = [:]
         var usesPad = false
         var usesBass = false
@@ -87,6 +87,7 @@ enum SongLoader {
         }
 
         return Song(
+            sourceURL: sourceURL,
             name: raw.name,
             key: raw.key ?? "",
             bpm: raw.bpm,
@@ -95,6 +96,44 @@ enum SongLoader {
             bassSound: usesBass ? raw.bass : nil,
             parts: parts,
             structure: raw.structure
+        )
+    }
+
+    // MARK: - Save
+
+    // Serializes the compiled Song back to its source JSON file using
+    // pretty-printed + sorted-keys output. This normalizes formatting
+    // (whitespace, key order), so in-app saves produce a consistent
+    // diff regardless of how the file was hand-authored originally.
+    static func save(_ song: Song) throws {
+        let json = toJSON(song)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(json)
+        try data.write(to: song.sourceURL)
+    }
+
+    private static func toJSON(_ song: Song) -> SongJSON {
+        var parts: [String: PartJSON] = [:]
+        for (name, part) in song.parts {
+            parts[name] = PartJSON(
+                pattern: part.pattern,
+                chords: part.chords.map { $0.display },
+                repeats: part.repeats > 1 ? part.repeats : nil,
+                pad: part.padLevel > 0 ? part.padLevel : nil,
+                bass: part.bassLevel > 0 ? part.bassLevel : nil,
+                lyrics: part.lyrics.isEmpty ? nil : part.lyrics
+            )
+        }
+        return SongJSON(
+            name: song.name,
+            key: song.key.isEmpty ? nil : song.key,
+            bpm: song.bpm,
+            kit: song.kit,
+            pad: song.padSound,
+            bass: song.bassSound,
+            parts: parts,
+            structure: song.structure
         )
     }
 

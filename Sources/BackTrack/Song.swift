@@ -4,7 +4,7 @@ import Foundation
 // into a playable Song. Part-level `pad`/`bass` are integers (0-3 complexity)
 // while song-level `pad`/`bass` are strings (sound folder names) — the
 // loader keeps them separate via the two distinct structs.
-struct SongJSON: Decodable {
+struct SongJSON: Codable {
     let name: String
     let key: String?
     let bpm: Double
@@ -15,7 +15,7 @@ struct SongJSON: Decodable {
     let structure: [String]
 }
 
-struct PartJSON: Decodable {
+struct PartJSON: Codable {
     let pattern: String
     let chords: [String]
     let repeats: Int?
@@ -26,6 +26,7 @@ struct PartJSON: Decodable {
 
 // Compiled, validated song ready for the playback engine.
 struct Song {
+    let sourceURL: URL        // path to the JSON file this was loaded from
     let name: String
     let key: String
     let bpm: Double

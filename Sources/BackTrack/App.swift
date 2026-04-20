@@ -76,6 +76,16 @@ final class Coordinator: ObservableObject {
         state.songs = result.songs
         state.songIssues = result.issues
 
+        // Re-apply in-memory pattern edits that haven't been saved yet, so
+        // auto-reloads triggered by other file changes don't clobber them.
+        for (key, pattern) in state.pendingPatternSaves {
+            let parts = key.split(separator: "/", maxSplits: 1)
+            guard parts.count == 2 else { continue }
+            let songName = String(parts[0])
+            let partName = String(parts[1])
+            applyPendingPattern(songName: songName, partName: partName, pattern: pattern)
+        }
+
         // Keep the user's current song/part selection if still valid.
         if state.currentSongIndex >= state.songs.count {
             state.currentSongIndex = max(0, state.songs.count - 1)
@@ -89,6 +99,34 @@ final class Coordinator: ObservableObject {
             state.currentPartIndex = 0
             state.currentBar = 0
         }
+    }
+
+    private func applyPendingPattern(songName: String, partName: String, pattern: String) {
+        guard let songIdx = state.songs.firstIndex(where: { $0.name == songName }),
+              let existing = state.songs[songIdx].parts[partName] else { return }
+        let updated = Part(
+            name: existing.name,
+            pattern: pattern,
+            chords: existing.chords,
+            repeats: existing.repeats,
+            padLevel: existing.padLevel,
+            bassLevel: existing.bassLevel,
+            lyrics: existing.lyrics
+        )
+        var newParts = state.songs[songIdx].parts
+        newParts[partName] = updated
+        let old = state.songs[songIdx]
+        state.songs[songIdx] = Song(
+            sourceURL: old.sourceURL,
+            name: old.name,
+            key: old.key,
+            bpm: old.bpm,
+            kit: old.kit,
+            padSound: old.padSound,
+            bassSound: old.bassSound,
+            parts: newParts,
+            structure: old.structure
+        )
     }
 }
 

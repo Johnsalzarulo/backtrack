@@ -46,7 +46,16 @@ struct ContentView: View {
 
     private var structureBlock: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("STRUCTURE").foregroundColor(dim).font(.system(.caption, design: .monospaced))
+            HStack(spacing: 10) {
+                Text("STRUCTURE")
+                    .foregroundColor(dim)
+                    .font(.system(.caption, design: .monospaced))
+                if state.loopCurrentPart {
+                    Text("LOOP")
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundColor(fg)
+                }
+            }
             if let song = state.currentSong {
                 FlowLayout(spacing: 10) {
                     ForEach(Array(song.structure.enumerated()), id: \.offset) { idx, name in
@@ -151,9 +160,29 @@ struct ContentView: View {
         HStack(spacing: 14) {
             drumsActivityLight
             Text("DRUMS").foregroundColor(dim).frame(width: 60, alignment: .leading)
-            metaPair(label: "Pattern", value: state.currentPart?.pattern)
+            patternField
             metaPair(label: "Kit", value: state.currentSong?.kit)
         }
+    }
+
+    // Pattern field gains a trailing `*` when the current part has unsaved
+    // in-memory pattern edits (from [ / ]) not yet persisted via Cmd+S.
+    @ViewBuilder
+    private var patternField: some View {
+        if let part = state.currentPart {
+            HStack(spacing: 6) {
+                Text("Pattern:").foregroundColor(dim.opacity(0.7))
+                Text(part.pattern)
+                if isCurrentPatternDirty {
+                    Text("*").foregroundColor(fg)
+                }
+            }
+        }
+    }
+
+    private var isCurrentPatternDirty: Bool {
+        guard let song = state.currentSong, let partName = state.currentPartName else { return false }
+        return state.pendingPatternSaves["\(song.name)/\(partName)"] != nil
     }
 
     private var padRow: some View {
@@ -248,7 +277,8 @@ struct ContentView: View {
             row("SPACE", "start / stop",        "← →",   "prev / next song")
             row("↑ ↓",   "next / prev part",    "T",     "tap tempo")
             row("K S H", "drum volume",         "P B",   "pad / bass volume")
-            row("R",     "reload songs & samples", "",   "")
+            row("[ ]",   "audition pattern",    "L",     "loop current part")
+            row("⌘ S",   "save pattern edit",   "R",     "reload everything")
         }
         .foregroundColor(dim)
         .font(.system(.caption, design: .monospaced))

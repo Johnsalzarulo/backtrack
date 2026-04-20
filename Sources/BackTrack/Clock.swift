@@ -141,6 +141,18 @@ final class Clock: ObservableObject {
                 return
             }
             if state.currentBar >= part.bars {
+                // Loop mode: restart the same part instead of advancing.
+                // Useful for auditioning drum patterns without the song
+                // marching through the structure.
+                if state.loopCurrentPart {
+                    state.currentBar = 0
+                    audio.stopAllPadAndBass()
+                    lastChordKey = ""
+                    guard let loopedPart = state.currentPart else { stop(); return }
+                    fireTick0(part: loopedPart)
+                    scheduleTickAdvance()
+                    return
+                }
                 // Part finished — advance.
                 let next = state.currentPartIndex + 1
                 if next >= song.structure.count {

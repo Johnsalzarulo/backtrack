@@ -18,6 +18,11 @@ final class AppState: ObservableObject {
     @Published var currentPartIndex: Int = 0    // index into current song's structure
     @Published var currentBar: Int = 0          // bar within current part (0-based)
     @Published var pendingPartIndex: Int? = nil // queued part jump on next bar
+    @Published var loopCurrentPart: Bool = false // toggle: part repeats instead of advancing
+
+    // Pattern edits made via [ / ] that haven't been written back to JSON yet.
+    // Key format: "<songName>/<partName>". Cleared on Cmd+S save.
+    @Published var pendingPatternSaves: [String: String] = [:]
 
     var currentSong: Song? {
         guard !songs.isEmpty, currentSongIndex >= 0, currentSongIndex < songs.count else {
