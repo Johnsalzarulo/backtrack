@@ -63,12 +63,13 @@ scans the directory; any malformed songs surface in the HUD's
   "bass": "soft",
   "parts": {
     "verse": {
-      "pattern": 5,
+      "pattern": "Rock basic",
       "chords": ["Bm", "G", "D", "D"],
       "repeats": 2,
       "pad": 2,
-      "bass": 0,
-      "lyrics": "line one\nline two"
+      "bass": 1,
+      "lyrics": "line one\nline two",
+      "visual": "chaplinstill.gif"
     }
   },
   "structure": ["intro", "verse", "chorus", "verse", "chorus", "outro"]
@@ -178,8 +179,9 @@ readouts around.
 
 **Right column:**
 
-- **Song header**: name, key, tempo.
+- **Song header**: name, key, tempo. Tempo dims briefly on each tap-tempo hit as visual feedback.
 - **Lyrics**: full text of the active part, larger and line-spaced for readability at arm's length.
+- **Next part peek**: a `NEXT — PARTNAME` line under the lyrics shows the first line of the upcoming part (or the queued part if `↑ ↓` is pending), so the first lyric of a chorus isn't a surprise when you're starting from an instrumental intro.
 - **OUT**: system default output device with a signal-present dot.
 
 ## Drum patterns (`patterns.json`)
