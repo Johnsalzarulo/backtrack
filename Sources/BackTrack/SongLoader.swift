@@ -98,6 +98,26 @@ enum SongLoader {
             )
         }
 
+        let visualizer: VisualizerStyle
+        switch raw.visualizer?.lowercased() {
+        case nil, "", "sun":
+            visualizer = .sun
+        case "squares":
+            visualizer = .squares
+        case "dots":
+            visualizer = .dots
+        case "lines":
+            visualizer = .lines
+        case "ripple":
+            visualizer = .ripple
+        case "constellation":
+            visualizer = .constellation
+        case let other?:
+            throw SongValidationError(
+                "visualizer '\(other)' — expected one of: sun, squares, dots, lines, ripple, constellation"
+            )
+        }
+
         return Song(
             sourceURL: sourceURL,
             name: raw.name,
@@ -108,7 +128,8 @@ enum SongLoader {
             bassSound: usesBass ? raw.bass : nil,
             parts: parts,
             structure: raw.structure,
-            theme: theme
+            theme: theme,
+            visualizer: visualizer
         )
     }
 
@@ -153,9 +174,10 @@ enum SongLoader {
             bass: song.bassSound,
             parts: parts,
             structure: song.structure,
-            // Omit the theme field on save when it's the default, so
-            // hand-authored songs that didn't set one stay terse.
-            theme: song.theme == .dark ? nil : song.theme.rawValue
+            // Omit theme + visualizer on save when they're defaults, so
+            // hand-authored songs that didn't set them stay terse.
+            theme: song.theme == .dark ? nil : song.theme.rawValue,
+            visualizer: song.visualizer == .sun ? nil : song.visualizer.rawValue
         )
     }
 

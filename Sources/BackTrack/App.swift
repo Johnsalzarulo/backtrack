@@ -128,7 +128,8 @@ final class Coordinator: ObservableObject {
             bassSound: old.bassSound,
             parts: newParts,
             structure: old.structure,
-            theme: old.theme
+            theme: old.theme,
+            visualizer: old.visualizer
         )
     }
 }

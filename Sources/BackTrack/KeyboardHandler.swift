@@ -99,6 +99,20 @@ final class KeyboardHandler {
         case "]":
             cyclePatternForCurrentPart(direction: 1)
             return true
+        case "i":
+            // Invert visuals theme (dark ↔ light). In-memory override;
+            // resets when the user clears it or edits JSON directly.
+            let current = state.effectiveTheme
+            state.themeOverride = current == .dark ? .light : .dark
+            return true
+        case "m":
+            // Cycle through visualizer motifs. Order is the canonical
+            // VisualizerStyle.allCases.
+            let styles = VisualizerStyle.allCases
+            let current = state.effectiveVisualizer
+            let idx = styles.firstIndex(of: current) ?? 0
+            state.visualizerOverride = styles[(idx + 1) % styles.count]
+            return true
         default:
             return false
         }
@@ -158,7 +172,8 @@ final class KeyboardHandler {
             bassSound: old.bassSound,
             parts: newParts,
             structure: old.structure,
-            theme: old.theme
+            theme: old.theme,
+            visualizer: old.visualizer
         )
     }
 

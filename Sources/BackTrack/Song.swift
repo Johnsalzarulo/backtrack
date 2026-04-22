@@ -17,6 +17,9 @@ struct SongJSON: Codable {
     // white ink; "light" = white bg + black ink. Per-song so different
     // tunes can feel different without a global toggle.
     let theme: String?
+    // Synth-layer visualization style. See VisualizerStyle for the list.
+    // Defaults to "sun" when omitted.
+    let visualizer: String?
 }
 
 struct PartJSON: Codable {
@@ -81,7 +84,8 @@ struct Song {
     let bassSound: String?
     let parts: [String: Part]
     let structure: [String]   // part names, in play order
-    let theme: VisualTheme    // synth-layer palette for the visuals window
+    let theme: VisualTheme          // synth-layer palette
+    let visualizer: VisualizerStyle // synth-layer visualization motif
 
     // Total bar count across the whole structure, for progress indicators.
     var totalBars: Int {
@@ -98,6 +102,30 @@ struct Song {
 enum VisualTheme: String {
     case dark
     case light
+}
+
+// Synth-layer visualization style. Every style uses the same perfectly-
+// imperfect shape vocabulary (subtle low-frequency wobble + 5-wide
+// smoothed carved noise) but arranges the voices differently:
+//
+//   sun           — rays + rings + centered blobs (default)
+//   squares       — chunky wobbly rectangles
+//   dots          — everything becomes circles / dot-rings
+//   lines         — horizontal bars at fixed Y positions
+//   ripple        — nested concentric rings, one per voice
+//   constellation — fixed star-positions that light up per voice
+enum VisualizerStyle: String {
+    case sun
+    case squares
+    case dots
+    case lines
+    case ripple
+    case constellation
+
+    // Cycle order for the `M` key. Same as declaration order above.
+    static let allCases: [VisualizerStyle] = [
+        .sun, .squares, .dots, .lines, .ripple, .constellation
+    ]
 }
 
 // How a part's visuals array advances during playback. Only meaningful

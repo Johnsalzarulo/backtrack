@@ -83,7 +83,8 @@ scans the directory; any malformed songs surface in the HUD's
     }
   },
   "structure": ["intro", "verse", "chorus", "verse", "chorus", "outro"],
-  "theme": "dark"
+  "theme": "dark",
+  "visualizer": "sun"
 }
 ```
 
@@ -95,6 +96,7 @@ scans the directory; any malformed songs surface in the HUD's
 | `parts` | song | Dictionary of part definitions, referenced by name. |
 | `structure` | song | Array of part names, in play order. The same name can appear multiple times. |
 | `theme` | song | `"dark"` (default — black paper, white ink) or `"light"` (inverted). Only affects the synth layer of the visuals window; parts with a `visuals` file aren't themed. |
+| `visualizer` | song | Synth-layer motif. One of `"sun"` (default), `"squares"`, `"dots"`, `"lines"`, `"ripple"`, `"constellation"`. See the Visuals window section below. |
 | `pattern` | part | Drum pattern name from `patterns.json` (e.g. `"Rock basic"`, `"Four on the floor"`). |
 | `chords` | part | The chord progression of the part — one symbol per bar of the progression. |
 | `repeats` | part | How many times the chord progression cycles. Optional, default 1. Total bars = `chords.length × repeats`. |
@@ -167,6 +169,8 @@ swift build -c release
 | `⌘ S` | Save in-memory pattern edits back to the song's JSON. |
 | `V` | Show / hide the visuals window. |
 | `F` | Toggle the visuals window into macOS native full-screen (title bar auto-hides, window covers the display). Opens the window first if it was closed. |
+| `I` | Invert the synth-layer theme (dark ↔ light). Live in-memory override on top of the song's `theme` JSON — not persisted. |
+| `M` | Cycle the synth-layer motif: sun → squares → dots → lines → ripple → constellation → back to sun. Same in-memory override behavior as `I`. |
 | `K` / `S` / `H` | Cycle kick / snare / hi-hat volume |
 | `P` / `B` | Cycle pad / bass volume |
 
@@ -288,40 +292,51 @@ array (sometimes in `"beat"` mode) to build visual energy.
 
 Only rendered when the current part has **no** visual — layering the
 two was too busy on screen. The vocabulary is black-and-white linocut:
-chunky filled silhouettes with chiseled edges and thick irregular ink
-strokes for radiating rays. Voices (back to front):
-
-| Voice | Shape |
-|-------|-------|
-| Pad | 4, 6, or 8 thick irregular ink strokes radiating from the center (count tracks part's pad level — 1/2/3). |
-| Bass | Chiseled irregular ring at ~38% of min dim. |
-| HH | Chiseled ring at ~11% radius. |
-| Kick | Large filled chiseled blob (~22% radius) in the center. |
-| Snare | Smaller filled chiseled blob (~7.5% radius) layered on the kick position. |
+chunky shapes with slightly wobbly edges, 100% saturated ink on solid
+paper, no greys, no fades.
 
 **Binary on/off.** Every voice is either fully drawn or completely
-absent — no fades, no draw-in / draw-out, no opacity ramps. A hit
-pops the shape on for a short hold window (60 ms for HH up to 450 ms
-for pad), then it's gone until the next trigger. Responsiveness
-beats transition polish here: the shape appearing / disappearing in
-time with the audio is what sells the "this is reacting to the music"
-feeling.
+absent. A hit pops the shape on for a short hold window (60 ms for HH
+up to 450 ms for pad), then it's gone until the next trigger.
+Responsiveness beats transition polish — shapes appearing / vanishing
+in time with the audio is what sells the "this is reacting to the
+music" feeling.
 
-**Organic feel without flicker.** The linocut character comes from
-two permanent properties of the shapes, not from animation:
-- every vertex has a stable hash-based offset (smoothed across its
-  two neighbors so edges read as carved, not as teeth)
-- every vertex is also perturbed by a slow ~0.6 Hz sine wobble, so
-  longer-held shapes breathe subtly while on
+**Organic feel without flicker.** Comes from two permanent properties
+of the shapes, not from animation:
+- every vertex has a stable hash-based offset, smoothed across its
+  4 nearest neighbors so edges read as carved rather than as teeth
+- every vertex is also perturbed by a ~0.6 Hz sine wobble keyed to
+  angular position (one or two gentle lobes around the perimeter,
+  never an N-pointed star), so longer-held shapes breathe subtly
 
-Ink stays 100% saturated — pure black or pure white, nothing in
-between — to match the overwhelmingly high-contrast feel of the
-project's album art.
+**Motifs.** Each song picks a visualizer style via its `visualizer`
+JSON field. All six share the same shape vocabulary — they differ in
+*what each voice becomes* and *where it goes*.
+
+| Motif | Kick | Snare | Bass | HH | Pad |
+|-------|------|-------|------|-----|-----|
+| `sun` *(default)* | Big filled blob, center | Smaller blob, center | Chiseled ring ~38% r | Small ring ~11% r | 4/6/8 thick rays radiating out |
+| `squares` | Big filled square, center | Smaller filled square | Hollow square ~36% r | Small hollow square | 4/6/8 tiles on an orbit |
+| `dots` | Big filled dot, center | Smaller dot | Ring of 12 dots | Tight ring of 8 tiny dots | 4/6/8 scattered dots |
+| `lines` | Thick wide horizontal bar, center | Thin bar below kick | Long bar above center | Short tick below snare | 4/6/8 dashes stacked above |
+| `ripple` | Thick ring ~42% r | Ring ~26% r | Biggest ring ~54% r | Tiny inner ring ~11% r | 4/6/8 thin rings between |
+| `constellation` | Center star | Upper-right star | Lower-left star | Lower-right star | 4/6/8 stars on outer orbit |
+
+Pad count (4 / 6 / 8) tracks the part's `pad` level (1 / 2 / 3).
 
 **Theme.** Set `"theme": "dark"` (default: black paper, white ink) or
-`"light"` (white paper, black ink) on the song. Everything is sized
-proportionally to `min(width, height)` so it holds up on any aspect
-ratio. Toggle the whole window with `V`; full-screen with `F`.
+`"light"` (white paper, black ink) on the song.
+
+**Live overrides.** `I` inverts theme; `M` cycles motif — both in
+memory only, not written back to the JSON. Useful for auditioning.
+The song's JSON values remain the source of truth for "what this song
+looks like by default"; the overrides just replace them for the
+current session.
+
+Everything is sized proportionally to `min(width, height)` so it
+holds up on any aspect ratio. Toggle the whole window with `V`;
+full-screen with `F`.
 
 ## Files
 

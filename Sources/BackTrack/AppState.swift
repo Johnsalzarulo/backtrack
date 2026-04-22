@@ -29,6 +29,22 @@ final class AppState: ObservableObject {
     // Key format: "<songName>/<partName>". Cleared on Cmd+S save.
     @Published var pendingPatternSaves: [String: String] = [:]
 
+    // Live overrides for the synth-layer visualization, set via the `I`
+    // (invert theme) and `M` (cycle motif) keys. Nil falls back to the
+    // current song's JSON values. In-memory only — not persisted to the
+    // song file, so JSON stays the source of truth for "what this song
+    // looks like by default".
+    @Published var themeOverride: VisualTheme? = nil
+    @Published var visualizerOverride: VisualizerStyle? = nil
+
+    // Effective values, merging override over the current song's JSON.
+    var effectiveTheme: VisualTheme {
+        themeOverride ?? currentSong?.theme ?? .dark
+    }
+    var effectiveVisualizer: VisualizerStyle {
+        visualizerOverride ?? currentSong?.visualizer ?? .sun
+    }
+
     var currentSong: Song? {
         guard !songs.isEmpty, currentSongIndex >= 0, currentSongIndex < songs.count else {
             return nil
