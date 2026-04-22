@@ -29,16 +29,20 @@ struct VisualsView: View {
 
     // Per-voice envelope shape. `attack` is how long the draw-in takes;
     // `decay` is the draw-out. The sum is how long the shape is on screen.
-    private let kickAttack: TimeInterval = 0.04
-    private let kickDecay: TimeInterval  = 0.26
-    private let snareAttack: TimeInterval = 0.04
-    private let snareDecay: TimeInterval  = 0.20
-    private let hhAttack: TimeInterval   = 0.03
-    private let hhDecay: TimeInterval    = 0.12
-    private let bassAttack: TimeInterval = 0.07
-    private let bassDecay: TimeInterval  = 0.30
-    private let padAttack: TimeInterval  = 0.10
-    private let padDecay: TimeInterval   = 0.50
+    // Percussive voices (kick/snare/hh) need short envelopes — at 120 BPM
+    // a quarter beat is 500 ms, so anything over ~120 ms feels laggy and
+    // the percussive punch doesn't land. Pad + bass can linger since
+    // they're sustained voices.
+    private let kickAttack: TimeInterval = 0.025
+    private let kickDecay: TimeInterval  = 0.10
+    private let snareAttack: TimeInterval = 0.02
+    private let snareDecay: TimeInterval  = 0.07
+    private let hhAttack: TimeInterval   = 0.012
+    private let hhDecay: TimeInterval    = 0.05
+    private let bassAttack: TimeInterval = 0.04
+    private let bassDecay: TimeInterval  = 0.16
+    private let padAttack: TimeInterval  = 0.08
+    private let padDecay: TimeInterval   = 0.40
 
     private var theme: VisualTheme {
         state.currentSong?.theme ?? .dark
@@ -127,9 +131,9 @@ struct VisualsView: View {
             center: center,
             baseRadius: r,
             time: time,
-            jitter: r * 0.22,
+            jitter: r * 0.10,
             seed: 11,
-            points: 30
+            points: 44
         )
         ctx.fill(blob, with: .color(ink))
         // Ink speckle inside the blob — opposite color, sparse.
@@ -161,9 +165,9 @@ struct VisualsView: View {
             center: center,
             baseRadius: r,
             time: time,
-            jitter: r * 0.25,
+            jitter: r * 0.14,
             seed: 23,
-            points: 22
+            points: 32
         )
         ctx.fill(blob, with: .color(ink))
         drawGrain(
@@ -192,9 +196,9 @@ struct VisualsView: View {
             center: center,
             baseRadius: radius,
             time: time,
-            jitter: minDim * 0.012,
+            jitter: minDim * 0.006,
             seed: 41,
-            points: 48
+            points: 64
         )
         let trimmed = ring.trimmedPath(from: 0, to: env)
         ctx.stroke(
@@ -219,9 +223,9 @@ struct VisualsView: View {
             center: center,
             baseRadius: radius,
             time: time,
-            jitter: minDim * 0.006,
+            jitter: minDim * 0.004,
             seed: 61,
-            points: 32
+            points: 40
         )
         let trimmed = ring.trimmedPath(from: 0, to: env)
         ctx.stroke(
@@ -257,7 +261,7 @@ struct VisualsView: View {
                 end: end,
                 time: time,
                 seed: i * 97 + 3,
-                jitter: minDim * 0.025
+                jitter: minDim * 0.012
             )
             let trimmed = ray.trimmedPath(from: 0, to: env)
             ctx.stroke(
@@ -293,12 +297,22 @@ struct VisualsView: View {
         points: Int
     ) -> Path {
         var path = Path()
+        // Smooth the chisel noise across neighbors so we don't get
+        // alternating-vertex spikes that read as teeth. A 3-wide box
+        // blur gives a roughened edge without sharp points.
+        var chiselRaw = [Double](repeating: 0, count: points)
+        for i in 0..<points {
+            chiselRaw[i] = carvedNoise(index: i, seed: seed)
+        }
         for i in 0..<points {
             let angle = Double(i) / Double(points) * 2 * .pi
             let phase = Double(i) * 1.618 + Double(seed) * 1.913
-            let slow = sin(time * 0.55 + phase) * Double(jitter) * 0.6
-            let fast = sin(time * 1.7 + phase * 2.3) * Double(jitter) * 0.25
-            let chisel = carvedNoise(index: i, seed: seed) * Double(jitter) * 0.7
+            let slow = sin(time * 0.55 + phase) * Double(jitter) * 0.7
+            let fast = sin(time * 1.7 + phase * 2.3) * Double(jitter) * 0.2
+            let prev = chiselRaw[(i + points - 1) % points]
+            let curr = chiselRaw[i]
+            let next = chiselRaw[(i + 1) % points]
+            let chisel = (prev + curr + next) / 3.0 * Double(jitter) * 0.3
             let r = baseRadius + CGFloat(slow + fast + chisel)
             let x = center.x + CGFloat(cos(angle)) * r
             let y = center.y + CGFloat(sin(angle)) * r
@@ -332,6 +346,12 @@ struct VisualsView: View {
         // Perpendicular unit vector.
         let px = -dy / len
         let py = dx / len
+        // Same neighbor-smoothed chisel noise as chiseledBlob — keeps
+        // strokes wavy rather than zigzag.
+        var chiselRaw = [Double](repeating: 0, count: segments + 1)
+        for i in 0...segments {
+            chiselRaw[i] = carvedNoise(index: i, seed: seed)
+        }
         var path = Path()
         for i in 0...segments {
             let t = Double(i) / Double(segments)
@@ -340,7 +360,11 @@ struct VisualsView: View {
             // sin(π·t) is 0 at endpoints, 1 in the middle — fades jitter.
             let fade = sin(t * .pi)
             let wobble = sin(time * 0.7 + Double(seed) * 1.27 + t * 5.3) * fade
-            let chisel = carvedNoise(index: i, seed: seed) * fade * 0.6
+            let prev = i > 0 ? chiselRaw[i - 1] : chiselRaw[i]
+            let curr = chiselRaw[i]
+            let next = i < segments ? chiselRaw[i + 1] : chiselRaw[i]
+            let chiselSmoothed = (prev + curr + next) / 3.0
+            let chisel = chiselSmoothed * fade * 0.25
             let offset = (wobble + chisel) * Double(jitter)
             let x = baseX + px * CGFloat(offset)
             let y = baseY + py * CGFloat(offset)
