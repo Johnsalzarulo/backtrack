@@ -6,7 +6,11 @@ import SwiftUI
 // the HUD already uses. Aspect-agnostic — every dimension is derived
 // from min(width, height).
 //
-// Layer order (back to front):
+// When the current part has a visual (still image, GIF, or video), that
+// takes over the whole window and the synth layer is hidden — stacking
+// both was too busy. The synth layer only shows for parts with no visual.
+//
+// Synth layer order (back to front):
 //   1. Idle border        — always on, for projector / screen alignment
 //   2. Pad sun-rays       — always rotating, brightness tracks pad activity
 //   3. Kick outer flash   — thick border pulse
@@ -30,18 +34,19 @@ struct VisualsView: View {
 
     var body: some View {
         ZStack {
-            // Bottom layer: per-part GIF background, CSS-cover scaling.
             if let url = state.currentPartVisualURL {
-                GifView(url: url)
+                // Part has a visual: take over the window, suppress synth.
+                VisualView(url: url)
                     .ignoresSafeArea()
-            }
-            // Top layer: console-style synth visuals.
-            TimelineView(.animation) { context in
-                Canvas { ctx, size in
-                    render(ctx: ctx, size: size, now: context.date)
+            } else {
+                // No visual: fall back to the console-style synth layer.
+                TimelineView(.animation) { context in
+                    Canvas { ctx, size in
+                        render(ctx: ctx, size: size, now: context.date)
+                    }
                 }
+                .ignoresSafeArea()
             }
-            .ignoresSafeArea()
         }
         .background(Color.black)
         .ignoresSafeArea()

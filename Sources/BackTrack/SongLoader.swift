@@ -116,6 +116,10 @@ enum SongLoader {
     private static func toJSON(_ song: Song) -> SongJSON {
         var parts: [String: PartJSON] = [:]
         for (name, part) in song.parts {
+            // Omit both fields when there are no visuals; omit visualMode
+            // when it doesn't matter (0 or 1 entry) so files stay clean.
+            let visuals = part.visuals.isEmpty ? nil : VisualList(part.visuals)
+            let mode: String? = part.visuals.count > 1 ? part.visualMode.rawValue : nil
             parts[name] = PartJSON(
                 pattern: part.pattern,
                 chords: part.chords.map { $0.display },
@@ -123,7 +127,8 @@ enum SongLoader {
                 pad: part.padLevel > 0 ? part.padLevel : nil,
                 bass: part.bassLevel > 0 ? part.bassLevel : nil,
                 lyrics: part.lyrics.isEmpty ? nil : part.lyrics,
-                visual: part.visual
+                visuals: visuals,
+                visualMode: mode
             )
         }
         return SongJSON(
@@ -169,6 +174,19 @@ enum SongLoader {
             }
         }
 
+        let visuals = part.visuals?.items ?? []
+        let visualMode: VisualCycleMode
+        switch part.visualMode?.lowercased() {
+        case nil, "", "bar":
+            visualMode = .bar
+        case "beat":
+            visualMode = .beat
+        case let other?:
+            throw SongValidationError(
+                "part '\(name)' visualMode '\(other)' — expected 'bar' or 'beat'"
+            )
+        }
+
         return Part(
             name: name,
             pattern: part.pattern,
@@ -177,7 +195,8 @@ enum SongLoader {
             padLevel: padLevel,
             bassLevel: bassLevel,
             lyrics: part.lyrics ?? "",
-            visual: part.visual
+            visuals: visuals,
+            visualMode: visualMode
         )
     }
 }

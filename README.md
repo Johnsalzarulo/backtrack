@@ -69,7 +69,17 @@ scans the directory; any malformed songs surface in the HUD's
       "pad": 2,
       "bass": 1,
       "lyrics": "line one\nline two",
-      "visual": "chaplinstill.gif"
+      "visuals": "chaplinstill.gif"
+    },
+    "chorus": {
+      "pattern": "Chorus lift",
+      "chords": ["Bm", "G", "D", "D"],
+      "repeats": 2,
+      "pad": 3,
+      "bass": 2,
+      "lyrics": "chorus line",
+      "visuals": ["hands.gif", "bigbird.gif", "napoleon.gif"],
+      "visualMode": "beat"
     }
   },
   "structure": ["intro", "verse", "chorus", "verse", "chorus", "outro"]
@@ -88,7 +98,8 @@ scans the directory; any malformed songs surface in the HUD's
 | `repeats` | part | How many times the chord progression cycles. Optional, default 1. Total bars = `chords.length × repeats`. |
 | `pad`, `bass` | part | Complexity 0–3 (0 = silent). Default 0. |
 | `lyrics` | part | Optional multi-line string. |
-| `visual` | part | Optional filename of an animated GIF under `~/BackTrack/Visuals/gifs/`. Displayed as a CSS-cover background behind the synth visuals. |
+| `visuals` | part | Optional filename (string) **or** array of filenames under `~/BackTrack/Visuals/`. Still images (PNG/JPEG/…), animated GIFs, and videos (mp4, mov, m4v, mpg, mpeg, webm, avi) are all supported. Displayed CSS-cover and takes over the visuals window (the synth layer is suppressed while a visual is on screen). |
+| `visualMode` | part | Only meaningful when `visuals` is an array. `"bar"` (default) advances to the next visual at each bar boundary; `"beat"` advances on every quarter-note beat. Arrays cycle — shorter than the part length wraps; longer gets truncated at whatever index you land on when the part ends. |
 
 **Thinking in progressions**: `chords` defines one cycle of harmonic
 movement; `repeats` says how many cycles that part plays through. A
@@ -240,17 +251,41 @@ fast. In-app keyboard audition:
 
 ## Visuals window
 
-Second window that renders per-part background clips + console-style
-geometric visuals reactive to the same trigger timestamps the HUD
-uses. Drag it to a secondary monitor or a projector; press `F` to
-toggle macOS native full-screen.
+Second window with two modes per part: either a **visual** (image /
+GIF / video) takes over the whole window, or the **synth layer**
+(console-style geometric visualizers reactive to drum / pad / bass
+triggers) runs. Drag it to a secondary monitor or a projector; press
+`F` to toggle macOS native full-screen.
 
-Background layer — animated GIFs placed at
-`~/BackTrack/Visuals/gifs/` and referenced per part via the `visual`
-field. Scaled CSS-cover style: fills both axes, preserves aspect
-ratio, crops whatever overflows.
+### Visual layer
 
-Synth layer (on top of the background, back to front):
+Drop files into a single flat folder at `~/BackTrack/Visuals/`. No
+subdirectories — parts reference files by filename only.
+
+| Type | Extensions | Backend |
+|------|------------|---------|
+| Still image | `.png`, `.jpg` / `.jpeg`, `.tiff`, `.heic`, `.bmp` | `NSImageView` |
+| Animated GIF | `.gif` | `NSImageView` (auto-animates) |
+| Video | `.mp4`, `.mov`, `.m4v`, `.mpg` / `.mpeg`, `.m2v`, `.webm`, `.avi` | `AVPlayerLayer` (muted, looped seamlessly) |
+
+All media is scaled CSS-cover style: fills both axes, preserves aspect
+ratio, crops whatever overflows. Videos play muted — BackTrack is the
+only audio source.
+
+Each part can specify either a single visual or an array that cycles
+during playback, controlled by `visualMode`:
+
+- `"bar"` (default) — advance to the next visual at each bar.
+- `"beat"` — advance on every quarter-note beat (4× faster).
+
+Arrays wrap around if the part is longer than the list. Common pattern:
+keep verses / intros low-key with a single image, and give choruses an
+array (sometimes in `"beat"` mode) to build visual energy.
+
+### Synth layer
+
+Only rendered when the current part has **no** visual — layering the
+two was too busy on screen. Voices (back to front):
 
 | Voice | Shape |
 |-------|-------|
@@ -263,7 +298,7 @@ Synth layer (on top of the background, back to front):
 
 Everything is sized proportionally to `min(width, height)` so it holds
 up on any aspect ratio. Pale-green monochrome to match the HUD.
-Toggle visibility with `V`; full-screen with `F`.
+Toggle the whole window with `V`; full-screen with `F`.
 
 ## Files
 
@@ -278,5 +313,5 @@ Toggle visibility with `V`; full-screen with `F`.
 - `KeyboardHandler.swift` — NSEvent local monitor
 - `Song.swift` — Song / Part structs + raw JSON schema
 - `SongLoader.swift` — directory scan + validation
-- `VisualsView.swift` — Canvas-based console visuals window
-- `GifView.swift` — animated-GIF background layer with CSS-cover scaling
+- `VisualsView.swift` — Canvas-based synth-layer visuals window, switches to the visual backend when a part has one
+- `VisualView.swift` — NSViewRepresentable for images / GIFs (via NSImageView) and video (via AVPlayer), all with CSS-cover scaling

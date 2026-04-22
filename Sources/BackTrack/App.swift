@@ -112,7 +112,8 @@ final class Coordinator: ObservableObject {
             padLevel: existing.padLevel,
             bassLevel: existing.bassLevel,
             lyrics: existing.lyrics,
-            visual: existing.visual
+            visuals: existing.visuals,
+            visualMode: existing.visualMode
         )
         var newParts = state.songs[songIdx].parts
         newParts[partName] = updated
