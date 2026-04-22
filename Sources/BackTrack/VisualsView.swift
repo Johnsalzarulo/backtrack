@@ -115,9 +115,9 @@ struct VisualsView: View {
             center: center,
             baseRadius: r,
             time: time,
-            jitter: r * 0.10,
+            jitter: r * 0.06,
             seed: 11,
-            points: 44
+            points: 56
         )
         ctx.fill(blob, with: .color(ink))
     }
@@ -136,9 +136,9 @@ struct VisualsView: View {
             center: center,
             baseRadius: r,
             time: time,
-            jitter: r * 0.14,
+            jitter: r * 0.07,
             seed: 23,
-            points: 32
+            points: 40
         )
         ctx.fill(blob, with: .color(ink))
     }
@@ -157,9 +157,9 @@ struct VisualsView: View {
             center: center,
             baseRadius: radius,
             time: time,
-            jitter: minDim * 0.006,
+            jitter: minDim * 0.004,
             seed: 41,
-            points: 64
+            points: 80
         )
         ctx.stroke(
             ring,
@@ -182,9 +182,9 @@ struct VisualsView: View {
             center: center,
             baseRadius: radius,
             time: time,
-            jitter: minDim * 0.004,
+            jitter: minDim * 0.0025,
             seed: 61,
-            points: 40
+            points: 48
         )
         ctx.stroke(
             ring,
@@ -239,10 +239,22 @@ struct VisualsView: View {
 
     // MARK: - Shape helpers
 
-    // A closed loop around `center` at `baseRadius`, with per-vertex
-    // offsets from two sources: a slow sine wobble (makes the shape
-    // breathe continuously) and a neighbor-smoothed carved-noise offset
-    // (gives the chiseled / linocut edge). Fill → blob; stroke → ring.
+    // A closed loop around `center` at `baseRadius` with subtle
+    // per-vertex offsets. The silhouette should read as "a circle
+    // that's just slightly off" — not a star, not a polygon.
+    //
+    // Two offset sources:
+    //   1. Two low-frequency sine waves keyed to each vertex's *angular
+    //      position* — produces 1 or 2 gentle lobes around the
+    //      perimeter. (An earlier implementation keyed phase to vertex
+    //      *index* with a golden-ratio increment, which produced an
+    //      N-pointed star because the sine completed many full cycles
+    //      around the perimeter.)
+    //   2. Neighbor-smoothed carved noise — gives the edge a subtle
+    //      hand-hewn roughness without any individual vertex sticking
+    //      out as a tooth.
+    //
+    // Fill → blob; stroke → ring.
     private func chiseledBlob(
         center: CGPoint,
         baseRadius: CGFloat,
@@ -252,23 +264,32 @@ struct VisualsView: View {
         points: Int
     ) -> Path {
         var path = Path()
-        // Smooth the chisel noise across neighbors so we don't get
-        // alternating-vertex spikes that read as teeth. A 3-wide box
-        // blur gives a roughened edge without sharp points.
-        var chiselRaw = [Double](repeating: 0, count: points)
+        // 5-wide box blur of the per-vertex carved noise so each vertex
+        // averages with its 4 nearest neighbors — smoothes the edge
+        // enough that no single vertex reads as a tooth.
+        var raw = [Double](repeating: 0, count: points)
         for i in 0..<points {
-            chiselRaw[i] = carvedNoise(index: i, seed: seed)
+            raw[i] = carvedNoise(index: i, seed: seed)
         }
+        var smoothed = [Double](repeating: 0, count: points)
+        for i in 0..<points {
+            var sum = 0.0
+            for k in -2...2 {
+                let idx = ((i + k) % points + points) % points
+                sum += raw[idx]
+            }
+            smoothed[i] = sum / 5.0
+        }
+        let seedPhase = Double(seed) * 0.71
         for i in 0..<points {
             let angle = Double(i) / Double(points) * 2 * .pi
-            let phase = Double(i) * 1.618 + Double(seed) * 1.913
-            let slow = sin(time * 0.55 + phase) * Double(jitter) * 0.7
-            let fast = sin(time * 1.7 + phase * 2.3) * Double(jitter) * 0.2
-            let prev = chiselRaw[(i + points - 1) % points]
-            let curr = chiselRaw[i]
-            let next = chiselRaw[(i + 1) % points]
-            let chisel = (prev + curr + next) / 3.0 * Double(jitter) * 0.3
-            let r = baseRadius + CGFloat(slow + fast + chisel)
+            // sin(angle * k) completes exactly k full cycles around the
+            // perimeter regardless of vertex count — 1 cycle = one
+            // gentle lobe, 2 cycles = two lobes. Stays subtle.
+            let lobe1 = sin(angle + seedPhase + time * 0.55) * 0.30
+            let lobe2 = sin(angle * 2 + seedPhase * 1.3 + time * 0.38) * 0.20
+            let chisel = smoothed[i] * 0.25
+            let r = baseRadius + CGFloat((lobe1 + lobe2 + chisel) * Double(jitter))
             let x = center.x + CGFloat(cos(angle)) * r
             let y = center.y + CGFloat(sin(angle)) * r
             let p = CGPoint(x: x, y: y)
