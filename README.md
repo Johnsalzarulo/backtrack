@@ -288,29 +288,35 @@ array (sometimes in `"beat"` mode) to build visual energy.
 
 Only rendered when the current part has **no** visual — layering the
 two was too busy on screen. The vocabulary is black-and-white linocut:
-chunky filled silhouettes with chiseled edges, ink speckle inside the
-filled shapes, and thick irregular ink strokes for radiating rays.
-Voices (back to front):
+chunky filled silhouettes with chiseled edges and thick irregular ink
+strokes for radiating rays. Voices (back to front):
 
 | Voice | Shape |
 |-------|-------|
-| Pad | 4, 6, or 8 thick irregular ink strokes radiating from the center (count tracks part's pad level — 1/2/3). Each stroke draws in on trigger, retracts on decay. |
-| Bass | Chiseled irregular ring at ~38% of min dim. Outline draws in, retracts. |
-| HH | Chiseled ring at ~11% radius. Fast attack and decay. |
-| Kick | Large filled chiseled blob (~22% radius) in the center. Grows from 0 on hit, shrinks back to 0. Scattered ink speckle of opposite color inside. |
-| Snare | Smaller filled chiseled blob (~7.5% radius) layered on the kick position. Same scale-on / scale-off envelope, lighter speckle. |
+| Pad | 4, 6, or 8 thick irregular ink strokes radiating from the center (count tracks part's pad level — 1/2/3). |
+| Bass | Chiseled irregular ring at ~38% of min dim. |
+| HH | Chiseled ring at ~11% radius. |
+| Kick | Large filled chiseled blob (~22% radius) in the center. |
+| Snare | Smaller filled chiseled blob (~7.5% radius) layered on the kick position. |
 
-**Animation.** No opacity fades — fades produce greys and wash out the
-ink. Instead each voice's envelope drives *geometry*: filled shapes
-scale their radius 0 → full → 0, stroked shapes trim their path
-0 → full → 0. Ink stays 100% saturated the whole way through. Every
-vertex also has a slow low-frequency wobble so held / repeating shapes
-breathe, plus a stable carved-noise offset that gives the rough linocut
-edge (same every frame — it's the edge character, not flicker).
+**Binary on/off.** Every voice is either fully drawn or completely
+absent — no fades, no draw-in / draw-out, no opacity ramps. A hit
+pops the shape on for a short hold window (60 ms for HH up to 450 ms
+for pad), then it's gone until the next trigger. Responsiveness
+beats transition polish here: the shape appearing / disappearing in
+time with the audio is what sells the "this is reacting to the music"
+feeling.
 
-**Grain.** Filled shapes get 8–26 small speckle dots in the opposite
-ink color, re-seeded at each bar boundary. Stable within a bar (no
-strobing), fresh at the next one.
+**Organic feel without flicker.** The linocut character comes from
+two permanent properties of the shapes, not from animation:
+- every vertex has a stable hash-based offset (smoothed across its
+  two neighbors so edges read as carved, not as teeth)
+- every vertex is also perturbed by a slow ~0.6 Hz sine wobble, so
+  longer-held shapes breathe subtly while on
+
+Ink stays 100% saturated — pure black or pure white, nothing in
+between — to match the overwhelmingly high-contrast feel of the
+project's album art.
 
 **Theme.** Set `"theme": "dark"` (default: black paper, white ink) or
 `"light"` (white paper, black ink) on the song. Everything is sized
