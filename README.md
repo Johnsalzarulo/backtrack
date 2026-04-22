@@ -82,7 +82,8 @@ scans the directory; any malformed songs surface in the HUD's
       "visualMode": "beat"
     }
   },
-  "structure": ["intro", "verse", "chorus", "verse", "chorus", "outro"]
+  "structure": ["intro", "verse", "chorus", "verse", "chorus", "outro"],
+  "theme": "dark"
 }
 ```
 
@@ -93,6 +94,7 @@ scans the directory; any malformed songs surface in the HUD's
 | `pad`, `bass` | song | Pad/bass *sound* folder name. Required only if any part uses them. |
 | `parts` | song | Dictionary of part definitions, referenced by name. |
 | `structure` | song | Array of part names, in play order. The same name can appear multiple times. |
+| `theme` | song | `"dark"` (default — black paper, white ink) or `"light"` (inverted). Only affects the synth layer of the visuals window; parts with a `visuals` file aren't themed. |
 | `pattern` | part | Drum pattern name from `patterns.json` (e.g. `"Rock basic"`, `"Four on the floor"`). |
 | `chords` | part | The chord progression of the part — one symbol per bar of the progression. |
 | `repeats` | part | How many times the chord progression cycles. Optional, default 1. Total bars = `chords.length × repeats`. |
@@ -285,20 +287,35 @@ array (sometimes in `"beat"` mode) to build visual energy.
 ### Synth layer
 
 Only rendered when the current part has **no** visual — layering the
-two was too busy on screen. Voices (back to front):
+two was too busy on screen. The vocabulary is black-and-white linocut:
+chunky filled silhouettes with chiseled edges, ink speckle inside the
+filled shapes, and thick irregular ink strokes for radiating rays.
+Voices (back to front):
 
 | Voice | Shape |
 |-------|-------|
-| *idle* | Thin always-on border for projector / screen alignment |
-| Pad | 12 spinning spokes in a donut band (22–48% of min dim); brightness tracks pad activity; only visible while the pad is firing |
-| Kick | Thick outer border flash |
-| Bass | Ring at ~40% radius |
-| HH | Ring at ~13% radius around the snare dot |
-| Snare | Filled dot in the center |
+| Pad | 4, 6, or 8 thick irregular ink strokes radiating from the center (count tracks part's pad level — 1/2/3). Each stroke draws in on trigger, retracts on decay. |
+| Bass | Chiseled irregular ring at ~38% of min dim. Outline draws in, retracts. |
+| HH | Chiseled ring at ~11% radius. Fast attack and decay. |
+| Kick | Large filled chiseled blob (~22% radius) in the center. Grows from 0 on hit, shrinks back to 0. Scattered ink speckle of opposite color inside. |
+| Snare | Smaller filled chiseled blob (~7.5% radius) layered on the kick position. Same scale-on / scale-off envelope, lighter speckle. |
 
-Everything is sized proportionally to `min(width, height)` so it holds
-up on any aspect ratio. Pale-green monochrome to match the HUD.
-Toggle the whole window with `V`; full-screen with `F`.
+**Animation.** No opacity fades — fades produce greys and wash out the
+ink. Instead each voice's envelope drives *geometry*: filled shapes
+scale their radius 0 → full → 0, stroked shapes trim their path
+0 → full → 0. Ink stays 100% saturated the whole way through. Every
+vertex also has a slow low-frequency wobble so held / repeating shapes
+breathe, plus a stable carved-noise offset that gives the rough linocut
+edge (same every frame — it's the edge character, not flicker).
+
+**Grain.** Filled shapes get 8–26 small speckle dots in the opposite
+ink color, re-seeded at each bar boundary. Stable within a bar (no
+strobing), fresh at the next one.
+
+**Theme.** Set `"theme": "dark"` (default: black paper, white ink) or
+`"light"` (white paper, black ink) on the song. Everything is sized
+proportionally to `min(width, height)` so it holds up on any aspect
+ratio. Toggle the whole window with `V`; full-screen with `F`.
 
 ## Files
 

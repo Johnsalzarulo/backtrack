@@ -157,7 +157,8 @@ final class KeyboardHandler {
             padSound: old.padSound,
             bassSound: old.bassSound,
             parts: newParts,
-            structure: old.structure
+            structure: old.structure,
+            theme: old.theme
         )
     }
 

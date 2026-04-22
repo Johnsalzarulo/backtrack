@@ -86,6 +86,18 @@ enum SongLoader {
             throw SongValidationError("parts use bass but song has no \"bass\" sound name")
         }
 
+        let theme: VisualTheme
+        switch raw.theme?.lowercased() {
+        case nil, "", "dark":
+            theme = .dark
+        case "light":
+            theme = .light
+        case let other?:
+            throw SongValidationError(
+                "theme '\(other)' — expected 'dark' or 'light'"
+            )
+        }
+
         return Song(
             sourceURL: sourceURL,
             name: raw.name,
@@ -95,7 +107,8 @@ enum SongLoader {
             padSound: usesPad ? raw.pad : nil,
             bassSound: usesBass ? raw.bass : nil,
             parts: parts,
-            structure: raw.structure
+            structure: raw.structure,
+            theme: theme
         )
     }
 
@@ -139,7 +152,10 @@ enum SongLoader {
             pad: song.padSound,
             bass: song.bassSound,
             parts: parts,
-            structure: song.structure
+            structure: song.structure,
+            // Omit the theme field on save when it's the default, so
+            // hand-authored songs that didn't set one stay terse.
+            theme: song.theme == .dark ? nil : song.theme.rawValue
         )
     }
 

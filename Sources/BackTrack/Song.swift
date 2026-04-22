@@ -13,6 +13,10 @@ struct SongJSON: Codable {
     let bass: String?
     let parts: [String: PartJSON]
     let structure: [String]
+    // Visual palette for the synth layer. "dark" (default) = black bg +
+    // white ink; "light" = white bg + black ink. Per-song so different
+    // tunes can feel different without a global toggle.
+    let theme: String?
 }
 
 struct PartJSON: Codable {
@@ -77,6 +81,7 @@ struct Song {
     let bassSound: String?
     let parts: [String: Part]
     let structure: [String]   // part names, in play order
+    let theme: VisualTheme    // synth-layer palette for the visuals window
 
     // Total bar count across the whole structure, for progress indicators.
     var totalBars: Int {
@@ -84,6 +89,15 @@ struct Song {
             sum + (parts[name]?.bars ?? 0)
         }
     }
+}
+
+// Synth-layer palette. `.dark` is the default (black background, white
+// ink) — chosen to match the overwhelmingly black-and-white linocut /
+// woodblock feel the project is going for. `.light` is a straight
+// invert: white background, black ink.
+enum VisualTheme: String {
+    case dark
+    case light
 }
 
 // How a part's visuals array advances during playback. Only meaningful
