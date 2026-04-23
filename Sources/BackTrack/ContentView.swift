@@ -298,6 +298,7 @@ struct ContentView: View {
             row("[ ]",   "audition pattern",    "L",     "loop current part")
             row("⌘ S",   "save pattern edit",   "V",     "show / hide visuals")
             row("F",     "visuals full-screen", "R",     "reload everything")
+            row("M",     "cycle visualizer",    "I",     "invert theme")
         }
         .foregroundColor(dim)
         .font(.system(.caption, design: .monospaced))

@@ -350,6 +350,13 @@ written back to JSON. Useful for auditioning. The song's JSON values
 remain the source of truth for "what this song looks like by default";
 the overrides just replace them for the current session.
 
+When an override is active, the synth layer also takes priority over
+any part-level visual (GIF / image / video). That's so pressing `M`
+on a part with a `visuals` file actually cycles something you can
+see, instead of silently updating the hidden synth layer underneath
+the GIF. Un-set overrides fall back to the default behavior
+(part-level visual wins).
+
 Everything is sized proportionally to `min(width, height)` so it
 holds up on any aspect ratio. Toggle the whole window with `V`;
 full-screen with `F`.

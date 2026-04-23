@@ -40,11 +40,16 @@ struct VisualsView: View {
 
     var body: some View {
         ZStack {
-            if let url = state.currentPartVisualURL {
-                // Part has a visual: take over the window, suppress synth.
+            if let url = state.currentPartVisualURL, !userOverridingVisuals {
+                // Part has a visual and the user hasn't asked to see
+                // the synth layer instead — GIF/image/video takes over.
                 VisualView(url: url)
                     .ignoresSafeArea()
             } else {
+                // Either no part-level visual, or the user pressed I or
+                // M to pull into the synth layer. Their override beats
+                // the song's configured visual so `M` actually cycles
+                // something visible even on parts with a GIF.
                 synthContent
                     .background(paper)
                     .ignoresSafeArea()
@@ -57,6 +62,13 @@ struct VisualsView: View {
             // Reflect in state so the next V press re-opens cleanly.
             state.visualsOpen = false
         }
+    }
+
+    // True once the user has expressed intent to see the synth layer via
+    // the I or M keys. Nil overrides means "just use the song's defaults",
+    // in which case a part-level visual still takes over the window.
+    private var userOverridingVisuals: Bool {
+        state.themeOverride != nil || state.visualizerOverride != nil
     }
 
     // Synth-layer content — geometric motifs render into a Canvas;
