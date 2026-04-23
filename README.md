@@ -343,18 +343,23 @@ feels in sync at normal tempos.
 **Theme.** Set `"theme": "dark"` (default: black paper, white ink) or
 `"light"` (white paper, black ink) on the song.
 
-**Live overrides.** `I` inverts theme; `M` cycles through all eight
-motifs (six geometric, two lyric). Both are in-memory only — not
-written back to JSON. Useful for auditioning. The song's JSON values
-remain the source of truth for "what this song looks like by default";
-the overrides just replace them for the current session.
+**Live overrides.** `I` inverts theme; `M` cycles through the eight
+motifs (six geometric, two lyric) plus a ninth "song default" stop.
+Both are in-memory only — not written back to JSON. Useful for
+auditioning. The song's JSON values remain the source of truth for
+"what this song looks like by default"; the overrides just replace
+them for the current session.
 
-When an override is active, the synth layer also takes priority over
-any part-level visual (GIF / image / video). That's so pressing `M`
+When a visualizer override is active, the synth layer takes priority
+over any part-level visual (GIF / image / video) — so pressing `M`
 on a part with a `visuals` file actually cycles something you can
-see, instead of silently updating the hidden synth layer underneath
-the GIF. Un-set overrides fall back to the default behavior
-(part-level visual wins).
+see instead of silently updating the hidden synth layer underneath.
+Cycle past `lyrics-line` and you land on the "song default" stop,
+which clears the visualizer override and restores the part's
+`visuals` (or the song's JSON visualizer if the part has none).
+`I` alone never hides a GIF — theme doesn't affect GIF display, so
+the theme override just waits in memory until you navigate to a
+synth view.
 
 **Overscan safety.** Every motif except the part-level visual (GIF /
 image / video) is inset by 7% of `min(width, height)` on each edge,

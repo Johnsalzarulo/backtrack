@@ -106,12 +106,24 @@ final class KeyboardHandler {
             state.themeOverride = current == .dark ? .light : .dark
             return true
         case "m":
-            // Cycle through visualizer motifs. Order is the canonical
-            // VisualizerStyle.allCases.
+            // Cycle through visualizer motifs plus a "song default"
+            // stop at the end. Landing on default clears the override,
+            // which restores the part's GIF/image/video if it had one
+            // (or the song's JSON visualizer otherwise). Without this
+            // stop, previewing other styles on a part with a GIF would
+            // hide the GIF with no way to get it back short of a
+            // restart.
             let styles = VisualizerStyle.allCases
-            let current = state.effectiveVisualizer
-            let idx = styles.firstIndex(of: current) ?? 0
-            state.visualizerOverride = styles[(idx + 1) % styles.count]
+            let cycleSize = styles.count + 1  // +1 for default slot
+            let currentIdx: Int
+            if let current = state.visualizerOverride,
+               let idx = styles.firstIndex(of: current) {
+                currentIdx = idx
+            } else {
+                currentIdx = styles.count  // sitting on default slot
+            }
+            let nextIdx = (currentIdx + 1) % cycleSize
+            state.visualizerOverride = nextIdx < styles.count ? styles[nextIdx] : nil
             return true
         default:
             return false

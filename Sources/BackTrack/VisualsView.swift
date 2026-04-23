@@ -85,11 +85,13 @@ struct VisualsView: View {
         }
     }
 
-    // True once the user has expressed intent to see the synth layer via
-    // the I or M keys. Nil overrides means "just use the song's defaults",
-    // in which case a part-level visual still takes over the window.
+    // True once the user has expressed intent to see a specific synth
+    // motif via the M key. Theme override is deliberately ignored here:
+    // theme doesn't affect GIF display, so pressing I on a part with a
+    // GIF shouldn't hide the GIF. The theme override just waits in
+    // memory until the user navigates to a synth view.
     private var userOverridingVisuals: Bool {
-        state.themeOverride != nil || state.visualizerOverride != nil
+        state.visualizerOverride != nil
     }
 
     // Synth-layer content — geometric motifs render into a Canvas;
