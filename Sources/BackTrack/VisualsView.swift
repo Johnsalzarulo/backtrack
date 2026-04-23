@@ -89,16 +89,24 @@ struct VisualsView: View {
                 paper: nsPaper
             )
         case .lyricsLine:
+            // Lines can wrap at word boundaries — a long line looks
+            // better across two rows than crammed onto one at tiny
+            // size. Word wrap is fine here since lines are phrases.
             LyricsCenteredView(
                 text: currentLyricLine,
                 baseSize: 120,
+                singleLine: false,
                 ink: ink,
                 paper: paper
             )
         case .lyricsWord:
+            // Single word: must stay on one line. lineLimit(1) forces
+            // minimumScaleFactor to shrink the whole word to fit
+            // instead of breaking it at a character boundary.
             LyricsCenteredView(
                 text: currentLyricWord,
                 baseSize: 300,
+                singleLine: true,
                 ink: ink,
                 paper: paper
             )

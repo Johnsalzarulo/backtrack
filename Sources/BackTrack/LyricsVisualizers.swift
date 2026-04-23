@@ -142,9 +142,17 @@ final class AutoFitJustifiedTextView: NSView {
 // piece of text centered and scaled as large as SwiftUI will allow
 // within the frame (minimumScaleFactor handles overflow gracefully
 // when a particularly long word or line would otherwise clip).
+//
+// `singleLine` matters for word mode: a long single word like
+// "yourself" at baseSize=300 is wider than the screen, and without
+// a line limit SwiftUI breaks it across two lines at a character
+// boundary rather than shrinking the whole word. Forcing
+// `lineLimit(1)` makes `minimumScaleFactor` actually kick in so the
+// word stays on one line and scales down to fit.
 struct LyricsCenteredView: View {
     let text: String
     let baseSize: CGFloat
+    let singleLine: Bool
     let ink: Color
     let paper: Color
 
@@ -155,7 +163,7 @@ struct LyricsCenteredView: View {
                 .font(.system(size: baseSize, weight: .regular, design: .monospaced))
                 .minimumScaleFactor(0.05)
                 .multilineTextAlignment(.center)
-                .lineLimit(nil)
+                .lineLimit(singleLine ? 1 : nil)
                 .foregroundColor(ink)
                 .padding(40)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
