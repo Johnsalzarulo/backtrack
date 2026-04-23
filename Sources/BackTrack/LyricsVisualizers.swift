@@ -2,16 +2,16 @@ import SwiftUI
 import AppKit
 
 // Typographic visualizer views — the alternative to the geometric
-// motifs (sun / squares / dots / etc.). All three render the current
-// part's `lyrics` field in monospace ink on paper, following the
-// active theme.
+// motifs (sun / squares / dots / etc.). Both lyric motifs render the
+// current part's `lyrics` field in light-weight monospace ink on
+// paper, following the active theme.
 
-// MARK: - Block: whole part as one justified paragraph
+// MARK: - Block / Line (both auto-fit justified paragraphs)
 
-// Renders every line of lyrics in the current part as a single
-// justified paragraph, with font size auto-fit (binary search) so
-// the text fills the frame edge to edge. Re-measures whenever the
-// text or the frame size changes.
+// Renders some chunk of lyric text — either the entire part (block
+// mode) or a single line of it (line mode) — as a justified paragraph
+// that auto-fits to the frame. Font size binary-searches so the text
+// fills the frame edge to edge.
 struct LyricsBlockView: NSViewRepresentable {
     let text: String
     let ink: NSColor
@@ -30,8 +30,9 @@ struct LyricsBlockView: NSViewRepresentable {
 
 // NSView that hosts a non-editable NSTextView with justified alignment
 // and binary-searches for the largest monospace font size that fits
-// the text inside the view's current bounds. The text view's own
-// layout manager does the line-wrapping.
+// the text inside the view's current bounds. Font weight is `.light`
+// — a thinner stroke than `.regular` that reads as retro CRT terminal
+// text rather than modern UI copy.
 final class AutoFitJustifiedTextView: NSView {
     private let textView = NSTextView()
     private var currentText: String = ""
@@ -43,6 +44,10 @@ final class AutoFitJustifiedTextView: NSView {
     // verse length; 10 pt is a sensible floor.
     private let fontLo: CGFloat = 10
     private let fontHi: CGFloat = 500
+
+    // Font weight used for both measurement and rendering. Light
+    // weight gives a more retro terminal feel than regular.
+    private let fontWeight: NSFont.Weight = .light
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -113,7 +118,7 @@ final class AutoFitJustifiedTextView: NSView {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .justified
         let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular),
+            .font: NSFont.monospacedSystemFont(ofSize: fontSize, weight: fontWeight),
             .paragraphStyle: paragraph
         ]
         let s = NSAttributedString(string: currentText, attributes: attrs)
@@ -128,7 +133,7 @@ final class AutoFitJustifiedTextView: NSView {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .justified
         let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular),
+            .font: NSFont.monospacedSystemFont(ofSize: fontSize, weight: fontWeight),
             .foregroundColor: currentInk,
             .paragraphStyle: paragraph
         ]
@@ -136,41 +141,5 @@ final class AutoFitJustifiedTextView: NSView {
             NSAttributedString(string: currentText, attributes: attrs)
         )
         textView.textContainerInset = CGSize(width: padding, height: padding)
-    }
-}
-
-// MARK: - Line / Word: single chunk, centered, very large
-
-// Used by both lyrics-line and lyrics-word modes. Renders a short
-// piece of text centered and scaled as large as SwiftUI will allow
-// within the frame (minimumScaleFactor handles overflow gracefully
-// when a particularly long word or line would otherwise clip).
-//
-// `singleLine` matters for word mode: a long single word like
-// "yourself" at baseSize=300 is wider than the screen, and without
-// a line limit SwiftUI breaks it across two lines at a character
-// boundary rather than shrinking the whole word. Forcing
-// `lineLimit(1)` makes `minimumScaleFactor` actually kick in so the
-// word stays on one line and scales down to fit.
-//
-// Paper background is drawn by VisualsView's outer .background(paper),
-// so this view only needs to render the text. The small internal
-// padding is aesthetic breathing room — overscan safety comes from
-// the outer padding applied by VisualsView.
-struct LyricsCenteredView: View {
-    let text: String
-    let baseSize: CGFloat
-    let singleLine: Bool
-    let ink: Color
-
-    var body: some View {
-        Text(text)
-            .font(.system(size: baseSize, weight: .regular, design: .monospaced))
-            .minimumScaleFactor(0.05)
-            .multilineTextAlignment(.center)
-            .lineLimit(singleLine ? 1 : nil)
-            .foregroundColor(ink)
-            .padding(8)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

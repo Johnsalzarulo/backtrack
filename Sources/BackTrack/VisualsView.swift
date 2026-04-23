@@ -104,20 +104,22 @@ struct VisualsView: View {
                 }
             }
         case .lyricsBlock:
+            // Whole-part lyrics, newlines → spaces, auto-fit binary
+            // search finds the largest size that fills the frame.
             LyricsBlockView(
                 text: blockLyricsText,
                 ink: nsInk,
                 paper: nsPaper
             )
         case .lyricsLine:
-            // Lines can wrap at word boundaries — a long line looks
-            // better across two rows than crammed onto one at tiny
-            // size. Word wrap is fine here since lines are phrases.
-            LyricsCenteredView(
+            // Same auto-fit view, different source text. A single line
+            // is typically short enough to end up much bigger than the
+            // whole paragraph after auto-fit — the frame fills with
+            // just those words, justified and wrapping as needed.
+            LyricsBlockView(
                 text: currentLyricLine,
-                baseSize: 120,
-                singleLine: false,
-                ink: ink
+                ink: nsInk,
+                paper: nsPaper
             )
         }
     }
