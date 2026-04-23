@@ -183,7 +183,8 @@ final class KeyboardHandler {
             bassLevel: existing.bassLevel,
             lyrics: existing.lyrics,
             visuals: existing.visuals,
-            visualMode: existing.visualMode
+            visualMode: existing.visualMode,
+            visualizer: existing.visualizer
         )
         var newParts = state.songs[songIdx].parts
         newParts[partName] = updatedPart

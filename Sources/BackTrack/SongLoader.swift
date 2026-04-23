@@ -98,31 +98,7 @@ enum SongLoader {
             )
         }
 
-        let visualizer: VisualizerStyle
-        switch raw.visualizer?.lowercased() {
-        case nil, "", "constellation":
-            visualizer = .constellation
-        case "orbit":
-            visualizer = .orbit
-        case "ink":
-            visualizer = .ink
-        case "squares":
-            visualizer = .squares
-        case "dots":
-            visualizer = .dots
-        case "lines":
-            visualizer = .lines
-        case "ripple":
-            visualizer = .ripple
-        case "lyrics-block", "lyricsblock":
-            visualizer = .lyricsBlock
-        case "lyrics-line", "lyricsline":
-            visualizer = .lyricsLine
-        case let other?:
-            throw SongValidationError(
-                "visualizer '\(other)' — expected one of: constellation, orbit, ink, squares, dots, lines, ripple, lyrics-block, lyrics-line"
-            )
-        }
+        let visualizer = try parseVisualizer(raw.visualizer, context: "song") ?? .constellation
 
         return Song(
             sourceURL: sourceURL,
@@ -168,7 +144,8 @@ enum SongLoader {
                 bass: part.bassLevel > 0 ? part.bassLevel : nil,
                 lyrics: part.lyrics.isEmpty ? nil : part.lyrics,
                 visuals: visuals,
-                visualMode: mode
+                visualMode: mode,
+                visualizer: part.visualizer?.rawValue
             )
         }
         return SongJSON(
@@ -231,6 +208,8 @@ enum SongLoader {
             )
         }
 
+        let visualizer = try parseVisualizer(part.visualizer, context: "part '\(name)'")
+
         return Part(
             name: name,
             pattern: part.pattern,
@@ -240,8 +219,43 @@ enum SongLoader {
             bassLevel: bassLevel,
             lyrics: part.lyrics ?? "",
             visuals: visuals,
-            visualMode: visualMode
+            visualMode: visualMode,
+            visualizer: visualizer
         )
+    }
+
+    // Shared parser for both song-level and part-level visualizer names.
+    // Empty/nil returns nil so callers can fall back to their own default.
+    private static func parseVisualizer(
+        _ raw: String?,
+        context: String
+    ) throws -> VisualizerStyle? {
+        switch raw?.lowercased() {
+        case nil, "":
+            return nil
+        case "constellation":
+            return .constellation
+        case "orbit":
+            return .orbit
+        case "ink":
+            return .ink
+        case "squares":
+            return .squares
+        case "dots":
+            return .dots
+        case "lines":
+            return .lines
+        case "ripple":
+            return .ripple
+        case "lyrics-block", "lyricsblock":
+            return .lyricsBlock
+        case "lyrics-line", "lyricsline":
+            return .lyricsLine
+        case let other?:
+            throw SongValidationError(
+                "\(context) visualizer '\(other)' — expected one of: constellation, orbit, ink, squares, dots, lines, ripple, lyrics-block, lyrics-line"
+            )
+        }
     }
 }
 

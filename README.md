@@ -104,6 +104,7 @@ scans the directory; any malformed songs surface in the HUD's
 | `lyrics` | part | Optional multi-line string. |
 | `visuals` | part | Optional filename (string) **or** array of filenames under `~/BackTrack/Visuals/`. Still images (PNG/JPEG/…), animated GIFs, and videos (mp4, mov, m4v, mpg, mpeg, webm, avi) are all supported. Displayed CSS-cover and takes over the visuals window (the synth layer is suppressed while a visual is on screen). |
 | `visualMode` | part | Only meaningful when `visuals` is an array. `"bar"` (default) advances to the next visual at each bar boundary; `"beat"` advances on every quarter-note beat. Arrays cycle — shorter than the part length wraps; longer gets truncated at whatever index you land on when the part ends. |
+| `visualizer` | part | Optional per-part override of the song-level `visualizer`. Same vocabulary. Useful for e.g. a chorus in `"lyrics-block"` while the rest of the song stays geometric. A part with a `visuals` GIF still shows the GIF — the per-part visualizer only renders when that part has no `visuals`. |
 
 **Thinking in progressions**: `chords` defines one cycle of harmonic
 movement; `repeats` says how many cycles that part plays through. A

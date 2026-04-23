@@ -57,8 +57,13 @@ final class AppState: ObservableObject {
     var effectiveTheme: VisualTheme {
         themeOverride ?? currentSong?.theme ?? .dark
     }
+    // Precedence: live `M`-key override beats everything, then the
+    // current part's per-part visualizer, then the song's, then default.
     var effectiveVisualizer: VisualizerStyle {
-        visualizerOverride ?? currentSong?.visualizer ?? .constellation
+        visualizerOverride
+            ?? currentPart?.visualizer
+            ?? currentSong?.visualizer
+            ?? .constellation
     }
 
     var currentSong: Song? {

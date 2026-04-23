@@ -36,6 +36,12 @@ struct PartJSON: Codable {
     // "bar" (default) advances visuals once per bar; "beat" advances
     // once per quarter-note beat. Ignored when visuals has <= 1 entry.
     let visualMode: String?
+    // Per-part visualizer override. When set, this part uses the named
+    // style instead of the song-level `visualizer`. Same vocabulary as
+    // the song-level field — see VisualizerStyle. Note: a part with a
+    // `visuals` GIF always shows the GIF; the visualizer setting only
+    // kicks in when there's no GIF.
+    let visualizer: String?
 }
 
 // Polymorphic JSON container: decodes either `"visuals": "foo.gif"` or
@@ -155,6 +161,7 @@ struct Part {
     let lyrics: String         // empty string if not provided
     let visuals: [String]           // filenames under Visuals/; empty = none
     let visualMode: VisualCycleMode // cycling behavior when visuals.count > 1
+    let visualizer: VisualizerStyle? // per-part override; nil = inherit from song
 
     // Derived: total bar count for this part.
     var bars: Int { chords.count * repeats }
