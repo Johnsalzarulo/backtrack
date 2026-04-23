@@ -83,7 +83,10 @@ final class AutoFitJustifiedTextView: NSView {
     // boundingRect — so a handful of iterations is fine.
     private func relayoutForCurrentText() {
         guard bounds.width > 20, bounds.height > 20 else { return }
-        let padding: CGFloat = 40
+        // Small internal buffer — the outer overscan margin (applied by
+        // VisualsView) already handles CRT safety, so this is just a
+        // bit of breathing room between the text and the safe edge.
+        let padding: CGFloat = 8
         let availW = max(20, bounds.width - padding * 2)
         let availH = max(20, bounds.height - padding * 2)
 
@@ -149,24 +152,25 @@ final class AutoFitJustifiedTextView: NSView {
 // boundary rather than shrinking the whole word. Forcing
 // `lineLimit(1)` makes `minimumScaleFactor` actually kick in so the
 // word stays on one line and scales down to fit.
+//
+// Paper background is drawn by VisualsView's outer .background(paper),
+// so this view only needs to render the text. The small internal
+// padding is aesthetic breathing room — overscan safety comes from
+// the outer padding applied by VisualsView.
 struct LyricsCenteredView: View {
     let text: String
     let baseSize: CGFloat
     let singleLine: Bool
     let ink: Color
-    let paper: Color
 
     var body: some View {
-        ZStack {
-            paper.ignoresSafeArea()
-            Text(text)
-                .font(.system(size: baseSize, weight: .regular, design: .monospaced))
-                .minimumScaleFactor(0.05)
-                .multilineTextAlignment(.center)
-                .lineLimit(singleLine ? 1 : nil)
-                .foregroundColor(ink)
-                .padding(40)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
+        Text(text)
+            .font(.system(size: baseSize, weight: .regular, design: .monospaced))
+            .minimumScaleFactor(0.05)
+            .multilineTextAlignment(.center)
+            .lineLimit(singleLine ? 1 : nil)
+            .foregroundColor(ink)
+            .padding(8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

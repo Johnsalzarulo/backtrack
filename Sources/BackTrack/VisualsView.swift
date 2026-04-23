@@ -38,11 +38,19 @@ struct VisualsView: View {
     private var ink: Color { theme == .dark ? .white : .black }
     private var paper: Color { theme == .dark ? .black : .white }
 
+    // Overscan safe margin, as a fraction of min(width, height), applied
+    // to every non-GIF mode. CRTs and projectors routinely clip 5–10%
+    // off each edge; this keeps shapes and text inside the visible area.
+    // GIFs/images/videos skip the margin: the source is intended
+    // full-bleed and cropping would just show paper-colored bars.
+    private let overscanMargin: CGFloat = 0.07
+
     var body: some View {
         ZStack {
             if let url = state.currentPartVisualURL, !userOverridingVisuals {
                 // Part has a visual and the user hasn't asked to see
-                // the synth layer instead — GIF/image/video takes over.
+                // the synth layer instead — GIF/image/video takes over,
+                // edge to edge, no overscan inset.
                 VisualView(url: url)
                     .ignoresSafeArea()
             } else {
@@ -50,9 +58,12 @@ struct VisualsView: View {
                 // M to pull into the synth layer. Their override beats
                 // the song's configured visual so `M` actually cycles
                 // something visible even on parts with a GIF.
-                synthContent
-                    .background(paper)
-                    .ignoresSafeArea()
+                GeometryReader { geo in
+                    let inset = min(geo.size.width, geo.size.height) * overscanMargin
+                    synthContent
+                        .padding(inset)
+                }
+                .ignoresSafeArea()
             }
         }
         .background(paper)
@@ -96,19 +107,7 @@ struct VisualsView: View {
                 text: currentLyricLine,
                 baseSize: 120,
                 singleLine: false,
-                ink: ink,
-                paper: paper
-            )
-        case .lyricsWord:
-            // Single word: must stay on one line. lineLimit(1) forces
-            // minimumScaleFactor to shrink the whole word to fit
-            // instead of breaking it at a character boundary.
-            LyricsCenteredView(
-                text: currentLyricWord,
-                baseSize: 300,
-                singleLine: true,
-                ink: ink,
-                paper: paper
+                ink: ink
             )
         }
     }
@@ -136,17 +135,9 @@ struct VisualsView: View {
             .map(String.init)
     }
 
-    // Words in the current part (across all lines).
-    private var lyricWords: [String] {
-        guard let lyrics = state.currentPart?.lyrics, !lyrics.isEmpty else { return [] }
-        return lyrics
-            .split(whereSeparator: { $0.isWhitespace || $0.isNewline })
-            .map(String.init)
-    }
-
     // Fraction [0, 1] of the way through the current part, quantized
-    // to quarter-note beats — good enough for line / word advancement
-    // without needing sub-beat audio-clock precision.
+    // to quarter-note beats — good enough for line advancement without
+    // needing sub-beat audio-clock precision.
     private var playbackFraction: Double {
         guard let part = state.currentPart else { return 0 }
         let total = part.bars * 4
@@ -162,14 +153,6 @@ struct VisualsView: View {
         guard !lines.isEmpty else { return "" }
         let idx = min(lines.count - 1, Int(playbackFraction * Double(lines.count)))
         return lines[idx]
-    }
-
-    // Current word of lyric — same approach but over the word list.
-    private var currentLyricWord: String {
-        let words = lyricWords
-        guard !words.isEmpty else { return "" }
-        let idx = min(words.count - 1, Int(playbackFraction * Double(words.count)))
-        return words[idx]
     }
 
     // MARK: - Dispatch
@@ -192,7 +175,7 @@ struct VisualsView: View {
             renderRipple(ctx: ctx, center: center, minDim: minDim, time: time, now: now)
         case .constellation:
             renderConstellation(ctx: ctx, center: center, minDim: minDim, time: time, now: now)
-        case .lyricsBlock, .lyricsLine, .lyricsWord:
+        case .lyricsBlock, .lyricsLine:
             // Lyric motifs don't use Canvas — handled by synthContent
             // at the SwiftUI view level. render() never sees them in
             // practice, but the switch has to be exhaustive.

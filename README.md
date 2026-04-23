@@ -96,7 +96,7 @@ scans the directory; any malformed songs surface in the HUD's
 | `parts` | song | Dictionary of part definitions, referenced by name. |
 | `structure` | song | Array of part names, in play order. The same name can appear multiple times. |
 | `theme` | song | `"dark"` (default — black paper, white ink) or `"light"` (inverted). Only affects the synth layer of the visuals window; parts with a `visuals` file aren't themed. |
-| `visualizer` | song | Synth-layer motif. One of `"sun"` (default), `"squares"`, `"dots"`, `"lines"`, `"ripple"`, `"constellation"`, `"lyrics-block"`, `"lyrics-line"`, `"lyrics-word"`. See the Visuals window section below. |
+| `visualizer` | song | Synth-layer motif. One of `"sun"` (default), `"squares"`, `"dots"`, `"lines"`, `"ripple"`, `"constellation"`, `"lyrics-block"`, `"lyrics-line"`. See the Visuals window section below. |
 | `pattern` | part | Drum pattern name from `patterns.json` (e.g. `"Rock basic"`, `"Four on the floor"`). |
 | `chords` | part | The chord progression of the part — one symbol per bar of the progression. |
 | `repeats` | part | How many times the chord progression cycles. Optional, default 1. Total bars = `chords.length × repeats`. |
@@ -335,7 +335,6 @@ with no lyrics (intros / instrumentals) show as blank paper.
 |-------|----------|
 | `lyrics-block` | All lyrics of the part as a single justified paragraph, newlines → spaces. Font size binary-searches to fill the frame edge to edge. Doesn't animate during the part — one big paragraph, stable while that part plays. |
 | `lyrics-line` | Current line, one at a time. Lines change at even time intervals within the part: `lineIndex = floor(playbackFraction × lineCount)`. Line changes are quantized to the beat. |
-| `lyrics-word` | Current word, one at a time, huge. Same fraction math but over the word list. At 120 BPM words advance roughly every beat for typical verse lengths. |
 
 Lyric timing uses a beat-quantized playback fraction
 (`(currentBar × 4 + currentBeat) / (part.bars × 4)`) — approximate but
@@ -344,8 +343,8 @@ feels in sync at normal tempos.
 **Theme.** Set `"theme": "dark"` (default: black paper, white ink) or
 `"light"` (white paper, black ink) on the song.
 
-**Live overrides.** `I` inverts theme; `M` cycles through all nine
-motifs (six geometric, three lyric). Both are in-memory only — not
+**Live overrides.** `I` inverts theme; `M` cycles through all eight
+motifs (six geometric, two lyric). Both are in-memory only — not
 written back to JSON. Useful for auditioning. The song's JSON values
 remain the source of truth for "what this song looks like by default";
 the overrides just replace them for the current session.
@@ -357,8 +356,14 @@ see, instead of silently updating the hidden synth layer underneath
 the GIF. Un-set overrides fall back to the default behavior
 (part-level visual wins).
 
-Everything is sized proportionally to `min(width, height)` so it
-holds up on any aspect ratio. Toggle the whole window with `V`;
+**Overscan safety.** Every motif except the part-level visual (GIF /
+image / video) is inset by 7% of `min(width, height)` on each edge,
+so CRT/projector overscan won't clip shapes or text. Part-level
+visuals stay edge-to-edge since they're expected to fill the frame
+and cropping would just show paper-colored bars.
+
+Everything else is sized proportionally to `min(width, height)` so
+it holds up on any aspect ratio. Toggle the whole window with `V`;
 full-screen with `F`.
 
 ## Files

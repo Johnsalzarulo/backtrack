@@ -116,11 +116,9 @@ enum SongLoader {
             visualizer = .lyricsBlock
         case "lyrics-line", "lyricsline":
             visualizer = .lyricsLine
-        case "lyrics-word", "lyricsword":
-            visualizer = .lyricsWord
         case let other?:
             throw SongValidationError(
-                "visualizer '\(other)' — expected one of: sun, squares, dots, lines, ripple, constellation, lyrics-block, lyrics-line, lyrics-word"
+                "visualizer '\(other)' — expected one of: sun, squares, dots, lines, ripple, constellation, lyrics-block, lyrics-line"
             )
         }
 

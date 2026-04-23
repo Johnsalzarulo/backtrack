@@ -117,7 +117,6 @@ enum VisualTheme: String {
 //   constellation — fixed star-positions that light up per voice
 //   lyrics-block  — all lyrics as one justified paragraph, filling screen
 //   lyrics-line   — current lyric line, one at a time
-//   lyrics-word   — current word, one at a time, huge
 enum VisualizerStyle: String {
     case sun
     case squares
@@ -127,12 +126,11 @@ enum VisualizerStyle: String {
     case constellation
     case lyricsBlock = "lyrics-block"
     case lyricsLine = "lyrics-line"
-    case lyricsWord = "lyrics-word"
 
     // Cycle order for the `M` key. Same as declaration order above.
     static let allCases: [VisualizerStyle] = [
         .sun, .squares, .dots, .lines, .ripple, .constellation,
-        .lyricsBlock, .lyricsLine, .lyricsWord
+        .lyricsBlock, .lyricsLine
     ]
 }
 
