@@ -45,15 +45,9 @@ struct VisualsView: View {
                 VisualView(url: url)
                     .ignoresSafeArea()
             } else {
-                // Synth layer. The .background draws the paper color so
-                // Canvas only needs to stamp ink on top.
-                TimelineView(.animation) { context in
-                    Canvas { ctx, size in
-                        render(ctx: ctx, size: size, now: context.date)
-                    }
-                }
-                .background(paper)
-                .ignoresSafeArea()
+                synthContent
+                    .background(paper)
+                    .ignoresSafeArea()
             }
         }
         .background(paper)
@@ -63,6 +57,99 @@ struct VisualsView: View {
             // Reflect in state so the next V press re-opens cleanly.
             state.visualsOpen = false
         }
+    }
+
+    // Synth-layer content — geometric motifs render into a Canvas;
+    // lyric motifs render typographically via SwiftUI / NSTextView.
+    @ViewBuilder
+    private var synthContent: some View {
+        switch visualizer {
+        case .sun, .squares, .dots, .lines, .ripple, .constellation:
+            TimelineView(.animation) { context in
+                Canvas { ctx, size in
+                    render(ctx: ctx, size: size, now: context.date)
+                }
+            }
+        case .lyricsBlock:
+            LyricsBlockView(
+                text: blockLyricsText,
+                ink: nsInk,
+                paper: nsPaper
+            )
+        case .lyricsLine:
+            LyricsCenteredView(
+                text: currentLyricLine,
+                baseSize: 120,
+                ink: ink,
+                paper: paper
+            )
+        case .lyricsWord:
+            LyricsCenteredView(
+                text: currentLyricWord,
+                baseSize: 300,
+                ink: ink,
+                paper: paper
+            )
+        }
+    }
+
+    // NSColor bridges for the block view (NSTextView uses AppKit colors).
+    private var nsInk: NSColor { theme == .dark ? .white : .black }
+    private var nsPaper: NSColor { theme == .dark ? .black : .white }
+
+    // MARK: - Lyric timing
+
+    // All lyrics for the current part, newlines replaced with spaces
+    // so the whole thing flows as a single paragraph.
+    private var blockLyricsText: String {
+        guard let lyrics = state.currentPart?.lyrics else { return "" }
+        return lyrics
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespaces)
+    }
+
+    // Lines of lyric in the current part, non-empty only.
+    private var lyricLines: [String] {
+        guard let lyrics = state.currentPart?.lyrics, !lyrics.isEmpty else { return [] }
+        return lyrics
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map(String.init)
+    }
+
+    // Words in the current part (across all lines).
+    private var lyricWords: [String] {
+        guard let lyrics = state.currentPart?.lyrics, !lyrics.isEmpty else { return [] }
+        return lyrics
+            .split(whereSeparator: { $0.isWhitespace || $0.isNewline })
+            .map(String.init)
+    }
+
+    // Fraction [0, 1] of the way through the current part, quantized
+    // to quarter-note beats — good enough for line / word advancement
+    // without needing sub-beat audio-clock precision.
+    private var playbackFraction: Double {
+        guard let part = state.currentPart else { return 0 }
+        let total = part.bars * 4
+        guard total > 0 else { return 0 }
+        let elapsed = max(0, state.currentBar * 4 + state.currentBeat)
+        return min(1.0, Double(elapsed) / Double(total))
+    }
+
+    // Current line of lyric based on playback position. Divides the
+    // part evenly among the available lines.
+    private var currentLyricLine: String {
+        let lines = lyricLines
+        guard !lines.isEmpty else { return "" }
+        let idx = min(lines.count - 1, Int(playbackFraction * Double(lines.count)))
+        return lines[idx]
+    }
+
+    // Current word of lyric — same approach but over the word list.
+    private var currentLyricWord: String {
+        let words = lyricWords
+        guard !words.isEmpty else { return "" }
+        let idx = min(words.count - 1, Int(playbackFraction * Double(words.count)))
+        return words[idx]
     }
 
     // MARK: - Dispatch
@@ -85,6 +172,11 @@ struct VisualsView: View {
             renderRipple(ctx: ctx, center: center, minDim: minDim, time: time, now: now)
         case .constellation:
             renderConstellation(ctx: ctx, center: center, minDim: minDim, time: time, now: now)
+        case .lyricsBlock, .lyricsLine, .lyricsWord:
+            // Lyric motifs don't use Canvas — handled by synthContent
+            // at the SwiftUI view level. render() never sees them in
+            // practice, but the switch has to be exhaustive.
+            break
         }
     }
 

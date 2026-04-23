@@ -96,7 +96,7 @@ scans the directory; any malformed songs surface in the HUD's
 | `parts` | song | Dictionary of part definitions, referenced by name. |
 | `structure` | song | Array of part names, in play order. The same name can appear multiple times. |
 | `theme` | song | `"dark"` (default — black paper, white ink) or `"light"` (inverted). Only affects the synth layer of the visuals window; parts with a `visuals` file aren't themed. |
-| `visualizer` | song | Synth-layer motif. One of `"sun"` (default), `"squares"`, `"dots"`, `"lines"`, `"ripple"`, `"constellation"`. See the Visuals window section below. |
+| `visualizer` | song | Synth-layer motif. One of `"sun"` (default), `"squares"`, `"dots"`, `"lines"`, `"ripple"`, `"constellation"`, `"lyrics-block"`, `"lyrics-line"`, `"lyrics-word"`. See the Visuals window section below. |
 | `pattern` | part | Drum pattern name from `patterns.json` (e.g. `"Rock basic"`, `"Four on the floor"`). |
 | `chords` | part | The chord progression of the part — one symbol per bar of the progression. |
 | `repeats` | part | How many times the chord progression cycles. Optional, default 1. Total bars = `chords.length × repeats`. |
@@ -310,9 +310,10 @@ of the shapes, not from animation:
   angular position (one or two gentle lobes around the perimeter,
   never an N-pointed star), so longer-held shapes breathe subtly
 
-**Motifs.** Each song picks a visualizer style via its `visualizer`
-JSON field. All six share the same shape vocabulary — they differ in
-*what each voice becomes* and *where it goes*.
+**Geometric motifs.** Each song picks a visualizer style via its
+`visualizer` JSON field. All six geometric motifs share the same
+shape vocabulary — they differ in *what each voice becomes* and
+*where it goes*.
 
 | Motif | Kick | Snare | Bass | HH | Pad |
 |-------|------|-------|------|-----|-----|
@@ -325,14 +326,29 @@ JSON field. All six share the same shape vocabulary — they differ in
 
 Pad count (4 / 6 / 8) tracks the part's `pad` level (1 / 2 / 3).
 
+**Lyric motifs.** Three additional styles render the current part's
+`lyrics` field typographically — useful as a teleprompter or a visual
+rhythm reinforcement for songs where the words carry the feel. Parts
+with no lyrics (intros / instrumentals) show as blank paper.
+
+| Motif | Behavior |
+|-------|----------|
+| `lyrics-block` | All lyrics of the part as a single justified paragraph, newlines → spaces. Font size binary-searches to fill the frame edge to edge. Doesn't animate during the part — one big paragraph, stable while that part plays. |
+| `lyrics-line` | Current line, one at a time. Lines change at even time intervals within the part: `lineIndex = floor(playbackFraction × lineCount)`. Line changes are quantized to the beat. |
+| `lyrics-word` | Current word, one at a time, huge. Same fraction math but over the word list. At 120 BPM words advance roughly every beat for typical verse lengths. |
+
+Lyric timing uses a beat-quantized playback fraction
+(`(currentBar × 4 + currentBeat) / (part.bars × 4)`) — approximate but
+feels in sync at normal tempos.
+
 **Theme.** Set `"theme": "dark"` (default: black paper, white ink) or
 `"light"` (white paper, black ink) on the song.
 
-**Live overrides.** `I` inverts theme; `M` cycles motif — both in
-memory only, not written back to the JSON. Useful for auditioning.
-The song's JSON values remain the source of truth for "what this song
-looks like by default"; the overrides just replace them for the
-current session.
+**Live overrides.** `I` inverts theme; `M` cycles through all nine
+motifs (six geometric, three lyric). Both are in-memory only — not
+written back to JSON. Useful for auditioning. The song's JSON values
+remain the source of truth for "what this song looks like by default";
+the overrides just replace them for the current session.
 
 Everything is sized proportionally to `min(width, height)` so it
 holds up on any aspect ratio. Toggle the whole window with `V`;
@@ -351,5 +367,6 @@ full-screen with `F`.
 - `KeyboardHandler.swift` — NSEvent local monitor
 - `Song.swift` — Song / Part structs + raw JSON schema
 - `SongLoader.swift` — directory scan + validation
-- `VisualsView.swift` — Canvas-based synth-layer visuals window, switches to the visual backend when a part has one
+- `VisualsView.swift` — Canvas-based synth-layer visuals window, switches to the visual backend when a part has one; dispatches between the geometric and lyric motifs
+- `LyricsVisualizers.swift` — NSViewRepresentable auto-fitting justified-text view, plus the centered single-line/word view
 - `VisualView.swift` — NSViewRepresentable for images / GIFs (via NSImageView) and video (via AVPlayer), all with CSS-cover scaling

@@ -104,9 +104,10 @@ enum VisualTheme: String {
     case light
 }
 
-// Synth-layer visualization style. Every style uses the same perfectly-
-// imperfect shape vocabulary (subtle low-frequency wobble + 5-wide
-// smoothed carved noise) but arranges the voices differently:
+// Synth-layer visualization style. The geometric styles share a shape
+// vocabulary (subtle low-frequency wobble + 5-wide smoothed carved
+// noise); the lyric styles display the current part's `lyrics` field
+// typographically.
 //
 //   sun           — rays + rings + centered blobs (default)
 //   squares       — chunky wobbly rectangles
@@ -114,6 +115,9 @@ enum VisualTheme: String {
 //   lines         — horizontal bars at fixed Y positions
 //   ripple        — nested concentric rings, one per voice
 //   constellation — fixed star-positions that light up per voice
+//   lyrics-block  — all lyrics as one justified paragraph, filling screen
+//   lyrics-line   — current lyric line, one at a time
+//   lyrics-word   — current word, one at a time, huge
 enum VisualizerStyle: String {
     case sun
     case squares
@@ -121,10 +125,14 @@ enum VisualizerStyle: String {
     case lines
     case ripple
     case constellation
+    case lyricsBlock = "lyrics-block"
+    case lyricsLine = "lyrics-line"
+    case lyricsWord = "lyrics-word"
 
     // Cycle order for the `M` key. Same as declaration order above.
     static let allCases: [VisualizerStyle] = [
-        .sun, .squares, .dots, .lines, .ripple, .constellation
+        .sun, .squares, .dots, .lines, .ripple, .constellation,
+        .lyricsBlock, .lyricsLine, .lyricsWord
     ]
 }
 
