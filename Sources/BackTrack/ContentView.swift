@@ -321,7 +321,26 @@ struct ContentView: View {
             divider
             lyricsBlock
             Spacer(minLength: 0)
+            visualsPreviewBlock
             outDeviceBlock
+        }
+    }
+
+    // Live preview of the secondary visuals window, shown inline in
+    // the HUD so the performer can see what the audience sees without
+    // looking at the other monitor. Uses the same VisualsView in
+    // preview mode (skips window-level modifiers).
+    private var visualsPreviewBlock: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("VISUALS")
+                .font(.system(.caption, design: .monospaced))
+                .foregroundColor(dim)
+            VisualsView(isPreview: true)
+                .frame(width: 200, height: 150)
+                .overlay(
+                    Rectangle()
+                        .stroke(dim.opacity(0.3), lineWidth: 1)
+                )
         }
     }
 

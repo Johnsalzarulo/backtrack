@@ -23,6 +23,17 @@ import SwiftUI
 struct VisualsView: View {
     @EnvironmentObject var state: AppState
 
+    // When true, this VisualsView is embedded in the main HUD as a
+    // small live preview of the secondary visuals window. Preview mode
+    // skips the window-level modifiers (onDisappear toggle, full-bleed
+    // ignoresSafeArea) so embedding doesn't trigger the "window was
+    // closed" handler or try to extend past its SwiftUI frame.
+    let isPreview: Bool
+
+    init(isPreview: Bool = false) {
+        self.isPreview = isPreview
+    }
+
     // How long each voice's shape stays on after a trigger. At 120 BPM
     // a quarter beat is 500 ms, so the kick is visible for ~26% of the
     // beat — clearly on / clearly off. Pad + bass linger because they're
@@ -46,22 +57,19 @@ struct VisualsView: View {
     private let overscanMargin: CGFloat = 0.07
 
     var body: some View {
-        ZStack {
+        let content = ZStack {
             if let url = state.currentPartVisualURL, !userOverridingVisuals {
                 // Part has a visual and the user hasn't asked to see
-                // the synth layer instead — GIF/image/video takes over,
-                // edge to edge, no overscan inset. Keeps playing even
-                // when transport is stopped, matching the loop behavior
-                // of the source media.
+                // the synth layer instead — GIF/image/video takes over.
+                // Keeps playing even when transport is stopped, matching
+                // the loop behavior of the source media.
                 VisualView(url: url)
-                    .ignoresSafeArea()
             } else if !state.isPlaying {
                 // No part-level visual and transport is stopped — the
                 // synth layer would be empty, so show TV static as the
                 // idle / "no signal" state instead. Also covers app
                 // launch, between songs, and any pause.
                 IdleStaticView(ink: ink, paper: paper)
-                    .ignoresSafeArea()
             } else {
                 // Playing the synth layer. Either no part-level visual,
                 // or the user pressed I or M to pull into the synth
@@ -73,15 +81,24 @@ struct VisualsView: View {
                     synthContent
                         .padding(inset)
                 }
-                .ignoresSafeArea()
             }
         }
         .background(paper)
-        .ignoresSafeArea()
-        .onDisappear {
-            // Window was closed (either via X or programmatic dismiss).
-            // Reflect in state so the next V press re-opens cleanly.
-            state.visualsOpen = false
+
+        if isPreview {
+            // Embedded in HUD — skip the window-level modifiers so the
+            // HUD's appearance/disappearance doesn't trigger the
+            // "window closed" handler.
+            content
+        } else {
+            content
+                .ignoresSafeArea()
+                .onDisappear {
+                    // Window was closed (either via X or programmatic
+                    // dismiss). Reflect in state so the next V press
+                    // re-opens cleanly.
+                    state.visualsOpen = false
+                }
         }
     }
 
