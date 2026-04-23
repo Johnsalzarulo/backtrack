@@ -1,5 +1,20 @@
 import AppKit
 
+// NSEvent local-monitor key handler for the entire app. Every hotkey
+// lives in `handle(_:)` as a flat switch — keeping them all in one
+// place instead of scattered across views makes the keybinding surface
+// easy to audit (and the HUD's keybinding readout in ContentView stays
+// in sync by eye).
+//
+// Monitor is installed once after bootstrap and torn down in deinit.
+// Key events that the handler consumes return nil from the monitor
+// closure so AppKit doesn't propagate them to the focused control
+// (e.g. so Space doesn't get interpreted as a button click).
+//
+// For actions that mutate song JSON (Cmd+S, pattern audition via
+// [ / ]), the writes go through SongLoader.save() which round-trips
+// via SongJSON → pretty-printed JSON with sorted keys, so in-app saves
+// produce a stable diff regardless of the source file's formatting.
 final class KeyboardHandler {
     let state: AppState
     let clock: Clock

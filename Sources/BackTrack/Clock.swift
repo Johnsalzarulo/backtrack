@@ -1,5 +1,24 @@
 import Foundation
 
+// Song playback scheduler. Drives the 16th-note tick grid via a
+// DispatchSourceTimer on the main queue, firing trigger events into
+// the AudioEngineController on each tick and advancing bar / part
+// position on bar boundaries.
+//
+// Grid: 16 ticks per bar (1, 1e, 1+, 1a, 2, 2e, ...). Tempo in BPM
+// translates to tick interval = 60 / (BPM × 4) seconds. A tempo change
+// (via T key tap-tempo) applies at the next tick boundary so we don't
+// stretch the currently-pending tick.
+//
+// Part navigation while playing is queued to the next bar (so arrow
+// presses don't chop mid-bar); while stopped, selection applies
+// immediately and Space starts from the chosen part.
+//
+// Ownership: Coordinator creates one Clock, shared with
+// AudioEngineController and KeyboardHandler. The Clock reads AppState
+// for song / part / bar context and writes back transport state,
+// position, and — via audio.trigger() → audio updating state — the
+// per-voice trigger timestamps that the visuals read.
 final class Clock: ObservableObject {
     let state: AppState
     let audio: AudioEngineController

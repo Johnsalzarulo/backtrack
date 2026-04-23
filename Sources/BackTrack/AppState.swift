@@ -1,6 +1,22 @@
 import Foundation
 import SwiftUI
 
+// Observable source of truth for everything the HUD and visuals window
+// need to display: transport (is-playing, tempo, current bar/beat),
+// song + part navigation, per-voice mix levels, activity timestamps
+// that drive the reactive visuals, plus in-memory visualizer overrides
+// set via the I/M keys.
+//
+// Lifecycle: one instance per app session, created by Coordinator at
+// launch and shared as an @EnvironmentObject with ContentView (HUD)
+// and VisualsView (secondary window / preview).
+//
+// Concurrency: every mutation happens on the main queue. Clock drives
+// the ticking fields (currentBar, currentBeat, trigger timestamps);
+// KeyboardHandler drives transport + mix + overrides;
+// AudioEngineController stamps the trigger timestamps right after
+// scheduling playback so the visuals fire in sync with the audio.
+// Audio callbacks that need to write here dispatch back to main first.
 final class AppState: ObservableObject {
     // MARK: - Transport + tempo
 

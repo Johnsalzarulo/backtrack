@@ -13,10 +13,33 @@ struct NoteEvent {
     let velocity: Float
 }
 
+// AVAudioEngine graph manager for the three voice families (drums,
+// pad, bass) plus master mixing. Centralizes sample discovery, buffer
+// loading, format normalization, and voice-pool management so the rest
+// of the app can just call `trigger(_:)` without touching AVFoundation
+// directly.
+//
+// Graph shape:
+//
+//   drum players → per-drum mixer ─┐
+//   pad voices   → padMixer        ├→ masterMixer → mainMixer → output
+//   bass voices  → bassMixer       ┘
+//
+// All audio data is converted at load time to a canonical 44.1 kHz
+// stereo float32 format (see `canonicalFormat` below). This way a
+// kit/sound cycle is a pure buffer-pointer swap — the engine never
+// reconfigures node connections, which would require stopping
+// playback. Conversion cost is paid once per sample at load.
+//
+// Pad and bass use voice pools (8 and 4 voices respectively) so
+// overlapping notes from chord stacks / arpeggios / transitions don't
+// clip each other. Each pooled voice is a short chain:
+//   AVAudioPlayerNode → AVAudioUnitVarispeed (pitch shift)
+// so the same recorded sample can be pitched to any of the 12 pitch
+// classes on the fly.
 final class AudioEngineController: ObservableObject {
-    // Output-only engine: drums + pitched pad voices + pitched bass voices.
-    // All live input / effect-chain machinery is gone — this is a
-    // straight backing-track player now.
+    // Output-only engine: drums + pitched pad voices + pitched bass
+    // voices. No live input.
     private let engine = AVAudioEngine()
     private let masterMixer = AVAudioMixerNode()
 
@@ -39,12 +62,30 @@ final class AudioEngineController: ObservableObject {
 
     // Canonical format all buffers are normalized to, so no player
     // connection ever needs reconfiguration on kit/sound cycle.
-    private static let canonicalFormat: AVAudioFormat = AVAudioFormat(
-        commonFormat: .pcmFormatFloat32,
-        sampleRate: 44100,
-        channels: 2,
-        interleaved: false
-    )!
+    //
+    // The initializer can return nil in principle, but only if the
+    // parameters are invalid — and these are compile-time constants
+    // for the most common PCM format in macOS (44.1 kHz stereo
+    // float32). Wrapping in a closure with guard+fatalError so that
+    // if the API is somehow broken on a user's machine, the crash
+    // reads as "failed to create canonical audio format" rather than
+    // a bare unwrap panic during startup.
+    private static let canonicalFormat: AVAudioFormat = {
+        guard let fmt = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: 44100,
+            channels: 2,
+            interleaved: false
+        ) else {
+            fatalError("""
+                BackTrack: failed to create canonical audio format
+                (44.1 kHz stereo float32). This is a system-level
+                failure — something is wrong with the AVFoundation
+                install. Try a reboot.
+                """)
+        }
+        return fmt
+    }()
 
     // Pad voice pool — 8 voices for chord stacks / arpeggios. Each voice:
     // player → varispeed (pitch shift) → padMixer.

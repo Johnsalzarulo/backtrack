@@ -12,6 +12,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
+// Top-level wiring. Owns the single instances of AppState,
+// AudioEngineController, Clock, KeyboardHandler, and the FileWatcher
+// for hot-reloading song JSONs and patterns.json.
+//
+// BackTrackApp (the SwiftUI App) holds one Coordinator via @StateObject
+// and exposes its state to views as an @EnvironmentObject. bootstrap()
+// is called from .onAppear on ContentView so that initial sample /
+// pattern / song load happens once the UI is ready, rather than in
+// init() where failures would be harder to surface.
 final class Coordinator: ObservableObject {
     let state: AppState
     let audio: AudioEngineController
