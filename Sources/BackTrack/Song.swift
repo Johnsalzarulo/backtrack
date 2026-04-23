@@ -111,6 +111,7 @@ enum VisualTheme: String {
 //
 //   constellation — fixed star-positions that light up per voice (default)
 //   orbit         — planets on continuous orbits, bar-progress arc on outer ring
+//   ink           — ferrofluid-style central mass that deforms per voice
 //   squares       — chunky wobbly rectangles
 //   dots          — everything becomes circles / dot-rings
 //   lines         — horizontal bars at fixed Y positions
@@ -120,6 +121,7 @@ enum VisualTheme: String {
 enum VisualizerStyle: String {
     case constellation
     case orbit
+    case ink
     case squares
     case dots
     case lines
@@ -130,7 +132,7 @@ enum VisualizerStyle: String {
     // Cycle order for the `M` key. Most distinctive motifs first so
     // cycling hits the signature styles before the simpler ones.
     static let allCases: [VisualizerStyle] = [
-        .constellation, .orbit,
+        .constellation, .orbit, .ink,
         .squares, .dots, .lines, .ripple,
         .lyricsBlock, .lyricsLine
     ]

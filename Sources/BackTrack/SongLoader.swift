@@ -104,6 +104,8 @@ enum SongLoader {
             visualizer = .constellation
         case "orbit":
             visualizer = .orbit
+        case "ink":
+            visualizer = .ink
         case "squares":
             visualizer = .squares
         case "dots":
@@ -118,7 +120,7 @@ enum SongLoader {
             visualizer = .lyricsLine
         case let other?:
             throw SongValidationError(
-                "visualizer '\(other)' — expected one of: constellation, orbit, squares, dots, lines, ripple, lyrics-block, lyrics-line"
+                "visualizer '\(other)' — expected one of: constellation, orbit, ink, squares, dots, lines, ripple, lyrics-block, lyrics-line"
             )
         }
 

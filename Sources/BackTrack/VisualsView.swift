@@ -116,7 +116,7 @@ struct VisualsView: View {
     @ViewBuilder
     private var synthContent: some View {
         switch visualizer {
-        case .constellation, .orbit, .squares, .dots, .lines, .ripple:
+        case .constellation, .orbit, .ink, .squares, .dots, .lines, .ripple:
             TimelineView(.animation) { context in
                 Canvas { ctx, size in
                     render(ctx: ctx, size: size, now: context.date)
@@ -198,6 +198,8 @@ struct VisualsView: View {
             renderConstellation(ctx: ctx, center: center, minDim: minDim, time: time, now: now)
         case .orbit:
             renderOrbit(ctx: ctx, center: center, minDim: minDim, time: time, now: now)
+        case .ink:
+            renderInk(ctx: ctx, center: center, minDim: minDim, time: time, now: now)
         case .squares:
             renderSquares(ctx: ctx, center: center, minDim: minDim, time: time, now: now)
         case .dots:
@@ -309,6 +311,122 @@ struct VisualsView: View {
             with: .color(ink),
             style: StrokeStyle(lineWidth: minDim * 0.014, lineCap: .round)
         )
+    }
+
+    // MARK: - Style: ink
+
+    // Ferrofluid-inspired central mass that deforms in response to each
+    // voice. Each voice applies a characteristic "force" to the blob's
+    // perimeter:
+    //   kick   — uniform radial expansion (whole mass inflates)
+    //   bass   — horizontal polarization (mass elongates L/R)
+    //   snare  — sharp spikes at a few seeded vertices (local protrusions)
+    //   hh     — high-frequency ripples around the perimeter (shimmer)
+    //   pad    — slow sine wobble (2 lobes around the perimeter)
+    //
+    // Forces decay *smoothly* over their hold window rather than snapping
+    // off — a deliberate exception to the "binary on/off" rule we follow
+    // elsewhere. Ferrofluid is fundamentally about continuous liquid
+    // motion; without the decay the mass would teleport between shapes.
+    // The ink color stays 100% saturated the whole time; it's only the
+    // shape that smoothly deforms, so the no-greys rule still holds.
+    //
+    // Splatter drops around the main mass add the Petri-dish character
+    // from the reference photos. Positions re-seeded each bar so they
+    // feel organic without flickering within a bar.
+    private func renderInk(ctx: GraphicsContext, center: CGPoint, minDim: CGFloat, time: Double, now: Date) {
+        // Longer decay than other motifs' hold windows — the visible
+        // motion of the mass IS the instrument response here, so the
+        // forces need time to actually move the perimeter.
+        let kickForce  = inkForce(last: state.kickLastTrigger,  now: now, decay: 0.35)
+        let snareForce = inkForce(last: state.snareLastTrigger, now: now, decay: 0.28)
+        let hhForce    = inkForce(last: state.hhLastTrigger,    now: now, decay: 0.18)
+        let bassForce  = inkForce(last: state.bassLastTrigger,  now: now, decay: 0.50)
+        let padForce   = inkForce(last: state.padLastTrigger,   now: now, decay: 0.70)
+
+        let baseRadius = Double(minDim) * 0.20
+        let points = 96
+
+        // Snare spike pattern — which vertices get sharp protrusions
+        // when snare fires. Seeded per beat so positions shift
+        // naturally between snare hits rather than spiking the same
+        // three points every time.
+        let spikeSeed = (state.currentBar &* 4) &+ state.currentBeat
+        var isSpike = [Bool](repeating: false, count: points)
+        for i in 0..<points {
+            // Threshold 0.88 ≈ top 6% of vertices → roughly 5 spikes.
+            isSpike[i] = carvedNoise(index: i, seed: spikeSeed) > 0.88
+        }
+
+        // Main mass.
+        var path = Path()
+        for i in 0..<points {
+            let angle = Double(i) / Double(points) * 2 * .pi
+            let cosA = cos(angle)
+            var r = baseRadius
+
+            // Always-on resting wobble — low-freq sines, small amplitude.
+            // Keeps a resting mass from looking like a perfect circle.
+            let resting = sin(angle + time * 0.3) * 0.5
+                + sin(angle * 3 + time * 0.5) * 0.3
+            r += resting * Double(minDim) * 0.006
+
+            // Kick — uniform radial push.
+            r += kickForce * Double(minDim) * 0.08
+
+            // Bass — horizontal polarization (max at left/right).
+            r += bassForce * abs(cosA) * Double(minDim) * 0.12
+
+            // Snare — sharp narrow spikes (NOT smoothed across neighbors;
+            // we want teeth here, that's the whole point of the effect).
+            if isSpike[i] {
+                r += snareForce * Double(minDim) * 0.10
+            }
+
+            // HH — high-freq ripple (period ~5 vertices). Reads as shimmer.
+            r += hhForce * sin(angle * 18 + time * 3.0) * Double(minDim) * 0.018
+
+            // Pad — slow 2-lobe wobble, drifts over time.
+            r += padForce * sin(angle * 2 + time * 0.7) * Double(minDim) * 0.025
+
+            let x = Double(center.x) + cos(angle) * r
+            let y = Double(center.y) + sin(angle) * r
+            let p = CGPoint(x: x, y: y)
+            if i == 0 { path.move(to: p) } else { path.addLine(to: p) }
+        }
+        path.closeSubpath()
+        ctx.fill(path, with: .color(ink))
+
+        // Splatter drops — small fixed circles around the mass, positions
+        // re-seeded per bar for organic variety.
+        let dropCount = 6
+        let dropSeedBase = state.currentBar &* 101
+        for i in 0..<dropCount {
+            let angle = carvedNoise(index: i, seed: dropSeedBase) * .pi * 2
+            let distUnit = (carvedNoise(index: i, seed: dropSeedBase &+ 7) + 1) / 2  // [0,1]
+            let sizeUnit = (carvedNoise(index: i, seed: dropSeedBase &+ 13) + 1) / 2
+            let dist = Double(minDim) * (0.30 + 0.12 * distUnit)
+            let dropR = Double(minDim) * (0.006 + 0.010 * sizeUnit)
+            let dropX = Double(center.x) + cos(angle) * dist
+            let dropY = Double(center.y) + sin(angle) * dist
+            let rect = CGRect(
+                x: dropX - dropR,
+                y: dropY - dropR,
+                width: dropR * 2,
+                height: dropR * 2
+            )
+            ctx.fill(Path(ellipseIn: rect), with: .color(ink))
+        }
+    }
+
+    // Ferrofluid-only helper: returns 1.0 at trigger time, linearly
+    // decaying to 0 at the end of the decay window, negative elsewhere.
+    // Unlike isFiring (which is binary), this lets the ink mass settle
+    // smoothly back to resting shape.
+    private func inkForce(last: Date, now: Date, decay: Double) -> Double {
+        let elapsed = now.timeIntervalSince(last)
+        if elapsed < 0 || elapsed >= decay { return 0 }
+        return 1.0 - (elapsed / decay)
     }
 
     // MARK: - Style: squares

@@ -96,7 +96,7 @@ scans the directory; any malformed songs surface in the HUD's
 | `parts` | song | Dictionary of part definitions, referenced by name. |
 | `structure` | song | Array of part names, in play order. The same name can appear multiple times. |
 | `theme` | song | `"dark"` (default — black paper, white ink) or `"light"` (inverted). Only affects the synth layer of the visuals window; parts with a `visuals` file aren't themed. |
-| `visualizer` | song | Synth-layer motif. One of `"constellation"` (default), `"orbit"`, `"squares"`, `"dots"`, `"lines"`, `"ripple"`, `"lyrics-block"`, `"lyrics-line"`. See the Visuals window section below. |
+| `visualizer` | song | Synth-layer motif. One of `"constellation"` (default), `"orbit"`, `"ink"`, `"squares"`, `"dots"`, `"lines"`, `"ripple"`, `"lyrics-block"`, `"lyrics-line"`. See the Visuals window section below. |
 | `pattern` | part | Drum pattern name from `patterns.json` (e.g. `"Rock basic"`, `"Four on the floor"`). |
 | `chords` | part | The chord progression of the part — one symbol per bar of the progression. |
 | `repeats` | part | How many times the chord progression cycles. Optional, default 1. Total bars = `chords.length × repeats`. |
@@ -170,7 +170,7 @@ swift build -c release
 | `V` | Show / hide the visuals window. |
 | `F` | Toggle the visuals window into macOS native full-screen (title bar auto-hides, window covers the display). Opens the window first if it was closed. |
 | `I` | Invert the synth-layer theme (dark ↔ light). Live in-memory override on top of the song's `theme` JSON — not persisted. |
-| `M` | Cycle the synth-layer motif: constellation → orbit → squares → dots → lines → ripple → lyrics-block → lyrics-line → (song default). Same in-memory override behavior as `I`. |
+| `M` | Cycle the synth-layer motif: constellation → orbit → ink → squares → dots → lines → ripple → lyrics-block → lyrics-line → (song default). Same in-memory override behavior as `I`. |
 | `K` / `S` / `H` | Cycle kick / snare / hi-hat volume |
 | `P` / `B` | Cycle pad / bass volume |
 
@@ -311,7 +311,7 @@ of the shapes, not from animation:
   never an N-pointed star), so longer-held shapes breathe subtly
 
 **Geometric motifs.** Each song picks a visualizer style via its
-`visualizer` JSON field. The six geometric motifs share the same
+`visualizer` JSON field. The seven geometric motifs share the same
 shape vocabulary — they differ in *what each voice becomes* and
 *where it goes*.
 
@@ -319,6 +319,7 @@ shape vocabulary — they differ in *what each voice becomes* and
 |-------|------|-------|------|-----|-----|--------|
 | `constellation` *(default)* | Center star | Upper-right star | Lower-left star | Lower-right star | 4/6/8 stars on outer orbit | — |
 | `orbit` | Small body orbiting at ≈14% r, 6 s | Body at ≈22% r, 9 s | Body at ≈40% r, 18 s | Body at ≈30% r, 12 s | 2/3/4 bodies at ≈48% r, 24 s | Bar-progress arc on outer ring at ≈56% r |
+| `ink` | Uniform radial expansion | Sharp narrow spikes at ~5 seeded vertices (re-picked per beat) | Horizontal polarization (bi-lobed stretch) | High-freq ripples around the perimeter (shimmer) | Slow 2-lobe wobble drifting over time | Always-on resting wobble + 6 splatter drops (re-seeded per bar) |
 | `squares` | Big filled square, center | Smaller filled square | Hollow square ≈36% r | Small hollow square | 4/6/8 tiles on an orbit | — |
 | `dots` | Big filled dot, center | Smaller dot | Ring of 12 dots | Tight ring of 8 tiny dots | 4/6/8 scattered dots | — |
 | `lines` | Thick wide horizontal bar, center | Thin bar below kick | Long bar above center | Short tick below snare | 4/6/8 dashes stacked above | — |
@@ -327,6 +328,14 @@ shape vocabulary — they differ in *what each voice becomes* and
 Pad count (4 / 6 / 8) tracks the part's `pad` level (1 / 2 / 3).
 `orbit` adds a bar-progress arc on its outer ring — non-voice
 dynamic info the other motifs don't surface.
+
+**`ink` breaks the binary on/off rule.** Every other motif either
+draws a voice's shape at full size or not at all. Ink instead lets
+each voice apply a *continuously decaying force* to the central
+mass's perimeter over the hold window, so the ferrofluid flows
+smoothly between shapes rather than teleporting. Ink color stays
+100% saturated throughout — only the shape deforms — so the no-greys
+rule is preserved.
 
 **Lyric motifs.** Three additional styles render the current part's
 `lyrics` field typographically — useful as a teleprompter or a visual
