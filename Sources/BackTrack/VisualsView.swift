@@ -116,7 +116,7 @@ struct VisualsView: View {
     @ViewBuilder
     private var synthContent: some View {
         switch visualizer {
-        case .sun, .squares, .dots, .lines, .ripple, .constellation:
+        case .constellation, .orbit, .score, .squares, .dots, .lines, .ripple:
             TimelineView(.animation) { context in
                 Canvas { ctx, size in
                     render(ctx: ctx, size: size, now: context.date)
@@ -194,8 +194,12 @@ struct VisualsView: View {
         let time = now.timeIntervalSinceReferenceDate
 
         switch visualizer {
-        case .sun:
-            renderSun(ctx: ctx, center: center, minDim: minDim, time: time, now: now)
+        case .constellation:
+            renderConstellation(ctx: ctx, center: center, minDim: minDim, time: time, now: now)
+        case .orbit:
+            renderOrbit(ctx: ctx, center: center, minDim: minDim, time: time, now: now)
+        case .score:
+            renderScore(ctx: ctx, center: center, minDim: minDim, size: size, time: time, now: now)
         case .squares:
             renderSquares(ctx: ctx, center: center, minDim: minDim, time: time, now: now)
         case .dots:
@@ -204,8 +208,6 @@ struct VisualsView: View {
             renderLines(ctx: ctx, size: size, minDim: minDim, time: time, now: now)
         case .ripple:
             renderRipple(ctx: ctx, center: center, minDim: minDim, time: time, now: now)
-        case .constellation:
-            renderConstellation(ctx: ctx, center: center, minDim: minDim, time: time, now: now)
         case .lyricsBlock, .lyricsLine:
             // Lyric motifs don't use Canvas — handled by synthContent
             // at the SwiftUI view level. render() never sees them in
@@ -231,49 +233,184 @@ struct VisualsView: View {
         }
     }
 
-    // MARK: - Style: sun
+    // MARK: - Style: orbit
 
-    // Pad rays radiating from center, nested rings for bass/hh, filled
-    // blobs for kick/snare. The default, based on the project's album
-    // art vocabulary.
-    private func renderSun(ctx: GraphicsContext, center: CGPoint, minDim: CGFloat, time: Double, now: Date) {
-        // Pad — thick irregular ink strokes radiating outward.
-        if isFiring(last: state.padLastTrigger, now: now, hold: padHold) {
-            let count = padCount()
-            let innerR = minDim * 0.26
-            let outerR = minDim * 0.47
-            let thickness = minDim * 0.018
-            for i in 0..<count {
-                let angle = Double(i) * 2 * .pi / Double(count)
-                let cosA = CGFloat(cos(angle))
-                let sinA = CGFloat(sin(angle))
-                let start = CGPoint(x: center.x + cosA * innerR, y: center.y + sinA * innerR)
-                let end = CGPoint(x: center.x + cosA * outerR, y: center.y + sinA * outerR)
-                let ray = wobblyStroke(start: start, end: end, time: time, seed: i * 97 + 3, jitter: minDim * 0.012)
-                ctx.stroke(ray, with: .color(ink), style: StrokeStyle(lineWidth: thickness, lineCap: .round, lineJoin: .round))
+    // Celestial bodies orbit the center on their own rings. Each voice
+    // has a fixed orbit radius + period, so the five bodies trace
+    // Kepler-ish paths — inner orbits run faster. Bodies are always
+    // visible and pulse (radius × 1.6) during their trigger's hold
+    // window. The outermost ring doubles as a progress arc showing
+    // how far through the current part we are. The current chord
+    // symbol sits in the center as big monospace text.
+    private func renderOrbit(ctx: GraphicsContext, center: CGPoint, minDim: CGFloat, time: Double, now: Date) {
+        // Outer progress ring. Thin outline of the whole circle plus
+        // a thicker arc filled to the current playback fraction.
+        drawProgressRing(ctx: ctx, center: center, radius: minDim * 0.56, minDim: minDim)
+
+        // Central chord symbol.
+        if let chord = state.currentChord {
+            let fontSize = minDim * 0.14
+            ctx.draw(
+                Text(chord.display)
+                    .font(.system(size: fontSize, weight: .light, design: .monospaced))
+                    .foregroundColor(ink),
+                at: center,
+                anchor: .center
+            )
+        }
+
+        // Single-body voices. (radius, body radius, period, seed, voice)
+        let bodies: [(CGFloat, CGFloat, Double, Int, Bool)] = [
+            (0.14, 0.055, 6.0,  11, isFiring(last: state.kickLastTrigger,  now: now, hold: kickHold)),
+            (0.22, 0.040, 9.0,  23, isFiring(last: state.snareLastTrigger, now: now, hold: snareHold)),
+            (0.30, 0.028, 12.0, 61, isFiring(last: state.hhLastTrigger,    now: now, hold: hhHold)),
+            (0.40, 0.045, 18.0, 41, isFiring(last: state.bassLastTrigger,  now: now, hold: bassHold))
+        ]
+        for (rFrac, bodyFrac, period, seed, firing) in bodies {
+            let orbitR = minDim * rFrac
+            let pos = orbitPosition(time: time, center: center, radius: orbitR, period: period, phase: Double(seed) * 0.1)
+            let body = minDim * bodyFrac * (firing ? 1.6 : 1.0)
+            let blob = chiseledBlob(center: pos, baseRadius: body, time: time, jitter: body * 0.08, seed: seed, points: 28)
+            ctx.fill(blob, with: .color(ink))
+        }
+
+        // Pad — 1, 2, or 3 bodies depending on pad level, evenly
+        // distributed around the outermost orbit (but inside progress ring).
+        let padBodies = max(1, padCount() / 2)       // 4/6/8 → 2/3/4
+        let padFiring = isFiring(last: state.padLastTrigger, now: now, hold: padHold)
+        let padR = minDim * 0.48
+        let padBodySize = minDim * 0.033 * (padFiring ? 1.6 : 1.0)
+        for i in 0..<padBodies {
+            let orbitPhase = Double(i) / Double(padBodies)
+            let pos = orbitPosition(time: time, center: center, radius: padR, period: 24.0, phase: orbitPhase)
+            let blob = chiseledBlob(center: pos, baseRadius: padBodySize, time: time, jitter: padBodySize * 0.08, seed: 301 + i * 7, points: 24)
+            ctx.fill(blob, with: .color(ink))
+        }
+    }
+
+    private func orbitPosition(time: Double, center: CGPoint, radius: CGFloat, period: Double, phase: Double) -> CGPoint {
+        // Start at 12 o'clock so a phase of 0 is visually "top".
+        let angle = (time / period + phase) * 2 * .pi - .pi / 2
+        return CGPoint(
+            x: center.x + CGFloat(cos(angle)) * radius,
+            y: center.y + CGFloat(sin(angle)) * radius
+        )
+    }
+
+    private func drawProgressRing(ctx: GraphicsContext, center: CGPoint, radius: CGFloat, minDim: CGFloat) {
+        // Thin always-on ring outline (so the progress track is visible
+        // even at 0%).
+        let ring = Path(ellipseIn: CGRect(
+            x: center.x - radius,
+            y: center.y - radius,
+            width: radius * 2,
+            height: radius * 2
+        ))
+        ctx.stroke(ring, with: .color(ink), lineWidth: minDim * 0.004)
+
+        let progress = playbackFraction
+        guard progress > 0 else { return }
+        // Filled arc from 12 o'clock clockwise, thick stroke.
+        var arc = Path()
+        arc.addArc(
+            center: center,
+            radius: radius,
+            startAngle: .degrees(-90),
+            endAngle: .degrees(-90 + 360 * progress),
+            clockwise: false
+        )
+        ctx.stroke(
+            arc,
+            with: .color(ink),
+            style: StrokeStyle(lineWidth: minDim * 0.014, lineCap: .round)
+        )
+    }
+
+    // MARK: - Style: score
+
+    // Musical-staff style: 5 horizontal staff lines, chord noteheads
+    // stacked vertically at interval-spaced positions, a playhead line
+    // that sweeps L→R with playback progress, 4 beat dots at top
+    // showing the current beat, and the chord symbol below the staff.
+    // Kick thickens all staff lines briefly for a visual downbeat.
+    private func renderScore(ctx: GraphicsContext, center: CGPoint, minDim: CGFloat, size: CGSize, time: Double, now: Date) {
+        let staffHalfHeight = minDim * 0.10
+        let staffTop = center.y - staffHalfHeight
+        let staffBottom = center.y + staffHalfHeight
+        let lineSpacing = staffHalfHeight / 2   // 5 lines over the height
+        let staffLeft = size.width * 0.05
+        let staffRight = size.width * 0.95
+        let kickFiring = isFiring(last: state.kickLastTrigger, now: now, hold: kickHold)
+        let staffLineWidth = minDim * (kickFiring ? 0.008 : 0.004)
+
+        // Staff lines.
+        for i in 0..<5 {
+            let y = staffTop + CGFloat(i) * lineSpacing
+            var line = Path()
+            line.move(to: CGPoint(x: staffLeft, y: y))
+            line.addLine(to: CGPoint(x: staffRight, y: y))
+            ctx.stroke(line, with: .color(ink), lineWidth: staffLineWidth)
+        }
+
+        // Chord noteheads — one per interval in the chord.
+        // Root lands on the middle staff line; each semitone above
+        // moves the note up by a small offset. Noteheads stack
+        // vertically at the horizontal center of the staff.
+        if let chord = state.currentChord {
+            let noteheadW = minDim * 0.024
+            let noteheadH = minDim * 0.020
+            let noteX = center.x
+            let rootY = center.y
+            let pxPerSemitone = minDim * 0.012
+            for interval in chord.intervals {
+                let y = rootY - CGFloat(interval) * pxPerSemitone
+                let rect = CGRect(
+                    x: noteX - noteheadW / 2,
+                    y: y - noteheadH / 2,
+                    width: noteheadW,
+                    height: noteheadH
+                )
+                ctx.fill(Path(ellipseIn: rect), with: .color(ink))
             }
+
+            // Chord symbol below the staff, big + light monospace.
+            let symbolSize = minDim * 0.09
+            ctx.draw(
+                Text(chord.display)
+                    .font(.system(size: symbolSize, weight: .light, design: .monospaced))
+                    .foregroundColor(ink),
+                at: CGPoint(x: center.x, y: staffBottom + minDim * 0.13),
+                anchor: .center
+            )
         }
-        // Bass — large chiseled ring outline.
-        if isFiring(last: state.bassLastTrigger, now: now, hold: bassHold) {
-            let ring = chiseledBlob(center: center, baseRadius: minDim * 0.38, time: time, jitter: minDim * 0.004, seed: 41, points: 80)
-            ctx.stroke(ring, with: .color(ink), style: StrokeStyle(lineWidth: minDim * 0.015, lineCap: .round, lineJoin: .round))
-        }
-        // HH — small chiseled ring.
-        if isFiring(last: state.hhLastTrigger, now: now, hold: hhHold) {
-            let ring = chiseledBlob(center: center, baseRadius: minDim * 0.11, time: time, jitter: minDim * 0.0025, seed: 61, points: 48)
-            ctx.stroke(ring, with: .color(ink), style: StrokeStyle(lineWidth: minDim * 0.010, lineCap: .round, lineJoin: .round))
-        }
-        // Kick — big filled blob.
-        if isFiring(last: state.kickLastTrigger, now: now, hold: kickHold) {
-            let r = minDim * 0.22
-            let blob = chiseledBlob(center: center, baseRadius: r, time: time, jitter: r * 0.06, seed: 11, points: 56)
-            ctx.fill(blob, with: .color(ink))
-        }
-        // Snare — smaller filled blob.
-        if isFiring(last: state.snareLastTrigger, now: now, hold: snareHold) {
-            let r = minDim * 0.075
-            let blob = chiseledBlob(center: center, baseRadius: r, time: time, jitter: r * 0.07, seed: 23, points: 40)
-            ctx.fill(blob, with: .color(ink))
+
+        // Playhead — vertical line that sweeps left to right with
+        // playbackFraction. Extends a bit above/below the staff.
+        let playheadX = staffLeft + CGFloat(playbackFraction) * (staffRight - staffLeft)
+        var playhead = Path()
+        playhead.move(to: CGPoint(x: playheadX, y: staffTop - minDim * 0.035))
+        playhead.addLine(to: CGPoint(x: playheadX, y: staffBottom + minDim * 0.035))
+        ctx.stroke(playhead, with: .color(ink), lineWidth: minDim * 0.006)
+
+        // Beat dots above the staff — 4 small dots, current beat filled.
+        let beatY = staffTop - minDim * 0.10
+        let beatSpacing = minDim * 0.05
+        let beatStartX = center.x - beatSpacing * 1.5
+        let beatDotR = minDim * 0.009
+        for i in 0..<4 {
+            let x = beatStartX + CGFloat(i) * beatSpacing
+            let rect = CGRect(
+                x: x - beatDotR,
+                y: beatY - beatDotR,
+                width: beatDotR * 2,
+                height: beatDotR * 2
+            )
+            let path = Path(ellipseIn: rect)
+            if i == state.currentBeat && state.isPlaying {
+                ctx.fill(path, with: .color(ink))
+            } else {
+                ctx.stroke(path, with: .color(ink), lineWidth: minDim * 0.002)
+            }
         }
     }
 

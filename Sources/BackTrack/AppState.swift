@@ -42,7 +42,7 @@ final class AppState: ObservableObject {
         themeOverride ?? currentSong?.theme ?? .dark
     }
     var effectiveVisualizer: VisualizerStyle {
-        visualizerOverride ?? currentSong?.visualizer ?? .sun
+        visualizerOverride ?? currentSong?.visualizer ?? .constellation
     }
 
     var currentSong: Song? {

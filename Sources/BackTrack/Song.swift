@@ -109,27 +109,32 @@ enum VisualTheme: String {
 // noise); the lyric styles display the current part's `lyrics` field
 // typographically.
 //
-//   sun           — rays + rings + centered blobs (default)
+//   constellation — fixed star-positions that light up per voice (default)
+//   orbit         — planets on continuous orbits around a central chord
+//                   name, with a bar-progress arc on the outer ring
+//   score         — staff with chord noteheads, sweeping playhead, beat dots
 //   squares       — chunky wobbly rectangles
 //   dots          — everything becomes circles / dot-rings
 //   lines         — horizontal bars at fixed Y positions
 //   ripple        — nested concentric rings, one per voice
-//   constellation — fixed star-positions that light up per voice
 //   lyrics-block  — all lyrics as one justified paragraph, filling screen
 //   lyrics-line   — current lyric line, one at a time
 enum VisualizerStyle: String {
-    case sun
+    case constellation
+    case orbit
+    case score
     case squares
     case dots
     case lines
     case ripple
-    case constellation
     case lyricsBlock = "lyrics-block"
     case lyricsLine = "lyrics-line"
 
-    // Cycle order for the `M` key. Same as declaration order above.
+    // Cycle order for the `M` key. Most distinctive motifs first so
+    // cycling hits the signature styles before the simpler ones.
     static let allCases: [VisualizerStyle] = [
-        .sun, .squares, .dots, .lines, .ripple, .constellation,
+        .constellation, .orbit, .score,
+        .squares, .dots, .lines, .ripple,
         .lyricsBlock, .lyricsLine
     ]
 }

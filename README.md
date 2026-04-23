@@ -84,7 +84,7 @@ scans the directory; any malformed songs surface in the HUD's
   },
   "structure": ["intro", "verse", "chorus", "verse", "chorus", "outro"],
   "theme": "dark",
-  "visualizer": "sun"
+  "visualizer": "constellation"
 }
 ```
 
@@ -96,7 +96,7 @@ scans the directory; any malformed songs surface in the HUD's
 | `parts` | song | Dictionary of part definitions, referenced by name. |
 | `structure` | song | Array of part names, in play order. The same name can appear multiple times. |
 | `theme` | song | `"dark"` (default — black paper, white ink) or `"light"` (inverted). Only affects the synth layer of the visuals window; parts with a `visuals` file aren't themed. |
-| `visualizer` | song | Synth-layer motif. One of `"sun"` (default), `"squares"`, `"dots"`, `"lines"`, `"ripple"`, `"constellation"`, `"lyrics-block"`, `"lyrics-line"`. See the Visuals window section below. |
+| `visualizer` | song | Synth-layer motif. One of `"constellation"` (default), `"orbit"`, `"score"`, `"squares"`, `"dots"`, `"lines"`, `"ripple"`, `"lyrics-block"`, `"lyrics-line"`. See the Visuals window section below. |
 | `pattern` | part | Drum pattern name from `patterns.json` (e.g. `"Rock basic"`, `"Four on the floor"`). |
 | `chords` | part | The chord progression of the part — one symbol per bar of the progression. |
 | `repeats` | part | How many times the chord progression cycles. Optional, default 1. Total bars = `chords.length × repeats`. |
@@ -170,7 +170,7 @@ swift build -c release
 | `V` | Show / hide the visuals window. |
 | `F` | Toggle the visuals window into macOS native full-screen (title bar auto-hides, window covers the display). Opens the window first if it was closed. |
 | `I` | Invert the synth-layer theme (dark ↔ light). Live in-memory override on top of the song's `theme` JSON — not persisted. |
-| `M` | Cycle the synth-layer motif: sun → squares → dots → lines → ripple → constellation → back to sun. Same in-memory override behavior as `I`. |
+| `M` | Cycle the synth-layer motif: constellation → orbit → score → squares → dots → lines → ripple → lyrics-block → lyrics-line → (song default). Same in-memory override behavior as `I`. |
 | `K` / `S` / `H` | Cycle kick / snare / hi-hat volume |
 | `P` / `B` | Cycle pad / bass volume |
 
@@ -311,20 +311,24 @@ of the shapes, not from animation:
   never an N-pointed star), so longer-held shapes breathe subtly
 
 **Geometric motifs.** Each song picks a visualizer style via its
-`visualizer` JSON field. All six geometric motifs share the same
+`visualizer` JSON field. The seven geometric motifs share the same
 shape vocabulary — they differ in *what each voice becomes* and
 *where it goes*.
 
-| Motif | Kick | Snare | Bass | HH | Pad |
-|-------|------|-------|------|-----|-----|
-| `sun` *(default)* | Big filled blob, center | Smaller blob, center | Chiseled ring ~38% r | Small ring ~11% r | 4/6/8 thick rays radiating out |
-| `squares` | Big filled square, center | Smaller filled square | Hollow square ~36% r | Small hollow square | 4/6/8 tiles on an orbit |
-| `dots` | Big filled dot, center | Smaller dot | Ring of 12 dots | Tight ring of 8 tiny dots | 4/6/8 scattered dots |
-| `lines` | Thick wide horizontal bar, center | Thin bar below kick | Long bar above center | Short tick below snare | 4/6/8 dashes stacked above |
-| `ripple` | Thick ring ~42% r | Ring ~26% r | Biggest ring ~54% r | Tiny inner ring ~11% r | 4/6/8 thin rings between |
-| `constellation` | Center star | Upper-right star | Lower-left star | Lower-right star | 4/6/8 stars on outer orbit |
+| Motif | Kick | Snare | Bass | HH | Pad | Extras |
+|-------|------|-------|------|-----|-----|--------|
+| `constellation` *(default)* | Center star | Upper-right star | Lower-left star | Lower-right star | 4/6/8 stars on outer orbit | — |
+| `orbit` | Small body orbiting at ≈14% r, 6 s | Body at ≈22% r, 9 s | Body at ≈40% r, 18 s | Body at ≈30% r, 12 s | 2/3/4 bodies at ≈48% r, 24 s | Chord symbol in center; bar-progress arc on outer ring at ≈56% r |
+| `score` | Staff lines briefly thicken | — | — | — | — | 5-line staff with chord noteheads stacked by interval; chord symbol below; playhead sweeps L→R with progress; 4 beat dots top, current beat filled |
+| `squares` | Big filled square, center | Smaller filled square | Hollow square ≈36% r | Small hollow square | 4/6/8 tiles on an orbit | — |
+| `dots` | Big filled dot, center | Smaller dot | Ring of 12 dots | Tight ring of 8 tiny dots | 4/6/8 scattered dots | — |
+| `lines` | Thick wide horizontal bar, center | Thin bar below kick | Long bar above center | Short tick below snare | 4/6/8 dashes stacked above | — |
+| `ripple` | Thick ring ≈42% r | Ring ≈26% r | Biggest ring ≈54% r | Tiny inner ring ≈11% r | 4/6/8 thin rings between | — |
 
 Pad count (4 / 6 / 8) tracks the part's `pad` level (1 / 2 / 3).
+`orbit` and `score` add non-voice dynamics — the central chord
+symbol, bar-progress arc, staff, noteheads, playhead, and beat dots
+all react to song / playback state the other motifs ignore.
 
 **Lyric motifs.** Three additional styles render the current part's
 `lyrics` field typographically — useful as a teleprompter or a visual

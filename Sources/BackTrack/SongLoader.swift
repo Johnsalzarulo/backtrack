@@ -100,8 +100,12 @@ enum SongLoader {
 
         let visualizer: VisualizerStyle
         switch raw.visualizer?.lowercased() {
-        case nil, "", "sun":
-            visualizer = .sun
+        case nil, "", "constellation":
+            visualizer = .constellation
+        case "orbit":
+            visualizer = .orbit
+        case "score":
+            visualizer = .score
         case "squares":
             visualizer = .squares
         case "dots":
@@ -110,15 +114,13 @@ enum SongLoader {
             visualizer = .lines
         case "ripple":
             visualizer = .ripple
-        case "constellation":
-            visualizer = .constellation
         case "lyrics-block", "lyricsblock":
             visualizer = .lyricsBlock
         case "lyrics-line", "lyricsline":
             visualizer = .lyricsLine
         case let other?:
             throw SongValidationError(
-                "visualizer '\(other)' — expected one of: sun, squares, dots, lines, ripple, constellation, lyrics-block, lyrics-line"
+                "visualizer '\(other)' — expected one of: constellation, orbit, score, squares, dots, lines, ripple, lyrics-block, lyrics-line"
             )
         }
 
@@ -181,7 +183,7 @@ enum SongLoader {
             // Omit theme + visualizer on save when they're defaults, so
             // hand-authored songs that didn't set them stay terse.
             theme: song.theme == .dark ? nil : song.theme.rawValue,
-            visualizer: song.visualizer == .sun ? nil : song.visualizer.rawValue
+            visualizer: song.visualizer == .constellation ? nil : song.visualizer.rawValue
         )
     }
 
