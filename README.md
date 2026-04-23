@@ -362,6 +362,13 @@ so CRT/projector overscan won't clip shapes or text. Part-level
 visuals stay edge-to-edge since they're expected to fill the frame
 and cropping would just show paper-colored bars.
 
+**Idle state.** When transport is stopped and the current part
+wouldn't be showing a GIF/image/video, the window fills with TV
+static (theme-aware — white flecks on black in dark mode, black on
+white in light). This is the "no signal" resting state at app
+launch, between songs, and any time you hit Space to pause.
+Regenerates at ~15 Hz to feel analog rather than digital.
+
 Everything else is sized proportionally to `min(width, height)` so
 it holds up on any aspect ratio. Toggle the whole window with `V`;
 full-screen with `F`.
@@ -382,3 +389,4 @@ full-screen with `F`.
 - `VisualsView.swift` — Canvas-based synth-layer visuals window, switches to the visual backend when a part has one; dispatches between the geometric and lyric motifs
 - `LyricsVisualizers.swift` — NSViewRepresentable auto-fitting justified-text view, plus the centered single-line/word view
 - `VisualView.swift` — NSViewRepresentable for images / GIFs (via NSImageView) and video (via AVPlayer), all with CSS-cover scaling
+- `IdleStaticView.swift` — TV static / "no signal" idle state, shown when transport is stopped with no part-level visual

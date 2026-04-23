@@ -50,14 +50,24 @@ struct VisualsView: View {
             if let url = state.currentPartVisualURL, !userOverridingVisuals {
                 // Part has a visual and the user hasn't asked to see
                 // the synth layer instead — GIF/image/video takes over,
-                // edge to edge, no overscan inset.
+                // edge to edge, no overscan inset. Keeps playing even
+                // when transport is stopped, matching the loop behavior
+                // of the source media.
                 VisualView(url: url)
                     .ignoresSafeArea()
+            } else if !state.isPlaying {
+                // No part-level visual and transport is stopped — the
+                // synth layer would be empty, so show TV static as the
+                // idle / "no signal" state instead. Also covers app
+                // launch, between songs, and any pause.
+                IdleStaticView(ink: ink, paper: paper)
+                    .ignoresSafeArea()
             } else {
-                // Either no part-level visual, or the user pressed I or
-                // M to pull into the synth layer. Their override beats
-                // the song's configured visual so `M` actually cycles
-                // something visible even on parts with a GIF.
+                // Playing the synth layer. Either no part-level visual,
+                // or the user pressed I or M to pull into the synth
+                // layer. Their override beats the song's configured
+                // visual so `M` actually cycles something visible even
+                // on parts with a GIF.
                 GeometryReader { geo in
                     let inset = min(geo.size.width, geo.size.height) * overscanMargin
                     synthContent
