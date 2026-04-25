@@ -18,7 +18,7 @@ struct SongJSON: Codable {
     // tunes can feel different without a global toggle.
     let theme: String?
     // Synth-layer visualization style. See VisualizerStyle for the list.
-    // Defaults to "sun" when omitted.
+    // Defaults to "constellation" when omitted.
     let visualizer: String?
     // Optional count-in. When > 0, pressing Space plays N bars of
     // metronome clicks (4 per bar at the song's BPM, beat 1 accented)

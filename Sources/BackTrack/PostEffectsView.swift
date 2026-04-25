@@ -15,6 +15,17 @@ import SwiftUI
 // filters, but blendMode + colorMultiply + Canvas overlays cover
 // most of the perceptual space.
 
+// Shared deterministic pseudo-random in [0, 1] given a (seed, salt)
+// pair. Hash mixing is good enough for visual jitter — we don't need
+// cryptographic quality, just non-repeating values per seed change.
+// All three effect modifiers and their overlays use this so the
+// "feel" of randomness stays consistent across them.
+@inline(__always)
+private func effectsPseudoRandom(seed: Int, salt: Int) -> Double {
+    let h = (seed &* 2654435761) ^ (salt &* 40503)
+    return Double(UInt32(truncatingIfNeeded: h)) / Double(UInt32.max)
+}
+
 // MARK: - Glitch
 
 // Digital corruption. Beat-synced: every quarter-note triggers a
@@ -86,9 +97,9 @@ private struct GlitchSliceOverlay: View {
             // Major beats get ~3× the slice count for a denser tear.
             let sliceCount = Int(round(intensity * 6 * majorBoost + idleIntensity * 1))
             for i in 0..<sliceCount {
-                let r1 = pseudo(seed: seed, salt: i * 7 + 1)
-                let r2 = pseudo(seed: seed, salt: i * 7 + 2)
-                let r3 = pseudo(seed: seed, salt: i * 7 + 3)
+                let r1 = effectsPseudoRandom(seed: seed, salt: i * 7 + 1)
+                let r2 = effectsPseudoRandom(seed: seed, salt: i * 7 + 2)
+                let r3 = effectsPseudoRandom(seed: seed, salt: i * 7 + 3)
                 let y = CGFloat(r1) * size.height
                 let h = max(2, CGFloat(r2 * r2) * size.height * 0.06 * CGFloat(majorBoost))
                 let alpha = 0.4 + r3 * 0.5
@@ -97,11 +108,6 @@ private struct GlitchSliceOverlay: View {
             }
         }
         .blendMode(.difference)
-    }
-
-    private func pseudo(seed: Int, salt: Int) -> Double {
-        let h = (seed &* 2654435761) ^ (salt &* 40503)
-        return Double(UInt32(truncatingIfNeeded: h)) / Double(UInt32.max)
     }
 }
 
@@ -191,11 +197,10 @@ struct TrackingModifier: ViewModifier {
     }
 }
 
-// Heavy slice noise inside the rolling band, plus extra background
-// lines outside the band so the whole image feels worn. The band
-// itself has bright/dark sync lines top + bottom. Drawn in
-// .difference blend mode so it inverts whatever's underneath rather
-// than just slapping white pixels on top.
+// Heavy slice noise inside the rolling band, with bright/dark sync
+// lines marking its top + bottom edges. Drawn in .difference blend
+// mode so it inverts whatever's underneath rather than just slapping
+// white pixels on top.
 private struct TrackingBandOverlay: View {
     let bandFraction: Double  // 0..1, position of band center
     let beatPulse: Double
@@ -210,33 +215,21 @@ private struct TrackingBandOverlay: View {
             let bandTop = bandCenter - bandH / 2
             let bandBottom = bandCenter + bandH / 2
 
-            // Heavy slice noise inside the band.
-            let sliceCount = 28 + Int(beatPulse * 14)
+            // Slice noise inside the band. Density tuned so the band
+            // reads as a band, not a wall of static — the periodic
+            // vertical roll handles the more dramatic "tape's broken"
+            // moments, so the continuous band can stay subtle.
+            let sliceCount = 16 + Int(beatPulse * 8)
             for i in 0..<sliceCount {
-                let r1 = pseudo(seed: timeSeed, salt: i * 5 + 1)
-                let r2 = pseudo(seed: timeSeed, salt: i * 5 + 2)
-                let r3 = pseudo(seed: timeSeed, salt: i * 5 + 3)
+                let r1 = effectsPseudoRandom(seed: timeSeed, salt: i * 5 + 1)
+                let r2 = effectsPseudoRandom(seed: timeSeed, salt: i * 5 + 2)
+                let r3 = effectsPseudoRandom(seed: timeSeed, salt: i * 5 + 3)
                 let y = bandTop + CGFloat(r1) * (bandBottom - bandTop)
                 guard y >= 0, y <= size.height else { continue }
                 let h = max(1, CGFloat(r2 * r2) * 5 + 1)
                 let alpha = 0.5 + r3 * 0.4
                 ctx.fill(
                     Path(CGRect(x: 0, y: y, width: size.width, height: h)),
-                    with: .color(.white.opacity(alpha))
-                )
-            }
-
-            // Sparse background lines outside the band — gives the
-            // whole image that "tape's been chewed" feel rather than
-            // a clean picture with one band of distortion.
-            let bgLines = 8
-            for i in 0..<bgLines {
-                let r1 = pseudo(seed: timeSeed &+ 9000, salt: i * 3 + 1)
-                let r2 = pseudo(seed: timeSeed &+ 9000, salt: i * 3 + 2)
-                let y = CGFloat(r1) * size.height
-                let alpha = 0.18 + r2 * 0.18
-                ctx.fill(
-                    Path(CGRect(x: 0, y: y, width: size.width, height: 1)),
                     with: .color(.white.opacity(alpha))
                 )
             }
@@ -257,11 +250,6 @@ private struct TrackingBandOverlay: View {
             }
         }
         .blendMode(.difference)
-    }
-
-    private func pseudo(seed: Int, salt: Int) -> Double {
-        let h = (seed &* 2654435761) ^ (salt &* 40503)
-        return Double(UInt32(truncatingIfNeeded: h)) / Double(UInt32.max)
     }
 }
 
@@ -285,8 +273,8 @@ private struct SyncSeam: View {
             )
             // Horizontal noise lines inside the band.
             for i in 0..<16 {
-                let r1 = pseudo(seed: timeSeed, salt: i * 7 + 1)
-                let r2 = pseudo(seed: timeSeed, salt: i * 7 + 2)
+                let r1 = effectsPseudoRandom(seed: timeSeed, salt: i * 7 + 1)
+                let r2 = effectsPseudoRandom(seed: timeSeed, salt: i * 7 + 2)
                 let y = top + CGFloat(r1) * (bottom - top)
                 let lineH = max(1, CGFloat(r2 * r2) * 3)
                 ctx.fill(
@@ -295,11 +283,6 @@ private struct SyncSeam: View {
                 )
             }
         }
-    }
-
-    private func pseudo(seed: Int, salt: Int) -> Double {
-        let h = (seed &* 2654435761) ^ (salt &* 40503)
-        return Double(UInt32(truncatingIfNeeded: h)) / Double(UInt32.max)
     }
 }
 
@@ -336,7 +319,7 @@ struct ChromaModifier: ViewModifier {
             // Per-beat seed → angle in [0, 2π). Direction snaps on
             // each new beat instead of always splitting horizontally.
             let seed = state.currentBar * 4 + state.currentBeat
-            let angle = pseudo(seed: seed, salt: 11) * 2.0 * .pi
+            let angle = effectsPseudoRandom(seed: seed, salt: 11) * 2.0 * .pi
 
             // Burst boost on bar/part starts. Downbeats (beat 0) feel
             // the bar grid; bar 0 beat 0 feels the part transition.
@@ -344,24 +327,34 @@ struct ChromaModifier: ViewModifier {
             let isPartStart = isDownbeat && state.currentBar == 0
             let burstBoost: CGFloat = isPartStart ? 2.6 : (isDownbeat ? 1.6 : 1.0)
 
-            // Baseline +66% over the previous version, burst +55%.
-            // The user wanted "30% more pronounced at least"; we land
-            // safely above that.
             let baseline: CGFloat = 2.5
             let burstMag: CGFloat = 14 * burstBoost
             let magnitude = baseline + burstMag * CGFloat(pulse)
             let dx = CGFloat(cos(angle)) * magnitude
             let dy = CGFloat(sin(angle)) * magnitude
 
+            // `.compositingGroup()` BEFORE each `.colorMultiply()` is
+            // load-bearing for NSViewRepresentable content (the lyric
+            // text views). Without it, AppKit text rendering bypasses
+            // the multiplier — three unmultiplied "black text on white
+            // paper" copies plus-lighter blend to solid white at any
+            // point where any one copy shows paper, and the text only
+            // survives in the empty intersection of three offsets, so
+            // the lyrics looked invisible in light mode. Compositing
+            // group flattens the NSView render into a SwiftUI layer
+            // first, so the multiplier actually applies to the text.
             ZStack {
                 content
+                    .compositingGroup()
                     .colorMultiply(.red)
                     .offset(x: -dx, y: -dy)
                     .blendMode(.plusLighter)
                 content
+                    .compositingGroup()
                     .colorMultiply(.green)
                     .blendMode(.plusLighter)
                 content
+                    .compositingGroup()
                     .colorMultiply(.blue)
                     .offset(x: dx, y: dy)
                     .blendMode(.plusLighter)
@@ -372,11 +365,6 @@ struct ChromaModifier: ViewModifier {
             // cleanly when nothing else is behind them.
             .background(Color.black)
         }
-    }
-
-    private func pseudo(seed: Int, salt: Int) -> Double {
-        let h = (seed &* 2654435761) ^ (salt &* 40503)
-        return Double(UInt32(truncatingIfNeeded: h)) / Double(UInt32.max)
     }
 }
 

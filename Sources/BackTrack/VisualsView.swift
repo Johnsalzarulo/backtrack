@@ -17,9 +17,9 @@ import SwiftUI
 //   - per-vertex carved-noise smoothed across 5 neighbors
 //
 // Palette follows the current song's theme (`.dark` default). Style
-// follows the song's visualizer field (`.sun` default). Both can be
-// overridden live via the `I` and `M` hotkeys; overrides live in
-// AppState.
+// follows the song's visualizer field (`.constellation` default).
+// Both can be overridden live via the `I` and `M` hotkeys; overrides
+// live in AppState.
 struct VisualsView: View {
     @EnvironmentObject var state: AppState
 
