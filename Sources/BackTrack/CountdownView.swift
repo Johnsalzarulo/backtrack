@@ -27,48 +27,70 @@ struct CountdownView: View {
             let message = currentMessage(elapsed: elapsed)
 
             GeometryReader { geo in
-                let h = geo.size.height
                 let w = geo.size.width
-                let pad = min(w, h) * 0.06
+                let h = geo.size.height
+                // All sizing comes off the *smaller* dimension so the
+                // layout reads the same on landscape, portrait, square,
+                // ultrawide — anything. Using `h` alone (as the original
+                // pass did) blew out the timer and label past the width
+                // whenever the window was taller than it was wide.
+                let safe = min(w, h)
+                let pad = safe * 0.06
+                let availW = w - pad * 2
+                let labelFont = safe * 0.06
+                let timerFont = safe * 0.20
+                let messageFont = safe * 0.05
+                let barHeight = max(4, safe * 0.012)
 
-                VStack(alignment: .center, spacing: h * 0.025) {
+                VStack(alignment: .center, spacing: safe * 0.03) {
                     Spacer(minLength: 0)
-                    // Label — stays small, sits above the timer like
-                    // a marquee header.
+
+                    // Header above the timer. `.minimumScaleFactor` is
+                    // intentionally aggressive (0.3) so weirdly narrow
+                    // windows shrink the text instead of clipping it.
                     Text(countdown.label.uppercased())
-                        .font(.system(size: h * 0.07, weight: .light, design: .monospaced))
+                        .font(.system(size: labelFont, weight: .light, design: .monospaced))
                         .foregroundColor(ink.opacity(0.7))
                         .multilineTextAlignment(.center)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.3)
+                        .frame(maxWidth: availW)
 
-                    // The big counter — sized to the frame so it
-                    // dominates the screen at any window size.
+                    // The big counter — fills the frame at any size,
+                    // capped to availW so SwiftUI's auto-shrink can
+                    // actually engage when the chosen font would
+                    // otherwise overflow horizontally.
                     Text(formatTime(remaining))
-                        .font(.system(size: h * 0.32, weight: .light, design: .monospaced))
+                        .font(.system(size: timerFont, weight: .light, design: .monospaced))
                         .foregroundColor(ink)
                         .monospacedDigit()
                         .lineLimit(1)
-                        .minimumScaleFactor(0.4)
+                        .minimumScaleFactor(0.3)
+                        .frame(maxWidth: availW)
 
-                    // Progress bar — thin wobbly outline to match the
-                    // synth layer's hand-drawn feel.
-                    progressBar(progress: progress, width: w - pad * 2, height: max(6, h * 0.018))
+                    progressBar(
+                        progress: progress,
+                        width: availW * 0.9,
+                        height: barHeight
+                    )
 
                     Spacer(minLength: 0)
 
-                    // Rotating message — empty if the countdown has
-                    // no `messages` configured. Stays at one line so
-                    // the layout above doesn't shift when text changes.
-                    Text(message)
-                        .font(.system(size: h * 0.06, weight: .light, design: .monospaced))
-                        .foregroundColor(ink)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: w - pad * 2)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.5)
-                        .padding(.bottom, h * 0.08)
+                    // Rotating message. Empty when no messages are
+                    // configured; otherwise wraps to up to 3 lines so
+                    // a long sentence can breathe instead of clipping.
+                    if !message.isEmpty {
+                        Text(message)
+                            .font(.system(size: messageFont, weight: .light, design: .monospaced))
+                            .foregroundColor(ink)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(3)
+                            .minimumScaleFactor(0.5)
+                            .frame(maxWidth: availW)
+                            .padding(.bottom, safe * 0.06)
+                    }
                 }
                 .frame(width: w, height: h)
-                .padding(.horizontal, pad)
             }
         }
         .background(paper)
