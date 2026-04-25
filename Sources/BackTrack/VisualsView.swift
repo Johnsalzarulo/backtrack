@@ -58,7 +58,17 @@ struct VisualsView: View {
 
     var body: some View {
         let content = ZStack {
-            if let beat = state.countInBeat {
+            if state.lineupKind == .countdowns, let countdown = state.currentCountdown {
+                // Countdown deck takes over the entire visuals window.
+                // Bypasses the synth layer + GIF logic — countdowns have
+                // their own dedicated UI (label + timer + progress + msg).
+                CountdownView(
+                    countdown: countdown,
+                    transport: state.countdownTransport,
+                    ink: ink,
+                    paper: paper
+                )
+            } else if let beat = state.countInBeat {
                 // Count-in pre-roll. The song hasn't started yet — show
                 // a giant beat-in-bar number ("1, 2, 3, 4") that flips
                 // with each click, ignoring whatever GIF/visualizer the

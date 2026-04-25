@@ -45,6 +45,7 @@ final class Coordinator: ObservableObject {
         audio.loadAllSamples()
         Generators.loadPatterns()
         reloadSongs()
+        reloadCountdowns()
         if let first = state.songs.first {
             state.tempo = first.bpm
         }
@@ -52,18 +53,20 @@ final class Coordinator: ObservableObject {
         keyboard.install()
         state.outputDevice = AudioDevices.defaultOutputName()
 
-        // Poll song JSONs + patterns.json for edits so the app picks up
-        // changes without a manual R press. Samples are expensive to
-        // reload and changed rarely, so they stay on manual R.
+        // Poll song JSONs + countdown JSONs + patterns.json for edits so
+        // the app picks up changes without a manual R press. Samples
+        // are expensive to reload and change rarely, so they stay on R.
         fileWatcher = FileWatcher(
             paths: {
                 var urls: [URL] = []
-                let songsDir = SongLoader.defaultDirectory()
-                if let entries = try? FileManager.default.contentsOfDirectory(
-                    at: songsDir,
-                    includingPropertiesForKeys: nil
-                ) {
-                    urls.append(contentsOf: entries.filter { $0.pathExtension.lowercased() == "json" })
+                let fm = FileManager.default
+                for dir in [SongLoader.defaultDirectory(), CountdownLoader.defaultDirectory()] {
+                    if let entries = try? fm.contentsOfDirectory(
+                        at: dir,
+                        includingPropertiesForKeys: nil
+                    ) {
+                        urls.append(contentsOf: entries.filter { $0.pathExtension.lowercased() == "json" })
+                    }
                 }
                 urls.append(Generators.defaultPatternsURL())
                 return urls
@@ -78,6 +81,16 @@ final class Coordinator: ObservableObject {
     private func onWatchedFilesChanged() {
         Generators.loadPatterns()
         reloadSongs()
+        reloadCountdowns()
+    }
+
+    func reloadCountdowns() {
+        let result = CountdownLoader.loadAll()
+        state.countdowns = result.countdowns
+        state.countdownIssues = result.issues
+        if state.currentCountdownIndex >= state.countdowns.count {
+            state.currentCountdownIndex = max(0, state.countdowns.count - 1)
+        }
     }
 
     func reloadSongs() {

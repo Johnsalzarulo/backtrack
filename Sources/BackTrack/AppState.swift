@@ -17,6 +17,13 @@ import SwiftUI
 // AudioEngineController stamps the trigger timestamps right after
 // scheduling playback so the visuals fire in sync with the audio.
 // Audio callbacks that need to write here dispatch back to main first.
+// Which deck the arrow keys + Space currently act on. Future setlist
+// work will collapse this into a unified lineup.
+enum LineupKind: String {
+    case songs
+    case countdowns
+}
+
 final class AppState: ObservableObject {
     // MARK: - Transport + tempo
 
@@ -39,6 +46,24 @@ final class AppState: ObservableObject {
     @Published var songs: [Song] = []
     @Published var currentSongIndex: Int = 0
     @Published var songIssues: [String] = []
+
+    // MARK: - Countdown state
+    //
+    // Countdowns are a parallel deck — `D` toggles which one the
+    // arrow keys + Space act on. Eventually they'll merge with songs
+    // into one setlist; for now they're side-by-side.
+    @Published var countdowns: [Countdown] = []
+    @Published var currentCountdownIndex: Int = 0
+    @Published var countdownIssues: [String] = []
+    @Published var lineupKind: LineupKind = .songs
+    @Published var countdownTransport: CountdownTransport = .stopped
+
+    var currentCountdown: Countdown? {
+        guard !countdowns.isEmpty,
+              currentCountdownIndex >= 0,
+              currentCountdownIndex < countdowns.count else { return nil }
+        return countdowns[currentCountdownIndex]
+    }
 
     @Published var currentPartIndex: Int = 0    // index into current song's structure
     @Published var currentBar: Int = 0          // bar within current part (0-based)

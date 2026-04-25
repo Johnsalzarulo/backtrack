@@ -144,6 +144,51 @@ ringing.
 | 2 | Half — root on beats 1 and 3 |
 | 3 | Pump — root on every quarter note |
 
+## Countdowns
+
+Countdowns are pre-show / interval timers — the second deck you can
+navigate alongside songs. They live in their own directory and render
+as a full-screen TV-style display: a label, a giant counting timer, a
+progress bar, and a rotating block of one-liner messages. (Eventually
+countdowns and songs will share one setlist; today they're toggled
+with `D`.)
+
+```
+~/BackTrack/Countdowns/preshow.json
+```
+
+### Schema
+
+```json
+{
+  "name": "Pre-show",
+  "duration": 600,
+  "label": "Show begins in",
+  "messageInterval": 6,
+  "messages": [
+    "You still have time to go to the bathroom",
+    "Stop watering dead plants",
+    "Brought to you by Lexapro"
+  ]
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `name` | Display name in the HUD's countdowns list. |
+| `duration` | Required. Total length of the countdown, in seconds. |
+| `label` | Optional. Header text above the timer. Default `"Show begins in"`. |
+| `messageInterval` | Optional. Seconds per rotating message. Default `6`. |
+| `messages` | Optional. List of one-liners that cycle below the timer. Index advances by 1 every `messageInterval` seconds. Empty list = no rotating message. |
+
+### Transport
+
+Press `D` to switch the active deck to countdowns. Then:
+
+- `←` / `→` — previous / next countdown (resets the timer)
+- `Space` — start → pause → resume → pause → ... (timer keeps its place)
+- `D` again — back to the song deck (stops the countdown)
+
 ## Run
 
 ```
@@ -173,6 +218,7 @@ swift build -c release
 | `F` | Toggle the visuals window into macOS native full-screen (title bar auto-hides, window covers the display). Opens the window first if it was closed. |
 | `I` | Invert the synth-layer theme (dark ↔ light). Live in-memory override on top of the song's `theme` JSON — not persisted. |
 | `M` | Cycle the synth-layer motif: constellation → orbit → ink → squares → dots → lines → ripple → lyrics-block → lyrics-line → (song default). Same in-memory override behavior as `I`. |
+| `D` | Toggle the active deck between songs and countdowns. Stops anything currently playing on the deck you're leaving. |
 | `K` / `S` / `H` | Cycle kick / snare / hi-hat volume |
 | `P` / `B` | Cycle pad / bass volume |
 

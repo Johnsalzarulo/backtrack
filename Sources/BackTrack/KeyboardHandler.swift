@@ -54,19 +54,19 @@ final class KeyboardHandler {
 
         switch event.keyCode {
         case 49: // Space
-            clock.toggleTransport()
+            toggleTransport()
             return true
-        case 123: // Left — previous song (stops playback)
-            clock.previousSong()
+        case 123: // Left — previous item in the active deck (stops playback)
+            previousLineupItem()
             return true
-        case 124: // Right — next song
-            clock.nextSong()
+        case 124: // Right — next item in the active deck
+            nextLineupItem()
             return true
-        case 125: // Down — previous part (wraps; immediate when stopped, queued when playing)
-            clock.previousPart()
+        case 125: // Down — previous part (songs only; no-op for countdowns)
+            if state.lineupKind == .songs { clock.previousPart() }
             return true
-        case 126: // Up — next part (wraps; immediate when stopped, queued when playing)
-            clock.nextPart()
+        case 126: // Up — next part (songs only; no-op for countdowns)
+            if state.lineupKind == .songs { clock.nextPart() }
             return true
         default:
             break
@@ -140,9 +140,82 @@ final class KeyboardHandler {
             let nextIdx = (currentIdx + 1) % cycleSize
             state.visualizerOverride = nextIdx < styles.count ? styles[nextIdx] : nil
             return true
+        case "d":
+            // Toggle which deck the arrow keys + Space act on.
+            // Stops any in-flight transport on the deck we're leaving so
+            // we don't end up with a song playing while displaying a
+            // countdown (or vice versa).
+            switch state.lineupKind {
+            case .songs:
+                if state.isPlaying { clock.stop() }
+                state.lineupKind = .countdowns
+            case .countdowns:
+                stopCountdown()
+                state.lineupKind = .songs
+            }
+            return true
         default:
             return false
         }
+    }
+
+    // MARK: - Lineup dispatch
+
+    // Space — routes to the active deck's transport.
+    private func toggleTransport() {
+        switch state.lineupKind {
+        case .songs:
+            clock.toggleTransport()
+        case .countdowns:
+            toggleCountdown()
+        }
+    }
+
+    private func previousLineupItem() {
+        switch state.lineupKind {
+        case .songs:
+            clock.previousSong()
+        case .countdowns:
+            stepCountdown(by: -1)
+        }
+    }
+
+    private func nextLineupItem() {
+        switch state.lineupKind {
+        case .songs:
+            clock.nextSong()
+        case .countdowns:
+            stepCountdown(by: 1)
+        }
+    }
+
+    // MARK: - Countdown transport
+
+    // Space cycles stopped → running → paused → running → ... so the
+    // performer can pause if something pops up mid-countdown without
+    // losing their place. Hitting an arrow key resets to .stopped.
+    private func toggleCountdown() {
+        guard state.currentCountdown != nil else { return }
+        switch state.countdownTransport {
+        case .stopped:
+            state.countdownTransport = .running(startedAt: Date(), accumulated: 0)
+        case .running(let startedAt, let accumulated):
+            let elapsed = accumulated + Date().timeIntervalSince(startedAt)
+            state.countdownTransport = .paused(elapsed: elapsed)
+        case .paused(let elapsed):
+            state.countdownTransport = .running(startedAt: Date(), accumulated: elapsed)
+        }
+    }
+
+    private func stopCountdown() {
+        state.countdownTransport = .stopped
+    }
+
+    private func stepCountdown(by direction: Int) {
+        guard !state.countdowns.isEmpty else { return }
+        stopCountdown()
+        let n = state.countdowns.count
+        state.currentCountdownIndex = ((state.currentCountdownIndex + direction) % n + n) % n
     }
 
     // MARK: - Pattern audition

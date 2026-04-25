@@ -62,7 +62,16 @@ struct ContentView: View {
         }
     }
 
+    @ViewBuilder
     private var structureBlock: some View {
+        if state.lineupKind == .countdowns {
+            countdownDeckBlock
+        } else {
+            songStructureBlock
+        }
+    }
+
+    private var songStructureBlock: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 10) {
                 Text("STRUCTURE")
@@ -96,6 +105,50 @@ struct ContentView: View {
                 Text("no songs loaded").foregroundColor(dim)
             }
         }
+    }
+
+    // The countdown-deck equivalent of the song structure block.
+    // Shows the loaded countdowns as a flow of badges with the active
+    // one highlighted, plus a one-line "M:SS:cc remaining" preview so
+    // the performer sees the timer state without looking at the
+    // visuals window.
+    private var countdownDeckBlock: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("COUNTDOWNS")
+                .foregroundColor(dim)
+                .font(.system(.caption, design: .monospaced))
+            if state.countdowns.isEmpty {
+                Text("no countdowns loaded").foregroundColor(dim)
+            } else {
+                FlowLayout(spacing: 10) {
+                    ForEach(Array(state.countdowns.enumerated()), id: \.offset) { idx, c in
+                        partBadge(
+                            name: c.name,
+                            isActive: idx == state.currentCountdownIndex,
+                            isQueued: false
+                        )
+                    }
+                }
+                if let c = state.currentCountdown {
+                    // 4 Hz tick is plenty for a remaining-time readout —
+                    // the giant timer in the visuals window handles the
+                    // smooth hundredths display.
+                    TimelineView(.periodic(from: .now, by: 0.25)) { context in
+                        Text(countdownStatusLine(for: c, at: context.date))
+                            .foregroundColor(dim)
+                            .font(.system(.caption, design: .monospaced))
+                    }
+                }
+            }
+        }
+    }
+
+    private func countdownStatusLine(for c: Countdown, at now: Date) -> String {
+        let elapsed = state.countdownTransport.elapsed(at: now)
+        let remaining = max(0, c.duration - elapsed)
+        let m = Int(remaining) / 60
+        let s = Int(remaining) % 60
+        return "\(m):\(String(format: "%02d", s)) remaining · \(Int(c.duration / 60)) min total"
     }
 
     private func partBadge(name: String, isActive: Bool, isQueued: Bool) -> some View {
@@ -263,6 +316,13 @@ struct ContentView: View {
     }
 
     private var transportLabel: String {
+        if state.lineupKind == .countdowns {
+            switch state.countdownTransport {
+            case .stopped: return "○ STOPPED"
+            case .running: return "● COUNTING"
+            case .paused: return "❙❙ PAUSED"
+            }
+        }
         if let beat = state.countInBeat, state.countInTotal > 0 {
             return "● COUNT-IN \(beat)/\(state.countInTotal)"
         }
@@ -306,6 +366,7 @@ struct ContentView: View {
             row("⌘ S",   "save pattern edit",   "V",     "show / hide visuals")
             row("F",     "visuals full-screen", "R",     "reload everything")
             row("M",     "cycle visualizer",    "I",     "invert theme")
+            row("D",     "songs / countdowns",  "",      "")
         }
         .foregroundColor(dim)
         .font(.system(.caption, design: .monospaced))
@@ -351,28 +412,58 @@ struct ContentView: View {
         }
     }
 
+    @ViewBuilder
     private var songHeaderBlock: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 10) {
-                Text("SONG").foregroundColor(dim).frame(width: 44, alignment: .leading)
-                Text(state.currentSong?.name ?? "—")
-            }
-            if let key = state.currentSong?.key, !key.isEmpty {
+        if state.lineupKind == .countdowns {
+            countdownHeaderBlock
+        } else {
+            VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 10) {
-                    Text("KEY").foregroundColor(dim).frame(width: 44, alignment: .leading)
-                    Text(key)
+                    Text("SONG").foregroundColor(dim).frame(width: 44, alignment: .leading)
+                    Text(state.currentSong?.name ?? "—")
+                }
+                if let key = state.currentSong?.key, !key.isEmpty {
+                    HStack(spacing: 10) {
+                        Text("KEY").foregroundColor(dim).frame(width: 44, alignment: .leading)
+                        Text(key)
+                    }
+                }
+                HStack(spacing: 10) {
+                    Text("BPM").foregroundColor(dim).frame(width: 44, alignment: .leading)
+                    Text("\(Int(state.tempo.rounded()))")
+                        .opacity(state.bpmFlash ? 0.35 : 1.0)
                 }
             }
+        }
+    }
+
+    private var countdownHeaderBlock: some View {
+        VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 10) {
-                Text("BPM").foregroundColor(dim).frame(width: 44, alignment: .leading)
-                Text("\(Int(state.tempo.rounded()))")
-                    .opacity(state.bpmFlash ? 0.35 : 1.0)
+                Text("COUNT").foregroundColor(dim).frame(width: 44, alignment: .leading)
+                Text(state.currentCountdown?.name ?? "—")
+            }
+            if let c = state.currentCountdown {
+                HStack(spacing: 10) {
+                    Text("LEN").foregroundColor(dim).frame(width: 44, alignment: .leading)
+                    Text("\(Int(c.duration / 60)) min")
+                }
             }
         }
     }
 
     @ViewBuilder
     private var lyricsBlock: some View {
+        if state.lineupKind == .countdowns {
+            // Lyrics + next-part preview only make sense for songs.
+            EmptyView()
+        } else {
+            songLyricsBlock
+        }
+    }
+
+    @ViewBuilder
+    private var songLyricsBlock: some View {
         VStack(alignment: .leading, spacing: 16) {
             // Active part's lyrics.
             if let part = state.currentPart, !part.lyrics.isEmpty {
