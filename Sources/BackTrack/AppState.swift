@@ -25,6 +25,15 @@ final class AppState: ObservableObject {
     @Published var currentBeat: Int = 0
     @Published var bpmFlash: Bool = false
 
+    // Count-in state. While the Clock is firing pre-roll clicks,
+    // `countInBeat` is the 1-based beat number within the count-in
+    // (1...countInTotal) and `countInTotal` is the total beats
+    // (countIn × 4). Both reset to 0/nil once the song proper begins
+    // or playback stops. The HUD + visuals window read these to render
+    // the count-in indicator.
+    @Published var countInBeat: Int? = nil
+    @Published var countInTotal: Int = 0
+
     // MARK: - Song state
 
     @Published var songs: [Song] = []

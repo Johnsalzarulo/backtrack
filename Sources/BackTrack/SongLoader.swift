@@ -100,6 +100,11 @@ enum SongLoader {
 
         let visualizer = try parseVisualizer(raw.visualizer, context: "song") ?? .constellation
 
+        let countIn = raw.countIn ?? 0
+        guard countIn >= 0 else {
+            throw SongValidationError("countIn must be >= 0 (got \(countIn))")
+        }
+
         return Song(
             sourceURL: sourceURL,
             name: raw.name,
@@ -111,7 +116,8 @@ enum SongLoader {
             parts: parts,
             structure: raw.structure,
             theme: theme,
-            visualizer: visualizer
+            visualizer: visualizer,
+            countIn: countIn
         )
     }
 
@@ -157,10 +163,12 @@ enum SongLoader {
             bass: song.bassSound,
             parts: parts,
             structure: song.structure,
-            // Omit theme + visualizer on save when they're defaults, so
-            // hand-authored songs that didn't set them stay terse.
+            // Omit theme + visualizer + countIn on save when they're
+            // defaults, so hand-authored songs that didn't set them
+            // stay terse.
             theme: song.theme == .dark ? nil : song.theme.rawValue,
-            visualizer: song.visualizer == .constellation ? nil : song.visualizer.rawValue
+            visualizer: song.visualizer == .constellation ? nil : song.visualizer.rawValue,
+            countIn: song.countIn > 0 ? song.countIn : nil
         )
     }
 

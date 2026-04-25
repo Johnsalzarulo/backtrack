@@ -58,7 +58,17 @@ struct VisualsView: View {
 
     var body: some View {
         let content = ZStack {
-            if let url = state.currentPartVisualURL, !userOverridingVisuals {
+            if let beat = state.countInBeat {
+                // Count-in pre-roll. The song hasn't started yet — show
+                // a giant beat-in-bar number ("1, 2, 3, 4") that flips
+                // with each click, ignoring whatever GIF/visualizer the
+                // first part is configured with.
+                LyricsBlockView(
+                    text: "\(((beat - 1) % 4) + 1)",
+                    ink: nsInk,
+                    paper: nsPaper
+                )
+            } else if let url = state.currentPartVisualURL, !userOverridingVisuals {
                 // Part has a visual and the user hasn't asked to see
                 // the synth layer instead — GIF/image/video takes over.
                 // Keeps playing even when transport is stopped, matching

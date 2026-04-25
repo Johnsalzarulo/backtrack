@@ -29,6 +29,12 @@ final class Clock: ObservableObject {
     private var scheduledTempo: Double = 0
     private var lastChordKey: String = ""  // tracks chord-change for pad drone
 
+    // Count-in pre-roll. While `countInRemaining` > 0 the timer fires
+    // metronome clicks instead of song events. Counted in 16th-note
+    // ticks so it shares the song's tick grid — N bars of count-in =
+    // N × ticksPerBar ticks.
+    private var countInRemaining: Int = 0
+
     init(state: AppState, audio: AudioEngineController) {
         self.state = state
         self.audio = audio
@@ -61,6 +67,19 @@ final class Clock: ObservableObject {
         lastChordKey = ""
         state.isPlaying = true
         state.currentBeat = 0
+
+        // Set up count-in if configured. countInRemaining is in 16th-note
+        // ticks; the timer below fires every tick, and onTick() emits a
+        // click whenever countInRemaining lands on a quarter-note.
+        if song.countIn > 0 {
+            countInRemaining = song.countIn * Generators.ticksPerBar
+            state.countInTotal = song.countIn * 4
+            state.countInBeat = nil // first click sets it on tick 0
+        } else {
+            countInRemaining = 0
+            state.countInTotal = 0
+            state.countInBeat = nil
+        }
         scheduleTimer(immediate: true)
     }
 
@@ -69,6 +88,9 @@ final class Clock: ObservableObject {
         timer = nil
         state.isPlaying = false
         state.currentBeat = 0
+        countInRemaining = 0
+        state.countInBeat = nil
+        state.countInTotal = 0
         audio.stopAllPadAndBass()
     }
 
@@ -144,6 +166,14 @@ final class Clock: ObservableObject {
         guard state.currentPartIndex < song.structure.count,
               let part = state.currentPart else { stop(); return }
 
+        // Count-in pre-roll. Fires a hi-hat click on each quarter note,
+        // accented on every bar's downbeat. The song proper hasn't
+        // started yet — currentBar / tick stay at 0 the whole time.
+        if countInRemaining > 0 {
+            tickCountIn(totalBeats: song.countIn * 4)
+            return
+        }
+
         // Bar boundary: apply pending part jump, or auto-advance if the
         // current part has finished its bars.
         if tick == 0 {
@@ -193,6 +223,42 @@ final class Clock: ObservableObject {
         }
 
         scheduleTickAdvance()
+    }
+
+    // One tick of count-in pre-roll: emit a click on each quarter and
+    // update the HUD's count-in indicator. Each tick decrements
+    // `countInRemaining`; when it hits zero the next call to onTick()
+    // begins the song proper at bar 0, tick 0.
+    private func tickCountIn(totalBeats: Int) {
+        // Position within the count-in span, expressed in 16th-note ticks
+        // counted from 0 (first click) up to totalBeats * 4 - 1.
+        let totalTicks = totalBeats * 4
+        let ticksElapsed = totalTicks - countInRemaining
+        let isQuarter = (ticksElapsed % 4 == 0)
+
+        if isQuarter {
+            let beatIndex = ticksElapsed / 4 // 0-based
+            let beatInBar = beatIndex % 4
+            // Beat 1 of every count-in bar is accented so the player
+            // can lock to the bar grid by ear.
+            let velocity: Float = beatInBar == 0 ? 1.0 : 0.55
+            audio.trigger(NoteEvent(voice: .hihat, velocity: velocity))
+            state.countInBeat = beatIndex + 1 // 1-based for display
+            state.currentBeat = beatInBar
+        }
+
+        countInRemaining -= 1
+        if countInRemaining == 0 {
+            state.countInBeat = nil
+            state.countInTotal = 0
+            state.currentBeat = 0
+            // Next tick starts the song at bar 0, tick 0.
+            tick = 0
+        }
+
+        if state.tempo != scheduledTempo {
+            scheduleTimer(immediate: false)
+        }
     }
 
     private func scheduleTickAdvance() {

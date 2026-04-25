@@ -258,8 +258,15 @@ struct ContentView: View {
     }
 
     private var transportLine: some View {
-        Text(state.isPlaying ? "● PLAYING" : "○ STOPPED")
+        Text(transportLabel)
             .font(.system(size: 18, design: .monospaced))
+    }
+
+    private var transportLabel: String {
+        if let beat = state.countInBeat, state.countInTotal > 0 {
+            return "● COUNT-IN \(beat)/\(state.countInTotal)"
+        }
+        return state.isPlaying ? "● PLAYING" : "○ STOPPED"
     }
 
     @ViewBuilder

@@ -201,7 +201,8 @@ final class KeyboardHandler {
             parts: newParts,
             structure: old.structure,
             theme: old.theme,
-            visualizer: old.visualizer
+            visualizer: old.visualizer,
+            countIn: old.countIn
         )
     }
 

@@ -20,6 +20,10 @@ struct SongJSON: Codable {
     // Synth-layer visualization style. See VisualizerStyle for the list.
     // Defaults to "sun" when omitted.
     let visualizer: String?
+    // Optional count-in. When > 0, pressing Space plays N bars of
+    // metronome clicks (4 per bar at the song's BPM, beat 1 accented)
+    // before the song actually starts. Default 0 = no count-in.
+    let countIn: Int?
 }
 
 struct PartJSON: Codable {
@@ -92,6 +96,7 @@ struct Song {
     let structure: [String]   // part names, in play order
     let theme: VisualTheme          // synth-layer palette
     let visualizer: VisualizerStyle // synth-layer visualization motif
+    let countIn: Int                // 0 = none; N > 0 plays N bars of clicks before start
 
     // Total bar count across the whole structure, for progress indicators.
     var totalBars: Int {
