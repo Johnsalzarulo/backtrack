@@ -27,6 +27,13 @@ struct CountdownView: View {
     let ink: Color
     let paper: Color
 
+    // Overscan-safe margin, as a fraction of min(width, height).
+    // Mirrors the synth-layer margin in VisualsView — CRTs and many
+    // projectors clip 5–10% off each edge, so all our content (label,
+    // timer, visual element, message) is held back by this much from
+    // the window's edge regardless of aspect ratio.
+    private let overscanMargin: CGFloat = 0.07
+
     var body: some View {
         TimelineView(.animation) { context in
             let now = context.date
@@ -38,11 +45,15 @@ struct CountdownView: View {
             let message = currentMessage(elapsed: elapsed)
 
             GeometryReader { geo in
-                let w = geo.size.width
-                let h = geo.size.height
-                let safe = min(w, h)
-                let pad = safe * 0.06
-                let availW = w - pad * 2
+                // Carve the overscan inset off the window first; the
+                // entire layout below is sized against the *inner*
+                // safe area, so nothing inside it can leak into the
+                // outer 7% strip a CRT or projector might clip.
+                let inset = min(geo.size.width, geo.size.height) * overscanMargin
+                let safeW = max(0, geo.size.width - inset * 2)
+                let safeH = max(0, geo.size.height - inset * 2)
+                let safe = min(safeW, safeH)
+                let availW = safeW
                 let labelFont = safe * 0.06
                 let messageFont = safe * 0.05
 
@@ -54,8 +65,6 @@ struct CountdownView: View {
                     timerBlock(
                         progress: progress,
                         remaining: remaining,
-                        w: w,
-                        h: h,
                         safe: safe,
                         availW: availW
                     )
@@ -63,10 +72,13 @@ struct CountdownView: View {
                     Spacer(minLength: 0)
                     if !message.isEmpty {
                         messageLine(message: message, font: messageFont, availW: availW)
-                            .padding(.bottom, safe * 0.06)
                     }
                 }
-                .frame(width: w, height: h)
+                .frame(width: safeW, height: safeH)
+                // Center the safe-area content inside the full window
+                // so the overscan inset shows as equal margin on all
+                // four sides.
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .background(paper)
@@ -100,8 +112,6 @@ struct CountdownView: View {
     private func timerBlock(
         progress: Double,
         remaining: TimeInterval,
-        w: CGFloat,
-        h: CGFloat,
         safe: CGFloat,
         availW: CGFloat
     ) -> some View {
