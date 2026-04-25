@@ -57,7 +57,7 @@ struct VisualsView: View {
     private let overscanMargin: CGFloat = 0.07
 
     var body: some View {
-        let content = ZStack {
+        let baseContent = ZStack {
             if state.lineupKind == .countdowns, let countdown = state.currentCountdown {
                 // Countdown deck takes over the entire visuals window.
                 // Bypasses the synth layer + GIF logic — countdowns have
@@ -105,6 +105,11 @@ struct VisualsView: View {
             }
         }
         .background(paper)
+
+        // Wrap with the active post-processing effect (glitch / lofi
+        // / crt / none). `.none` is a pass-through, so we don't pay
+        // any TimelineView cost when no effect is selected.
+        let content = baseContent.postEffect(state.effectiveVisualEffect, state: state)
 
         if isPreview {
             // Embedded in HUD — skip the window-level modifiers so the

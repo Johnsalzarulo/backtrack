@@ -245,6 +245,7 @@ final class Clock: ObservableObject {
             audio.trigger(NoteEvent(voice: .hihat, velocity: velocity))
             state.countInBeat = beatIndex + 1 // 1-based for display
             state.currentBeat = beatInBar
+            state.lastBeatTime = Date()
         }
 
         countInRemaining -= 1
@@ -263,7 +264,11 @@ final class Clock: ObservableObject {
 
     private func scheduleTickAdvance() {
         // Update beat indicator + advance tick counter.
-        state.currentBeat = tick / 4
+        let newBeat = tick / 4
+        if newBeat != state.currentBeat {
+            state.lastBeatTime = Date()
+        }
+        state.currentBeat = newBeat
         tick += 1
         if tick >= Generators.ticksPerBar {
             tick = 0

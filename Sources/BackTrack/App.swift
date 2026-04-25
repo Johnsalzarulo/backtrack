@@ -153,7 +153,8 @@ final class Coordinator: ObservableObject {
             structure: old.structure,
             theme: old.theme,
             visualizer: old.visualizer,
-            countIn: old.countIn
+            countIn: old.countIn,
+            visualEffect: old.visualEffect
         )
     }
 }

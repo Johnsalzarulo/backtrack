@@ -12,6 +12,7 @@ struct CountdownJSON: Codable {
     let messageInterval: Double?     // seconds per rotating message; default 6
     let messages: [String]?          // rotating one-liners; may be empty
     let style: String?               // "digital" | "pie" | "hourglass"; default "digital"
+    let visualEffect: String?        // post-processing effect; default "none"
 }
 
 // Compiled, validated countdown ready to display.
@@ -23,6 +24,7 @@ struct Countdown {
     let messageInterval: TimeInterval
     let messages: [String]
     let style: CountdownStyle
+    let visualEffect: PostEffect
 
     static let defaultLabel = "Show begins in"
     static let defaultMessageInterval: TimeInterval = 6

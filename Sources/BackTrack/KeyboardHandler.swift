@@ -135,6 +135,17 @@ final class KeyboardHandler {
                 cycleCountdownStyle()
             }
             return true
+        case "e":
+            // Cycle the post-processing visual effect across both
+            // decks. Same +1-default-slot pattern as M: cycling past
+            // the last named effect lands on a slot that clears the
+            // override (so the active item's JSON `visualEffect`
+            // takes over again).
+            state.visualEffectOverride = nextStyleInCycle(
+                styles: PostEffect.allCases,
+                currentOverride: state.visualEffectOverride
+            )
+            return true
         case "d":
             // Toggle which deck the arrow keys + Space act on.
             // Stops any in-flight transport on the deck we're leaving so
@@ -306,7 +317,8 @@ final class KeyboardHandler {
             structure: old.structure,
             theme: old.theme,
             visualizer: old.visualizer,
-            countIn: old.countIn
+            countIn: old.countIn,
+            visualEffect: old.visualEffect
         )
     }
 

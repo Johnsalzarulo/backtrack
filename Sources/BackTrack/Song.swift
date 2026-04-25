@@ -24,6 +24,9 @@ struct SongJSON: Codable {
     // metronome clicks (4 per bar at the song's BPM, beat 1 accented)
     // before the song actually starts. Default 0 = no count-in.
     let countIn: Int?
+    // Post-processing effect (glitch, lofi, crt). Applied on top of
+    // the synth/GIF/lyric layers. Default "none". See VisualEffect.
+    let visualEffect: String?
 }
 
 struct PartJSON: Codable {
@@ -97,6 +100,7 @@ struct Song {
     let theme: VisualTheme          // synth-layer palette
     let visualizer: VisualizerStyle // synth-layer visualization motif
     let countIn: Int                // 0 = none; N > 0 plays N bars of clicks before start
+    let visualEffect: PostEffect  // post-processing effect applied on top of everything
 
     // Total bar count across the whole structure, for progress indicators.
     var totalBars: Int {

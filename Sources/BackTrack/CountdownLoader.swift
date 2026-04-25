@@ -79,6 +79,13 @@ enum CountdownLoader {
             )
         }
 
+        let visualEffect: PostEffect
+        do {
+            visualEffect = try PostEffectParser.parse(raw.visualEffect, context: "countdown") ?? .none
+        } catch let err as PostEffectParseError {
+            throw CountdownValidationError(err.description)
+        }
+
         return Countdown(
             sourceURL: sourceURL,
             name: raw.name,
@@ -86,7 +93,8 @@ enum CountdownLoader {
             label: raw.label ?? Countdown.defaultLabel,
             messageInterval: interval,
             messages: raw.messages ?? [],
-            style: style
+            style: style,
+            visualEffect: visualEffect
         )
     }
 }

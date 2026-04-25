@@ -32,6 +32,14 @@ final class AppState: ObservableObject {
     @Published var currentBeat: Int = 0
     @Published var bpmFlash: Bool = false
 
+    // Wall-clock timestamp of the last quarter-note tick. Stamped by
+    // Clock when currentBeat advances (and by the count-in path).
+    // Visual effects read this to drive beat-synced animation —
+    // glitch jitters on each beat, lofi shuffles its grain seed,
+    // CRT pulses brightness — without each effect needing its own
+    // .onChange(of: state.currentBeat) hookup.
+    @Published var lastBeatTime: Date = .distantPast
+
     // Count-in state. While the Clock is firing pre-roll clicks,
     // `countInBeat` is the 1-based beat number within the count-in
     // (1...countInTotal) and `countInTotal` is the total beats
@@ -63,6 +71,12 @@ final class AppState: ObservableObject {
     // falls back to the countdown's JSON `style` field.
     @Published var countdownStyleOverride: CountdownStyle? = nil
 
+    // Live override for the post-processing visual effect (glitch /
+    // lofi / crt / none). Shared across both decks since the same
+    // four effects apply equally to songs and countdowns. nil falls
+    // back to the active item's JSON `visualEffect` field.
+    @Published var visualEffectOverride: PostEffect? = nil
+
     var currentCountdown: Countdown? {
         guard !countdowns.isEmpty,
               currentCountdownIndex >= 0,
@@ -72,6 +86,22 @@ final class AppState: ObservableObject {
 
     var effectiveCountdownStyle: CountdownStyle {
         countdownStyleOverride ?? currentCountdown?.style ?? .digital
+    }
+
+    // Resolves the post-processing effect for the currently-active
+    // deck item. Live override beats the JSON value; nil override
+    // falls through to the song or countdown depending on which deck
+    // is active.
+    var effectiveVisualEffect: PostEffect {
+        if let override = visualEffectOverride {
+            return override
+        }
+        switch lineupKind {
+        case .songs:
+            return currentSong?.visualEffect ?? .none
+        case .countdowns:
+            return currentCountdown?.visualEffect ?? .none
+        }
     }
 
     @Published var currentPartIndex: Int = 0    // index into current song's structure

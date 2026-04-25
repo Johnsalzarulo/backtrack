@@ -366,7 +366,7 @@ struct ContentView: View {
             row("⌘ S",   "save pattern edit",   "V",     "show / hide visuals")
             row("F",     "visuals full-screen", "R",     "reload everything")
             row("M",     "cycle visualizer",    "I",     "invert theme")
-            row("D",     "songs / countdowns",  "",      "")
+            row("E",     "cycle effect",        "D",     "songs / countdowns")
         }
         .foregroundColor(dim)
         .font(.system(.caption, design: .monospaced))
