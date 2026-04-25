@@ -35,6 +35,14 @@ final class Clock: ObservableObject {
     // N × ticksPerBar ticks.
     private var countInRemaining: Int = 0
 
+    // Dedicated high-priority queue for the playback timer. Keeping
+    // the timer off `.main` means heavy visual work (post-effects
+    // redrawing every frame) can't delay tick firing — audio events
+    // schedule on this queue and AVAudioPlayerNode handles them on
+    // its own audio thread, while @Published state mutations bounce
+    // back to main via the helpers below.
+    private let clockQueue = DispatchQueue(label: "com.backtrack.clock", qos: .userInteractive)
+
     init(state: AppState, audio: AudioEngineController) {
         self.state = state
         self.audio = audio
@@ -150,7 +158,7 @@ final class Clock: ObservableObject {
 
     private func scheduleTimer(immediate: Bool) {
         timer?.cancel()
-        let t = DispatchSource.makeTimerSource(queue: .main)
+        let t = DispatchSource.makeTimerSource(queue: clockQueue)
         let seconds = 60.0 / (state.tempo * 4.0)
         let interval = DispatchTimeInterval.nanoseconds(Int(seconds * 1_000_000_000))
         let first: DispatchTime = immediate ? .now() : .now() + interval
@@ -161,10 +169,34 @@ final class Clock: ObservableObject {
         t.resume()
     }
 
+    // Helper: bounce a state mutation to main from any thread. Used
+    // throughout onTick/tickCountIn since they run on `clockQueue`
+    // and @Published updates must happen on main.
+    private func writeState(_ block: @escaping (AppState) -> Void) {
+        if Thread.isMainThread {
+            block(state)
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                block(self.state)
+            }
+        }
+    }
+
     private func onTick() {
-        guard let song = state.currentSong else { stop(); return }
+        // Running on `clockQueue` — reads from @Published state may
+        // be slightly stale relative to main, but for transport
+        // timing that's harmless (worst case we use last tick's
+        // values for one beat). State writes go through writeState.
+        guard let song = state.currentSong else {
+            stopAsync()
+            return
+        }
         guard state.currentPartIndex < song.structure.count,
-              let part = state.currentPart else { stop(); return }
+              let part = state.currentPart else {
+            stopAsync()
+            return
+        }
 
         // Count-in pre-roll. Fires a hi-hat click on each quarter note,
         // accented on every bar's downbeat. The song proper hasn't
@@ -178,51 +210,61 @@ final class Clock: ObservableObject {
         // current part has finished its bars.
         if tick == 0 {
             if let pending = state.pendingPartIndex {
-                state.currentPartIndex = pending
-                state.currentBar = 0
-                state.pendingPartIndex = nil
+                writeState { s in
+                    s.currentPartIndex = pending
+                    s.currentBar = 0
+                    s.pendingPartIndex = nil
+                }
                 audio.stopAllPadAndBass()
                 lastChordKey = ""
-                // Re-fetch part for this tick with the new index.
-                guard let newPart = state.currentPart else { stop(); return }
-                fireTick0(part: newPart)
+                // Re-fetch the resolved part directly off the song so
+                // we don't depend on the @Published state having flushed.
+                let newPart = song.parts[song.structure[pending]] ?? part
+                fireTick0(part: newPart, atBar: 0)
                 scheduleTickAdvance()
                 return
             }
             if state.currentBar >= part.bars {
                 // Loop mode: restart the same part instead of advancing.
-                // Useful for auditioning drum patterns without the song
-                // marching through the structure.
                 if state.loopCurrentPart {
-                    state.currentBar = 0
+                    writeState { s in s.currentBar = 0 }
                     audio.stopAllPadAndBass()
                     lastChordKey = ""
-                    guard let loopedPart = state.currentPart else { stop(); return }
-                    fireTick0(part: loopedPart)
+                    fireTick0(part: part, atBar: 0)
                     scheduleTickAdvance()
                     return
                 }
                 // Part finished — advance.
                 let next = state.currentPartIndex + 1
                 if next >= song.structure.count {
-                    stop()
+                    stopAsync()
                     return
                 }
-                state.currentPartIndex = next
-                state.currentBar = 0
+                writeState { s in
+                    s.currentPartIndex = next
+                    s.currentBar = 0
+                }
                 audio.stopAllPadAndBass()
                 lastChordKey = ""
-                guard let newPart = state.currentPart else { stop(); return }
-                fireTick0(part: newPart)
+                let newPart = song.parts[song.structure[next]] ?? part
+                fireTick0(part: newPart, atBar: 0)
                 scheduleTickAdvance()
                 return
             }
-            fireTick0(part: part)
+            fireTick0(part: part, atBar: state.currentBar)
         } else {
             fireTickN(part: part, tick: tick)
         }
 
         scheduleTickAdvance()
+    }
+
+    // Async-safe stop, callable from clockQueue. The public `stop()`
+    // is fine on main but unsafe to invoke directly from the timer
+    // thread (timer.cancel from inside its own handler can deadlock
+    // briefly), so we bounce through main.
+    private func stopAsync() {
+        DispatchQueue.main.async { [weak self] in self?.stop() }
     }
 
     // One tick of count-in pre-roll: emit a click on each quarter and
@@ -243,16 +285,22 @@ final class Clock: ObservableObject {
             // can lock to the bar grid by ear.
             let velocity: Float = beatInBar == 0 ? 1.0 : 0.55
             audio.trigger(NoteEvent(voice: .hihat, velocity: velocity))
-            state.countInBeat = beatIndex + 1 // 1-based for display
-            state.currentBeat = beatInBar
-            state.lastBeatTime = Date()
+            let beatNumber = beatIndex + 1
+            let now = Date()
+            writeState { s in
+                s.countInBeat = beatNumber
+                s.currentBeat = beatInBar
+                s.lastBeatTime = now
+            }
         }
 
         countInRemaining -= 1
         if countInRemaining == 0 {
-            state.countInBeat = nil
-            state.countInTotal = 0
-            state.currentBeat = 0
+            writeState { s in
+                s.countInBeat = nil
+                s.countInTotal = 0
+                s.currentBeat = 0
+            }
             // Next tick starts the song at bar 0, tick 0.
             tick = 0
         }
@@ -263,16 +311,22 @@ final class Clock: ObservableObject {
     }
 
     private func scheduleTickAdvance() {
-        // Update beat indicator + advance tick counter.
+        // Update beat indicator + advance tick counter. `tick` lives
+        // on this clock and increments here; the @Published mirror
+        // (state.currentBeat) flushes via writeState a moment later.
         let newBeat = tick / 4
-        if newBeat != state.currentBeat {
-            state.lastBeatTime = Date()
+        let beatChanged = (newBeat != state.currentBeat)
+        let now = Date()
+        writeState { s in
+            if beatChanged {
+                s.currentBeat = newBeat
+                s.lastBeatTime = now
+            }
         }
-        state.currentBeat = newBeat
         tick += 1
         if tick >= Generators.ticksPerBar {
             tick = 0
-            state.currentBar += 1
+            writeState { s in s.currentBar += 1 }
         }
         if state.tempo != scheduledTempo {
             scheduleTimer(immediate: false)
@@ -280,15 +334,10 @@ final class Clock: ObservableObject {
     }
 
     // Tick 0 of a bar: evaluate chord change + fire all voices that hit on
-    // the downbeat (drums tick 0 events + pad level 1 if chord changed +
-    // pad level 2/3 initial hits + bass level 1/2/3 downbeat).
-    //
-    // On chord change, fade out the previous chord's pad + bass voices so
-    // long sustained samples don't bleed into the new chord. The
-    // fade-out runs on older voice-pool slots; new triggers below use
-    // the next pool slots and fade in cleanly on top.
-    private func fireTick0(part: Part) {
-        guard let chord = part.chord(atBar: state.currentBar) else { return }
+    // the downbeat. Takes the bar explicitly so callers don't depend on
+    // the @Published state having flushed before they fire.
+    private func fireTick0(part: Part, atBar bar: Int) {
+        guard let chord = part.chord(atBar: bar) else { return }
         let chordKey = "\(chord.rootPitchClass)-\(chord.quality)"
         let previousKey = lastChordKey
         let changed = (chordKey != previousKey)
@@ -306,6 +355,9 @@ final class Clock: ObservableObject {
     }
 
     private func fireTickN(part: Part, tick: Int) {
+        // Re-read the bar so a tick-0 advance that already wrote the
+        // new bar is reflected here. The slight staleness window is
+        // safe because tick 1+ within a bar can't span a boundary.
         guard let chord = part.chord(atBar: state.currentBar) else { return }
         for e in Generators.drums(pattern: part.pattern, tick: tick) { audio.trigger(e) }
         for e in Generators.pad(level: part.padLevel, chord: chord, tick: tick, chordChanged: false) {

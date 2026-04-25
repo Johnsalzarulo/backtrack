@@ -15,13 +15,13 @@ import Foundation
 enum PostEffect: String {
     case none
     case glitch
-    case lofi
-    case crt
+    case tracking
+    case chroma
 
     // Cycle order for the `E` key. `.none` is included so the
     // performer can explicitly turn effects off via the cycle without
     // having to wait for the JSON-default slot.
-    static let allCases: [PostEffect] = [.none, .glitch, .lofi, .crt]
+    static let allCases: [PostEffect] = [.none, .glitch, .tracking, .chroma]
 }
 
 // Shared parser used by both SongLoader and CountdownLoader. Returns
@@ -37,13 +37,13 @@ enum PostEffectParser {
             return PostEffect.none
         case "glitch":
             return .glitch
-        case "lofi":
-            return .lofi
-        case "crt":
-            return .crt
+        case "tracking":
+            return .tracking
+        case "chroma":
+            return .chroma
         case let other?:
             throw PostEffectParseError(
-                description: "\(context) visualEffect '\(other)' — expected one of: none, glitch, lofi, crt"
+                description: "\(context) visualEffect '\(other)' — expected one of: none, glitch, tracking, chroma"
             )
         }
     }

@@ -24,9 +24,6 @@ struct SongJSON: Codable {
     // metronome clicks (4 per bar at the song's BPM, beat 1 accented)
     // before the song actually starts. Default 0 = no count-in.
     let countIn: Int?
-    // Post-processing effect (glitch, lofi, crt). Applied on top of
-    // the synth/GIF/lyric layers. Default "none". See VisualEffect.
-    let visualEffect: String?
 }
 
 struct PartJSON: Codable {
@@ -49,6 +46,10 @@ struct PartJSON: Codable {
     // `visuals` GIF always shows the GIF; the visualizer setting only
     // kicks in when there's no GIF.
     let visualizer: String?
+    // Post-processing effect for this part (glitch, tracking, chroma).
+    // Each part declares its own — different sections of a song can
+    // have different effects. Default "none".
+    let visualEffect: String?
 }
 
 // Polymorphic JSON container: decodes either `"visuals": "foo.gif"` or
@@ -100,7 +101,6 @@ struct Song {
     let theme: VisualTheme          // synth-layer palette
     let visualizer: VisualizerStyle // synth-layer visualization motif
     let countIn: Int                // 0 = none; N > 0 plays N bars of clicks before start
-    let visualEffect: PostEffect  // post-processing effect applied on top of everything
 
     // Total bar count across the whole structure, for progress indicators.
     var totalBars: Int {
@@ -171,6 +171,7 @@ struct Part {
     let visuals: [String]           // filenames under Visuals/; empty = none
     let visualMode: VisualCycleMode // cycling behavior when visuals.count > 1
     let visualizer: VisualizerStyle? // per-part override; nil = inherit from song
+    let visualEffect: PostEffect    // post-processing effect for this part; .none = no effect
 
     // Derived: total bar count for this part.
     var bars: Int { chords.count * repeats }

@@ -474,24 +474,40 @@ final class AudioEngineController: ObservableObject {
 
     // MARK: - Playback
 
+    // Schedules audio for the event AND records its trigger timestamp
+    // for the HUD activity dots / synth visualizer pulses. Thread-safe:
+    // AVAudioPlayerNode.scheduleBuffer is fine on any thread, and the
+    // @Published timestamp write is auto-dispatched to main if we're
+    // not already there. The Clock fires this from a background queue
+    // so heavy main-thread visual work (post-effects redrawing) can't
+    // delay audio scheduling.
     func trigger(_ event: NoteEvent) {
-        let now = Date()
+        // Audio first — independent of main-thread load.
         switch event.voice {
-        case .kick:
-            state?.kickLastTrigger = now
-            play(buffer: kickBuffer, on: kickPlayer, volume: event.velocity)
-        case .snare:
-            state?.snareLastTrigger = now
-            play(buffer: snareBuffer, on: snarePlayer, volume: event.velocity)
-        case .hihat:
-            state?.hhLastTrigger = now
-            play(buffer: hhBuffer, on: hhPlayer, volume: event.velocity)
-        case .pad(let pc):
-            state?.padLastTrigger = now
-            playPad(pitchClass: pc, volume: event.velocity)
-        case .bass(let pc):
-            state?.bassLastTrigger = now
-            playBass(pitchClass: pc, volume: event.velocity)
+        case .kick:   play(buffer: kickBuffer, on: kickPlayer, volume: event.velocity)
+        case .snare:  play(buffer: snareBuffer, on: snarePlayer, volume: event.velocity)
+        case .hihat:  play(buffer: hhBuffer, on: hhPlayer, volume: event.velocity)
+        case .pad(let pc):  playPad(pitchClass: pc, volume: event.velocity)
+        case .bass(let pc): playBass(pitchClass: pc, volume: event.velocity)
+        }
+
+        // State timestamp — must be on main since AppState is @Published.
+        let now = Date()
+        let voice = event.voice
+        let writeTimestamp: () -> Void = { [weak self] in
+            guard let s = self?.state else { return }
+            switch voice {
+            case .kick:  s.kickLastTrigger = now
+            case .snare: s.snareLastTrigger = now
+            case .hihat: s.hhLastTrigger = now
+            case .pad:   s.padLastTrigger = now
+            case .bass:  s.bassLastTrigger = now
+            }
+        }
+        if Thread.isMainThread {
+            writeTimestamp()
+        } else {
+            DispatchQueue.main.async(execute: writeTimestamp)
         }
     }
 

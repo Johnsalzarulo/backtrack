@@ -105,13 +105,6 @@ enum SongLoader {
             throw SongValidationError("countIn must be >= 0 (got \(countIn))")
         }
 
-        let visualEffect: PostEffect
-        do {
-            visualEffect = try PostEffectParser.parse(raw.visualEffect, context: "song") ?? .none
-        } catch let err as PostEffectParseError {
-            throw SongValidationError(err.description)
-        }
-
         return Song(
             sourceURL: sourceURL,
             name: raw.name,
@@ -124,8 +117,7 @@ enum SongLoader {
             structure: raw.structure,
             theme: theme,
             visualizer: visualizer,
-            countIn: countIn,
-            visualEffect: visualEffect
+            countIn: countIn
         )
     }
 
@@ -159,7 +151,8 @@ enum SongLoader {
                 lyrics: part.lyrics.isEmpty ? nil : part.lyrics,
                 visuals: visuals,
                 visualMode: mode,
-                visualizer: part.visualizer?.rawValue
+                visualizer: part.visualizer?.rawValue,
+                visualEffect: part.visualEffect == .none ? nil : part.visualEffect.rawValue
             )
         }
         return SongJSON(
@@ -171,13 +164,12 @@ enum SongLoader {
             bass: song.bassSound,
             parts: parts,
             structure: song.structure,
-            // Omit theme + visualizer + countIn + visualEffect on save
-            // when they're defaults, so hand-authored songs that didn't
-            // set them stay terse.
+            // Omit theme + visualizer + countIn on save when they're
+            // defaults, so hand-authored songs that didn't set them
+            // stay terse.
             theme: song.theme == .dark ? nil : song.theme.rawValue,
             visualizer: song.visualizer == .constellation ? nil : song.visualizer.rawValue,
-            countIn: song.countIn > 0 ? song.countIn : nil,
-            visualEffect: song.visualEffect == .none ? nil : song.visualEffect.rawValue
+            countIn: song.countIn > 0 ? song.countIn : nil
         )
     }
 
@@ -227,6 +219,13 @@ enum SongLoader {
 
         let visualizer = try parseVisualizer(part.visualizer, context: "part '\(name)'")
 
+        let visualEffect: PostEffect
+        do {
+            visualEffect = try PostEffectParser.parse(part.visualEffect, context: "part '\(name)'") ?? .none
+        } catch let err as PostEffectParseError {
+            throw SongValidationError(err.description)
+        }
+
         return Part(
             name: name,
             pattern: part.pattern,
@@ -237,7 +236,8 @@ enum SongLoader {
             lyrics: part.lyrics ?? "",
             visuals: visuals,
             visualMode: visualMode,
-            visualizer: visualizer
+            visualizer: visualizer,
+            visualEffect: visualEffect
         )
     }
 

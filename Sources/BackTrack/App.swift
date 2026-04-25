@@ -136,7 +136,8 @@ final class Coordinator: ObservableObject {
             lyrics: existing.lyrics,
             visuals: existing.visuals,
             visualMode: existing.visualMode,
-            visualizer: existing.visualizer
+            visualizer: existing.visualizer,
+            visualEffect: existing.visualEffect
         )
         var newParts = state.songs[songIdx].parts
         newParts[partName] = updated
@@ -153,8 +154,7 @@ final class Coordinator: ObservableObject {
             structure: old.structure,
             theme: old.theme,
             visualizer: old.visualizer,
-            countIn: old.countIn,
-            visualEffect: old.visualEffect
+            countIn: old.countIn
         )
     }
 }

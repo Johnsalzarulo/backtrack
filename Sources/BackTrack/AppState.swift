@@ -90,15 +90,16 @@ final class AppState: ObservableObject {
 
     // Resolves the post-processing effect for the currently-active
     // deck item. Live override beats the JSON value; nil override
-    // falls through to the song or countdown depending on which deck
-    // is active.
+    // falls through to the active part (songs) or countdown's field.
+    // Part-level for songs means different sections of a song can
+    // declare different effects.
     var effectiveVisualEffect: PostEffect {
         if let override = visualEffectOverride {
             return override
         }
         switch lineupKind {
         case .songs:
-            return currentSong?.visualEffect ?? .none
+            return currentPart?.visualEffect ?? .none
         case .countdowns:
             return currentCountdown?.visualEffect ?? .none
         }

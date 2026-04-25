@@ -98,7 +98,7 @@ scans the directory; any malformed songs surface in the HUD's
 | `theme` | song | `"dark"` (default — black paper, white ink) or `"light"` (inverted). Only affects the synth layer of the visuals window; parts with a `visuals` file aren't themed. |
 | `visualizer` | song | Synth-layer motif. One of `"constellation"` (default), `"orbit"`, `"ink"`, `"squares"`, `"dots"`, `"lines"`, `"ripple"`, `"lyrics-block"`, `"lyrics-line"`. See the Visuals window section below. |
 | `countIn` | song | Optional integer. When > 0, pressing Space plays N bars of metronome clicks (4 hi-hat hits per bar at the song's BPM, beat 1 accented) before the song actually starts. The HUD shows `● COUNT-IN n/N` and the visuals window shows the current beat-in-bar number large. Default 0 = no count-in. |
-| `visualEffect` | song | Optional. Post-processing layer wrapping the entire visuals window. One of `"none"` (default), `"glitch"` (digital-corruption jitter + slice flashes synced to each beat), `"lofi"` (desaturated, warm-tinted, grainy posterize-feel), `"crt"` (scanlines + phosphor glow + per-beat brightness pulse + corner vignette). `E` cycles this live during playback. |
+| `visualEffect` | part | Optional. Post-processing layer wrapping the entire visuals window for this part. One of `"none"` (default), `"glitch"` (beat-synced digital-corruption jitter + slice flashes), `"tracking"` (VCR rolling distortion band + slight VHS desaturation, beat-pulsed band intensity), `"chroma"` (RGB channel separation that bursts outward on each beat — Spider-Verse / vintage 3D feel). `E` cycles this live during playback. Different parts can have different effects. |
 | `pattern` | part | Drum pattern name from `patterns.json` (e.g. `"Rock basic"`, `"Four on the floor"`). |
 | `chords` | part | The chord progression of the part — one symbol per bar of the progression. |
 | `repeats` | part | How many times the chord progression cycles. Optional, default 1. Total bars = `chords.length × repeats`. |
@@ -182,7 +182,7 @@ with `D`.)
 | `messageInterval` | Optional. Seconds per rotating message. Default `6`. |
 | `messages` | Optional. List of one-liners that cycle below the timer. Index advances by 1 every `messageInterval` seconds. Empty list = no rotating message. |
 | `style` | Optional. How the timer renders. One of `"digital"` (default — giant `M:SS:cc` digits + thin progress bar), `"pie"` (clock-face wedge that shrinks clockwise from 12 with smaller `M:SS` digits below), `"hourglass"` (sand draining from top to bottom triangle, `M:SS` below). Label and rotating message look the same across all three. |
-| `visualEffect` | Optional. Post-processing layer wrapping the entire countdown. One of `"none"` (default), `"glitch"`, `"lofi"`, `"crt"`. Same field exists on songs. Beat-synced behaviors (glitch jitter, CRT brightness pulse, lofi grain re-seed) idle gracefully when nothing's playing. |
+| `visualEffect` | Optional. Post-processing layer wrapping the entire countdown. One of `"none"` (default), `"glitch"`, `"tracking"`, `"chroma"`. Same options exist as part-level fields on songs. Beat-synced behaviors idle gracefully when nothing's playing. |
 
 ### Transport
 
@@ -221,7 +221,7 @@ swift build -c release
 | `F` | Toggle the visuals window into macOS native full-screen (title bar auto-hides, window covers the display). Opens the window first if it was closed. |
 | `I` | Invert the synth-layer theme (dark ↔ light). Live in-memory override on top of the song's `theme` JSON — not persisted. |
 | `M` | Cycle the visualizer style for the active deck. **Songs:** synth-layer motif (constellation → orbit → ink → squares → dots → lines → ripple → lyrics-block → lyrics-line → song default). **Countdowns:** countdown style (digital → pie → hourglass → JSON default). Same in-memory override behavior on both decks: the cycle ends on a "default" slot that clears the override and falls back to the JSON setting. |
-| `E` | Cycle the post-processing visual effect across both decks: none → glitch → lofi → crt → JSON default. The effect wraps the entire visuals window and beat-syncs to the song's playback (or the count-in clicks); on countdowns the sync timestamp idles, so effects animate freely on time. |
+| `E` | Cycle the post-processing visual effect across both decks: none → glitch → tracking → chroma → JSON default. The effect wraps the entire visuals window. Audio is fully decoupled from the effect render (Clock runs on a dedicated high-priority queue) so heavy effects don't jitter the playback. |
 | `D` | Toggle the active deck between songs and countdowns. Stops anything currently playing on the deck you're leaving. |
 | `K` / `S` / `H` | Cycle kick / snare / hi-hat volume |
 | `P` / `B` | Cycle pad / bass volume |
