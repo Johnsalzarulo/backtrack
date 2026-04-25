@@ -218,7 +218,7 @@ swift build -c release
 | `V` | Show / hide the visuals window. |
 | `F` | Toggle the visuals window into macOS native full-screen (title bar auto-hides, window covers the display). Opens the window first if it was closed. |
 | `I` | Invert the synth-layer theme (dark ↔ light). Live in-memory override on top of the song's `theme` JSON — not persisted. |
-| `M` | Cycle the synth-layer motif: constellation → orbit → ink → squares → dots → lines → ripple → lyrics-block → lyrics-line → (song default). Same in-memory override behavior as `I`. |
+| `M` | Cycle the visualizer style for the active deck. **Songs:** synth-layer motif (constellation → orbit → ink → squares → dots → lines → ripple → lyrics-block → lyrics-line → song default). **Countdowns:** countdown style (digital → pie → hourglass → JSON default). Same in-memory override behavior on both decks: the cycle ends on a "default" slot that clears the override and falls back to the JSON setting. |
 | `D` | Toggle the active deck between songs and countdowns. Stops anything currently playing on the deck you're leaving. |
 | `K` / `S` / `H` | Cycle kick / snare / hi-hat volume |
 | `P` / `B` | Cycle pad / bass volume |

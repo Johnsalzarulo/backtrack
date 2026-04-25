@@ -58,11 +58,20 @@ final class AppState: ObservableObject {
     @Published var lineupKind: LineupKind = .songs
     @Published var countdownTransport: CountdownTransport = .stopped
 
+    // Live override for the countdown's render style. Set via `M` while
+    // in countdown mode. Mirrors `visualizerOverride` for songs — nil
+    // falls back to the countdown's JSON `style` field.
+    @Published var countdownStyleOverride: CountdownStyle? = nil
+
     var currentCountdown: Countdown? {
         guard !countdowns.isEmpty,
               currentCountdownIndex >= 0,
               currentCountdownIndex < countdowns.count else { return nil }
         return countdowns[currentCountdownIndex]
+    }
+
+    var effectiveCountdownStyle: CountdownStyle {
+        countdownStyleOverride ?? currentCountdown?.style ?? .digital
     }
 
     @Published var currentPartIndex: Int = 0    // index into current song's structure

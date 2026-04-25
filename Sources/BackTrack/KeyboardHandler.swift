@@ -121,24 +121,19 @@ final class KeyboardHandler {
             state.themeOverride = current == .dark ? .light : .dark
             return true
         case "m":
-            // Cycle through visualizer motifs plus a "song default"
-            // stop at the end. Landing on default clears the override,
-            // which restores the part's GIF/image/video if it had one
-            // (or the song's JSON visualizer otherwise). Without this
-            // stop, previewing other styles on a part with a GIF would
-            // hide the GIF with no way to get it back short of a
-            // restart.
-            let styles = VisualizerStyle.allCases
-            let cycleSize = styles.count + 1  // +1 for default slot
-            let currentIdx: Int
-            if let current = state.visualizerOverride,
-               let idx = styles.firstIndex(of: current) {
-                currentIdx = idx
-            } else {
-                currentIdx = styles.count  // sitting on default slot
+            // Cycle visualizer styles for whichever deck we're on.
+            // Both decks share the +1-default-slot pattern: cycling
+            // past the last named style lands on a "JSON default"
+            // stop that clears the override. The visual effect of
+            // clearing differs by deck — songs restore the part's
+            // GIF/image/video if any; countdowns just go back to the
+            // file's `style` field.
+            switch state.lineupKind {
+            case .songs:
+                cycleSongVisualizer()
+            case .countdowns:
+                cycleCountdownStyle()
             }
-            let nextIdx = (currentIdx + 1) % cycleSize
-            state.visualizerOverride = nextIdx < styles.count ? styles[nextIdx] : nil
             return true
         case "d":
             // Toggle which deck the arrow keys + Space act on.
@@ -157,6 +152,42 @@ final class KeyboardHandler {
         default:
             return false
         }
+    }
+
+    // MARK: - Visualizer cycling (M key)
+
+    // Generic +1-default-slot cycler. Given the list of known styles,
+    // the index of the currently-active override (nil = sitting on
+    // the default slot), it returns the next override value (nil
+    // again to indicate the default slot, or one of the styles).
+    private func nextStyleInCycle<T: Equatable>(
+        styles: [T],
+        currentOverride: T?
+    ) -> T? {
+        let cycleSize = styles.count + 1 // +1 for the JSON-default slot
+        let currentIdx: Int
+        if let current = currentOverride,
+           let idx = styles.firstIndex(of: current) {
+            currentIdx = idx
+        } else {
+            currentIdx = styles.count
+        }
+        let nextIdx = (currentIdx + 1) % cycleSize
+        return nextIdx < styles.count ? styles[nextIdx] : nil
+    }
+
+    private func cycleSongVisualizer() {
+        state.visualizerOverride = nextStyleInCycle(
+            styles: VisualizerStyle.allCases,
+            currentOverride: state.visualizerOverride
+        )
+    }
+
+    private func cycleCountdownStyle() {
+        state.countdownStyleOverride = nextStyleInCycle(
+            styles: CountdownStyle.allCases,
+            currentOverride: state.countdownStyleOverride
+        )
     }
 
     // MARK: - Lineup dispatch

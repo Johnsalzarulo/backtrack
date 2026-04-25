@@ -65,6 +65,7 @@ struct VisualsView: View {
                 CountdownView(
                     countdown: countdown,
                     transport: state.countdownTransport,
+                    style: state.effectiveCountdownStyle,
                     ink: ink,
                     paper: paper
                 )

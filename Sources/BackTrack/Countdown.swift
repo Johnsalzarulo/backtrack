@@ -39,6 +39,11 @@ enum CountdownStyle: String {
     case digital
     case pie
     case hourglass
+
+    // Cycle order for the `M` key in countdown mode. Mirrors how
+    // VisualizerStyle.allCases drives the song-deck cycle so the two
+    // decks share keybinding muscle memory.
+    static let allCases: [CountdownStyle] = [.digital, .pie, .hourglass]
 }
 
 // Transport state for a countdown. The performer's mental model is

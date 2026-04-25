@@ -18,6 +18,10 @@ import SwiftUI
 struct CountdownView: View {
     let countdown: Countdown
     let transport: CountdownTransport
+    // Render style — usually `countdown.style` from JSON, but the
+    // visuals window resolves it through AppState.effectiveCountdownStyle
+    // so an `M`-key override can take precedence at runtime.
+    let style: CountdownStyle
     // Theme colors come from the visuals window so the countdown
     // honors the same dark/light setting as the surrounding app.
     let ink: Color
@@ -101,7 +105,7 @@ struct CountdownView: View {
         safe: CGFloat,
         availW: CGFloat
     ) -> some View {
-        switch countdown.style {
+        switch style {
         case .digital:
             digitalContent(progress: progress, remaining: remaining, safe: safe, availW: availW)
         case .pie:
