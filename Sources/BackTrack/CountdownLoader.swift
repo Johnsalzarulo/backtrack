@@ -64,13 +64,29 @@ enum CountdownLoader {
         guard interval > 0 else {
             throw CountdownValidationError("messageInterval must be > 0 (got \(interval))")
         }
+
+        let style: CountdownStyle
+        switch raw.style?.lowercased() {
+        case nil, "", "digital":
+            style = .digital
+        case "pie":
+            style = .pie
+        case "hourglass":
+            style = .hourglass
+        case let other?:
+            throw CountdownValidationError(
+                "style '\(other)' — expected one of: digital, pie, hourglass"
+            )
+        }
+
         return Countdown(
             sourceURL: sourceURL,
             name: raw.name,
             duration: raw.duration,
             label: raw.label ?? Countdown.defaultLabel,
             messageInterval: interval,
-            messages: raw.messages ?? []
+            messages: raw.messages ?? [],
+            style: style
         )
     }
 }

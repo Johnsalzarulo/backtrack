@@ -180,6 +180,7 @@ with `D`.)
 | `label` | Optional. Header text above the timer. Default `"Show begins in"`. |
 | `messageInterval` | Optional. Seconds per rotating message. Default `6`. |
 | `messages` | Optional. List of one-liners that cycle below the timer. Index advances by 1 every `messageInterval` seconds. Empty list = no rotating message. |
+| `style` | Optional. How the timer renders. One of `"digital"` (default — giant `M:SS:cc` digits + thin progress bar), `"pie"` (clock-face wedge that shrinks clockwise from 12 with smaller `M:SS` digits below), `"hourglass"` (sand draining from top to bottom triangle, `M:SS` below). Label and rotating message look the same across all three. |
 
 ### Transport
 

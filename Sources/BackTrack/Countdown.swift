@@ -11,6 +11,7 @@ struct CountdownJSON: Codable {
     let label: String?               // e.g. "Show begins in"; default below
     let messageInterval: Double?     // seconds per rotating message; default 6
     let messages: [String]?          // rotating one-liners; may be empty
+    let style: String?               // "digital" | "pie" | "hourglass"; default "digital"
 }
 
 // Compiled, validated countdown ready to display.
@@ -21,9 +22,23 @@ struct Countdown {
     let label: String
     let messageInterval: TimeInterval
     let messages: [String]
+    let style: CountdownStyle
 
     static let defaultLabel = "Show begins in"
     static let defaultMessageInterval: TimeInterval = 6
+}
+
+// How the countdown's remaining time is visualized. All three styles
+// share the same chrome (label up top, rotating message below) — they
+// only differ in how the timer itself renders.
+//
+//   digital   — giant M:SS:cc digits + thin progress bar (default)
+//   pie       — clock-face pie shrinking clockwise from 12; small digits below
+//   hourglass — sand draining from top to bottom triangle; small digits below
+enum CountdownStyle: String {
+    case digital
+    case pie
+    case hourglass
 }
 
 // Transport state for a countdown. The performer's mental model is
