@@ -36,15 +36,20 @@ enum CountdownTransport {
     case running(startedAt: Date, accumulated: TimeInterval)
     case paused(elapsed: TimeInterval)
 
-    // How much time has elapsed on the visible timer right now.
+    // How much time has elapsed on the visible timer right now. Clamped
+    // to >= 0 so we never feed a negative elapsed into formatters or
+    // array indexers downstream — TimelineView's `context.date` can run
+    // a hair behind the `Date()` we stamped on the keystroke, which on
+    // the first frame after .running otherwise produces idx = -1 and
+    // crashes the rotating-message lookup.
     func elapsed(at now: Date = Date()) -> TimeInterval {
         switch self {
         case .stopped:
             return 0
         case .running(let startedAt, let accumulated):
-            return accumulated + now.timeIntervalSince(startedAt)
+            return max(0, accumulated + now.timeIntervalSince(startedAt))
         case .paused(let elapsed):
-            return elapsed
+            return max(0, elapsed)
         }
     }
 
