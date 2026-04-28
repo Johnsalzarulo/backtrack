@@ -56,17 +56,17 @@ final class KeyboardHandler {
         case 49: // Space
             toggleTransport()
             return true
-        case 123: // Left — previous item in the active deck (stops playback)
+        case 123: // Left — previous lineup item (stops playback)
             previousLineupItem()
             return true
-        case 124: // Right — next item in the active deck
+        case 124: // Right — next lineup item
             nextLineupItem()
             return true
-        case 125: // Down — previous part (songs only; no-op for countdowns)
-            if state.lineupKind == .songs { clock.previousPart() }
+        case 125: // Down — previous part (only meaningful when current item is a song)
+            if state.currentSong != nil { clock.previousPart() }
             return true
-        case 126: // Up — next part (songs only; no-op for countdowns)
-            if state.lineupKind == .songs { clock.nextPart() }
+        case 126: // Up — next part (only meaningful when current item is a song)
+            if state.currentSong != nil { clock.nextPart() }
             return true
         default:
             break
@@ -127,38 +127,35 @@ final class KeyboardHandler {
             // stop that clears the override. The visual effect of
             // clearing differs by deck — songs restore the part's
             // GIF/image/video if any; countdowns just go back to the
-            // file's `style` field.
-            switch state.lineupKind {
-            case .songs:
+            // file's `style` field. Dispatch by current item kind:
+            // M on a song cycles synth motifs; M on a countdown cycles
+            // pie/hourglass/digital.
+            switch state.currentLineupItem {
+            case .song?:
                 cycleSongVisualizer()
-            case .countdowns:
+            case .countdown?:
                 cycleCountdownStyle()
+            case nil:
+                break
             }
             return true
         case "e":
-            // Cycle the post-processing visual effect across both
-            // decks. Same +1-default-slot pattern as M: cycling past
-            // the last named effect lands on a slot that clears the
-            // override (so the active item's JSON `visualEffect`
-            // takes over again).
+            // Cycle the post-processing visual effect. Same
+            // +1-default-slot pattern as M: cycling past the last
+            // named effect lands on a slot that clears the override
+            // (so the active item's JSON `visualEffect` takes over
+            // again).
             state.visualEffectOverride = nextStyleInCycle(
                 styles: PostEffect.allCases,
                 currentOverride: state.visualEffectOverride
             )
             return true
         case "d":
-            // Toggle which deck the arrow keys + Space act on.
-            // Stops any in-flight transport on the deck we're leaving so
-            // we don't end up with a song playing while displaying a
-            // countdown (or vice versa).
-            switch state.lineupKind {
-            case .songs:
-                if state.isPlaying { clock.stop() }
-                state.lineupKind = .countdowns
-            case .countdowns:
-                stopCountdown()
-                state.lineupKind = .songs
-            }
+            // Cycle the active setlist alphabetically. Stops any
+            // in-flight transport, rebuilds the lineup against the
+            // newly-active setlist, and resets the cursor to item 0.
+            // No-op when fewer than 2 setlists exist.
+            cycleSetlist()
             return true
         default:
             return false
@@ -203,39 +200,92 @@ final class KeyboardHandler {
 
     // MARK: - Lineup dispatch
 
-    // Space — routes to the active deck's transport.
+    // Space — routes to whichever transport the current item uses.
     private func toggleTransport() {
-        switch state.lineupKind {
-        case .songs:
+        switch state.currentLineupItem {
+        case .song?:
             clock.toggleTransport()
-        case .countdowns:
+        case .countdown?:
             toggleCountdown()
+        case nil:
+            break
         }
     }
 
+    // ←/→ — navigate the unified lineup.
     private func previousLineupItem() {
-        switch state.lineupKind {
-        case .songs:
-            clock.previousSong()
-        case .countdowns:
-            stepCountdown(by: -1)
-        }
+        selectLineupItem(at: state.currentLineupIndex - 1)
     }
 
     private func nextLineupItem() {
-        switch state.lineupKind {
-        case .songs:
-            clock.nextSong()
-        case .countdowns:
-            stepCountdown(by: 1)
+        selectLineupItem(at: state.currentLineupIndex + 1)
+    }
+
+    // Move the lineup cursor and tear down per-item state. Stops any
+    // in-flight playback (regardless of item kind), resets song-side
+    // position fields, and clears the live overrides for visualizer /
+    // theme / countdown style / visual effect — each item should play
+    // as its JSON intends. Wraps modulo at both ends.
+    private func selectLineupItem(at index: Int) {
+        guard !state.lineup.isEmpty else { return }
+        if state.isPlaying { clock.stop() }
+        stopCountdown()
+
+        let n = state.lineup.count
+        state.currentLineupIndex = ((index % n) + n) % n
+        state.currentPartIndex = 0
+        state.currentBar = 0
+        state.pendingPartIndex = nil
+
+        // Reset tempo to the new song's BPM if applicable. Countdowns
+        // don't have BPM; tempo just sits at whatever it was, which
+        // doesn't matter while no song is playing.
+        if let song = state.currentSong {
+            state.tempo = song.bpm
         }
+
+        clearItemOverrides()
+    }
+
+    // Clears all live per-item visual overrides. Called whenever the
+    // lineup cursor moves to a new item — without this, an `M`-cycle
+    // configured for one part of one song would carry over into the
+    // next song / countdown, which isn't what the performer wants.
+    private func clearItemOverrides() {
+        state.visualizerOverride = nil
+        state.themeOverride = nil
+        state.countdownStyleOverride = nil
+        state.visualEffectOverride = nil
+    }
+
+    // D — cycle to the next setlist alphabetically. Rebuilds the
+    // lineup against the new setlist's refs and resets the cursor to
+    // item 0. No-op with 0 or 1 setlist files.
+    private func cycleSetlist() {
+        guard state.setlists.count > 1 else { return }
+        if state.isPlaying { clock.stop() }
+        stopCountdown()
+
+        let n = state.setlists.count
+        state.currentSetlistIndex = (state.currentSetlistIndex + 1) % n
+        state.rebuildLineup()
+
+        state.currentLineupIndex = 0
+        state.currentPartIndex = 0
+        state.currentBar = 0
+        state.pendingPartIndex = nil
+        if let song = state.currentSong {
+            state.tempo = song.bpm
+        }
+        clearItemOverrides()
     }
 
     // MARK: - Countdown transport
 
     // Space cycles stopped → running → paused → running → ... so the
     // performer can pause if something pops up mid-countdown without
-    // losing their place. Hitting an arrow key resets to .stopped.
+    // losing their place. Hitting an arrow key resets to .stopped via
+    // selectLineupItem.
     private func toggleCountdown() {
         guard state.currentCountdown != nil else { return }
         switch state.countdownTransport {
@@ -251,13 +301,6 @@ final class KeyboardHandler {
 
     private func stopCountdown() {
         state.countdownTransport = .stopped
-    }
-
-    private func stepCountdown(by direction: Int) {
-        guard !state.countdowns.isEmpty else { return }
-        stopCountdown()
-        let n = state.countdowns.count
-        state.currentCountdownIndex = ((state.currentCountdownIndex + direction) % n + n) % n
     }
 
     // MARK: - Pattern audition
@@ -361,13 +404,19 @@ final class KeyboardHandler {
     private func reloadEverything() {
         audio.loadAllSamples()
         Generators.loadPatterns()
-        let result = SongLoader.loadAll()
-        state.songs = result.songs
-        state.songIssues = result.issues
-        state.outputDevice = AudioDevices.defaultOutputName()
-        // Keep index in range.
-        if state.currentSongIndex >= state.songs.count {
-            state.currentSongIndex = max(0, state.songs.count - 1)
+        let songResult = SongLoader.loadAll()
+        state.songs = songResult.songs
+        state.songIssues = songResult.issues
+        let countdownResult = CountdownLoader.loadAll()
+        state.countdowns = countdownResult.countdowns
+        state.countdownIssues = countdownResult.issues
+        let setlistResult = SetlistLoader.loadAll()
+        state.setlists = setlistResult.setlists
+        state.setlistIssues = setlistResult.issues
+        if state.currentSetlistIndex >= state.setlists.count {
+            state.currentSetlistIndex = max(0, state.setlists.count - 1)
         }
+        state.rebuildLineup()
+        state.outputDevice = AudioDevices.defaultOutputName()
     }
 }

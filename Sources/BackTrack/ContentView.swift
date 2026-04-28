@@ -64,7 +64,7 @@ struct ContentView: View {
 
     @ViewBuilder
     private var structureBlock: some View {
-        if state.lineupKind == .countdowns {
+        if state.currentCountdown != nil {
             countdownDeckBlock
         } else {
             songStructureBlock
@@ -107,38 +107,24 @@ struct ContentView: View {
         }
     }
 
-    // The countdown-deck equivalent of the song structure block.
-    // Shows the loaded countdowns as a flow of badges with the active
-    // one highlighted, plus a one-line "M:SS:cc remaining" preview so
-    // the performer sees the timer state without looking at the
-    // visuals window.
+    // Countdown-mode equivalent of the song structure block. Shows
+    // the active countdown's name as the "active" badge plus a live
+    // remaining-time readout that ticks at 4 Hz (the giant timer in
+    // the visuals window handles the smooth hundredths display).
     private var countdownDeckBlock: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("COUNTDOWNS")
+            Text("COUNTDOWN")
                 .foregroundColor(dim)
                 .font(.system(.caption, design: .monospaced))
-            if state.countdowns.isEmpty {
-                Text("no countdowns loaded").foregroundColor(dim)
+            if let c = state.currentCountdown {
+                partBadge(name: c.name, isActive: true, isQueued: false)
+                TimelineView(.periodic(from: .now, by: 0.25)) { context in
+                    Text(countdownStatusLine(for: c, at: context.date))
+                        .foregroundColor(dim)
+                        .font(.system(.caption, design: .monospaced))
+                }
             } else {
-                FlowLayout(spacing: 10) {
-                    ForEach(Array(state.countdowns.enumerated()), id: \.offset) { idx, c in
-                        partBadge(
-                            name: c.name,
-                            isActive: idx == state.currentCountdownIndex,
-                            isQueued: false
-                        )
-                    }
-                }
-                if let c = state.currentCountdown {
-                    // 4 Hz tick is plenty for a remaining-time readout —
-                    // the giant timer in the visuals window handles the
-                    // smooth hundredths display.
-                    TimelineView(.periodic(from: .now, by: 0.25)) { context in
-                        Text(countdownStatusLine(for: c, at: context.date))
-                            .foregroundColor(dim)
-                            .font(.system(.caption, design: .monospaced))
-                    }
-                }
+                Text("no countdown selected").foregroundColor(dim)
             }
         }
     }
@@ -316,7 +302,7 @@ struct ContentView: View {
     }
 
     private var transportLabel: String {
-        if state.lineupKind == .countdowns {
+        if state.currentCountdown != nil {
             switch state.countdownTransport {
             case .stopped: return "○ STOPPED"
             case .running: return "● COUNTING"
@@ -366,7 +352,7 @@ struct ContentView: View {
             row("⌘ S",   "save pattern edit",   "V",     "show / hide visuals")
             row("F",     "visuals full-screen", "R",     "reload everything")
             row("M",     "cycle visualizer",    "I",     "invert theme")
-            row("E",     "cycle effect",        "D",     "songs / countdowns")
+            row("E",     "cycle effect",        "D",     "cycle setlist")
         }
         .foregroundColor(dim)
         .font(.system(.caption, design: .monospaced))
@@ -385,6 +371,7 @@ struct ContentView: View {
 
     private var rightColumn: some View {
         VStack(alignment: .leading, spacing: 14) {
+            setlistPositionBlock
             songHeaderBlock
             divider
             lyricsBlock
@@ -392,6 +379,42 @@ struct ContentView: View {
             visualsPreviewBlock
             outDeviceBlock
         }
+    }
+
+    // Setlist marquee shown above the song / countdown header. Tells
+    // the performer at a glance: which setlist they're on (when one
+    // is active), where they are within it, and what's coming next.
+    // Hidden entirely when no setlist is active and there's only one
+    // lineup item — there's nothing useful to say.
+    @ViewBuilder
+    private var setlistPositionBlock: some View {
+        if state.lineup.isEmpty {
+            EmptyView()
+        } else {
+            HStack(spacing: 12) {
+                Text("SET")
+                    .foregroundColor(dim)
+                    .frame(width: 44, alignment: .leading)
+                if let setlist = state.currentSetlist {
+                    Text(setlist.name.uppercased())
+                        .foregroundColor(fg)
+                }
+                Text("\(state.currentLineupIndex + 1) / \(state.lineup.count)")
+                    .foregroundColor(dim)
+                if let next = upcomingItemName {
+                    Text("→  \(next.uppercased())")
+                        .foregroundColor(dim)
+                        .lineLimit(1)
+                }
+            }
+            .font(.system(.caption, design: .monospaced))
+        }
+    }
+
+    private var upcomingItemName: String? {
+        let nextIdx = state.currentLineupIndex + 1
+        guard nextIdx < state.lineup.count else { return nil }
+        return state.lineup[nextIdx].name
     }
 
     // Live preview of the secondary visuals window, shown inline in
@@ -414,7 +437,7 @@ struct ContentView: View {
 
     @ViewBuilder
     private var songHeaderBlock: some View {
-        if state.lineupKind == .countdowns {
+        if state.currentCountdown != nil {
             countdownHeaderBlock
         } else {
             VStack(alignment: .leading, spacing: 4) {
@@ -454,7 +477,7 @@ struct ContentView: View {
 
     @ViewBuilder
     private var lyricsBlock: some View {
-        if state.lineupKind == .countdowns {
+        if state.currentCountdown != nil {
             // Lyrics + next-part preview only make sense for songs.
             EmptyView()
         } else {

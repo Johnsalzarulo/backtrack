@@ -58,10 +58,11 @@ struct VisualsView: View {
 
     var body: some View {
         let baseContent = ZStack {
-            if state.lineupKind == .countdowns, let countdown = state.currentCountdown {
-                // Countdown deck takes over the entire visuals window.
-                // Bypasses the synth layer + GIF logic — countdowns have
-                // their own dedicated UI (label + timer + progress + msg).
+            if let countdown = state.currentCountdown {
+                // Current lineup item is a countdown — its dedicated
+                // UI (label + timer + progress + message) takes over
+                // the entire visuals window. Bypasses the synth /
+                // GIF / lyric layers, which only apply to songs.
                 CountdownView(
                     countdown: countdown,
                     transport: state.countdownTransport,

@@ -186,11 +186,66 @@ with `D`.)
 
 ### Transport
 
-Press `D` to switch the active deck to countdowns. Then:
+Countdowns are part of the unified lineup (see Setlists below). When
+the cursor lands on a countdown:
 
-- `←` / `→` — previous / next countdown (resets the timer)
 - `Space` — start → pause → resume → pause → ... (timer keeps its place)
-- `D` again — back to the song deck (stops the countdown)
+- `←` / `→` — leave for the previous / next lineup item (resets the timer)
+
+## Setlists
+
+Songs and countdowns are arranged into ordered setlists for live use.
+The "lineup" — what `←` and `→` actually navigate — is whichever
+setlist is currently active. With no setlist active, the lineup falls
+back to all songs followed by all countdowns.
+
+```
+~/BackTrack/Setlists/01_full_show.json
+```
+
+### Schema
+
+```json
+{
+  "name": "Full Show",
+  "items": [
+    { "kind": "countdown", "ref": "Pre-show" },
+    { "kind": "song",      "ref": "Double Yellow Lines" },
+    { "kind": "song",      "ref": "Get Yourself Together" },
+    { "kind": "countdown", "ref": "Intermission" },
+    { "kind": "song",      "ref": "Listen to the Dead" }
+  ]
+}
+```
+
+`ref` matches the `name` field on the song or countdown JSON file.
+References that don't resolve surface in the HUD's issues block — the
+setlist still loads and plays everything that does resolve.
+
+### Switching setlists
+
+`D` cycles through setlist files alphabetically. The HUD shows the
+active setlist's name + your position (e.g. `SET   Full Show   3 / 12   →  GET YOURSELF TOGETHER`).
+Cycling stops any in-flight playback and resets the cursor to item 0
+of the new setlist.
+
+To order setlists at the venue, prefix them numerically:
+`01_saturday.json`, `02_acoustic.json`, etc. Then `D` lands on the
+right one with one or two presses.
+
+### Transport between items
+
+When a song reaches its last bar (or a countdown hits 0:00), playback
+**stops** and the cursor advances to the next item, but does not
+auto-start. The next Space starts the next item. Live performers
+want a beat between songs.
+
+### Override reset
+
+Live overrides set with `M` (cycle visualizer), `I` (invert theme),
+and `E` (cycle visual effect) reset whenever the cursor moves to a
+new lineup item. Each item plays as its JSON intends, no override
+leakage between songs.
 
 ## Run
 
@@ -222,7 +277,7 @@ swift build -c release
 | `I` | Invert the synth-layer theme (dark ↔ light). Live in-memory override on top of the song's `theme` JSON — not persisted. |
 | `M` | Cycle the visualizer style for the active deck. **Songs:** synth-layer motif (constellation → orbit → ink → squares → dots → lines → ripple → lyrics-block → lyrics-line → song default). **Countdowns:** countdown style (digital → pie → hourglass → JSON default). Same in-memory override behavior on both decks: the cycle ends on a "default" slot that clears the override and falls back to the JSON setting. |
 | `E` | Cycle the post-processing visual effect across both decks: none → glitch → tracking → chroma → JSON default. The effect wraps the entire visuals window. Audio is fully decoupled from the effect render (Clock runs on a dedicated high-priority queue) so heavy effects don't jitter the playback. |
-| `D` | Toggle the active deck between songs and countdowns. Stops anything currently playing on the deck you're leaving. |
+| `D` | Cycle the active setlist alphabetically (no-op with 0 or 1 setlists). Stops in-flight playback, rebuilds the lineup, and resets to item 0 of the new setlist. |
 | `K` / `S` / `H` | Cycle kick / snare / hi-hat volume |
 | `P` / `B` | Cycle pad / bass volume |
 

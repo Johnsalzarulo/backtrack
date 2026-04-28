@@ -3,9 +3,9 @@ import SwiftUI
 
 // Observable source of truth for everything the HUD and visuals window
 // need to display: transport (is-playing, tempo, current bar/beat),
-// song + part navigation, per-voice mix levels, activity timestamps
+// lineup + part navigation, per-voice mix levels, activity timestamps
 // that drive the reactive visuals, plus in-memory visualizer overrides
-// set via the I/M keys.
+// set via the I/M/E keys.
 //
 // Lifecycle: one instance per app session, created by Coordinator at
 // launch and shared as an @EnvironmentObject with ContentView (HUD)
@@ -17,13 +17,14 @@ import SwiftUI
 // AudioEngineController stamps the trigger timestamps right after
 // scheduling playback so the visuals fire in sync with the audio.
 // Audio callbacks that need to write here dispatch back to main first.
-// Which deck the arrow keys + Space currently act on. Future setlist
-// work will collapse this into a unified lineup.
-enum LineupKind: String {
-    case songs
-    case countdowns
-}
-
+//
+// Lineup model (post-setlist refactor): the `lineup` array is the
+// single ordered list of items the performer navigates through with
+// ←/→. It's derived: when a setlist is active, lineup = that setlist's
+// resolved items; when no setlist is active, lineup = all songs
+// followed by all countdowns. The legacy `currentSong` /
+// `currentCountdown` accessors stay as computed properties keyed off
+// the current lineup item, so most existing call sites keep working.
 final class AppState: ObservableObject {
     // MARK: - Transport + tempo
 
@@ -34,105 +35,96 @@ final class AppState: ObservableObject {
 
     // Wall-clock timestamp of the last quarter-note tick. Stamped by
     // Clock when currentBeat advances (and by the count-in path).
-    // Visual effects read this to drive beat-synced animation —
-    // glitch jitters on each beat, lofi shuffles its grain seed,
-    // CRT pulses brightness — without each effect needing its own
-    // .onChange(of: state.currentBeat) hookup.
+    // Visual effects read this to drive beat-synced animation.
     @Published var lastBeatTime: Date = .distantPast
 
     // Count-in state. While the Clock is firing pre-roll clicks,
     // `countInBeat` is the 1-based beat number within the count-in
     // (1...countInTotal) and `countInTotal` is the total beats
     // (countIn × 4). Both reset to 0/nil once the song proper begins
-    // or playback stops. The HUD + visuals window read these to render
-    // the count-in indicator.
+    // or playback stops.
     @Published var countInBeat: Int? = nil
     @Published var countInTotal: Int = 0
 
-    // MARK: - Song state
+    // MARK: - Inventories (loaded from disk; rarely changes)
 
     @Published var songs: [Song] = []
-    @Published var currentSongIndex: Int = 0
-    @Published var songIssues: [String] = []
-
-    // MARK: - Countdown state
-    //
-    // Countdowns are a parallel deck — `D` toggles which one the
-    // arrow keys + Space act on. Eventually they'll merge with songs
-    // into one setlist; for now they're side-by-side.
     @Published var countdowns: [Countdown] = []
-    @Published var currentCountdownIndex: Int = 0
+    @Published var setlists: [Setlist] = []
+
+    @Published var songIssues: [String] = []
     @Published var countdownIssues: [String] = []
-    @Published var lineupKind: LineupKind = .songs
-    @Published var countdownTransport: CountdownTransport = .stopped
+    @Published var setlistIssues: [String] = []
 
-    // Live override for the countdown's render style. Set via `M` while
-    // in countdown mode. Mirrors `visualizerOverride` for songs — nil
-    // falls back to the countdown's JSON `style` field.
-    @Published var countdownStyleOverride: CountdownStyle? = nil
+    // MARK: - Lineup (the navigable arrangement)
 
-    // Live override for the post-processing visual effect (glitch /
-    // lofi / crt / none). Shared across both decks since the same
-    // four effects apply equally to songs and countdowns. nil falls
-    // back to the active item's JSON `visualEffect` field.
-    @Published var visualEffectOverride: PostEffect? = nil
+    // The ordered list arrows + Space act on. Built by `rebuildLineup`
+    // from the active setlist, or by concatenating songs + countdowns
+    // when no setlist is active.
+    @Published var lineup: [LineupItem] = []
+    @Published var currentLineupIndex: Int = 0
+
+    // Index of the active setlist within `setlists`. Cycled via the D
+    // key. Only meaningful when !setlists.isEmpty — otherwise lineup
+    // falls back to the "all songs + all countdowns" combined view.
+    @Published var currentSetlistIndex: Int = 0
+
+    var currentLineupItem: LineupItem? {
+        guard lineup.indices.contains(currentLineupIndex) else { return nil }
+        return lineup[currentLineupIndex]
+    }
+
+    var currentSetlist: Setlist? {
+        guard setlists.indices.contains(currentSetlistIndex) else { return nil }
+        return setlists[currentSetlistIndex]
+    }
+
+    // Legacy accessors — derived from the lineup item so existing call
+    // sites (Clock, ContentView, VisualsView) keep working without
+    // having to switch on LineupItem at every use. Mutually exclusive:
+    // exactly one is non-nil at a time when the lineup isn't empty.
+    var currentSong: Song? {
+        if case .song(let s) = currentLineupItem { return s }
+        return nil
+    }
 
     var currentCountdown: Countdown? {
-        guard !countdowns.isEmpty,
-              currentCountdownIndex >= 0,
-              currentCountdownIndex < countdowns.count else { return nil }
-        return countdowns[currentCountdownIndex]
+        if case .countdown(let c) = currentLineupItem { return c }
+        return nil
     }
 
-    var effectiveCountdownStyle: CountdownStyle {
-        countdownStyleOverride ?? currentCountdown?.style ?? .digital
-    }
+    // MARK: - Countdown transport
 
-    // Resolves the post-processing effect for the currently-active
-    // deck item. Live override beats the JSON value; nil override
-    // falls through to the active part (songs) or countdown's field.
-    // Part-level for songs means different sections of a song can
-    // declare different effects.
-    var effectiveVisualEffect: PostEffect {
-        if let override = visualEffectOverride {
-            return override
-        }
-        switch lineupKind {
-        case .songs:
-            return currentPart?.visualEffect ?? .none
-        case .countdowns:
-            return currentCountdown?.visualEffect ?? .none
-        }
-    }
+    @Published var countdownTransport: CountdownTransport = .stopped
+
+    // MARK: - Per-song state (only meaningful when currentSong != nil)
 
     @Published var currentPartIndex: Int = 0    // index into current song's structure
     @Published var currentBar: Int = 0          // bar within current part (0-based)
     @Published var pendingPartIndex: Int? = nil // queued part jump on next bar
-    @Published var loopCurrentPart: Bool = false // toggle: part repeats instead of advancing
+    @Published var loopCurrentPart: Bool = false
 
-    // Tracks whether the secondary visuals window should be visible. V
-    // key toggles; ContentView observes this via onChange to call
-    // openWindow / dismissWindow.
+    // MARK: - Visuals overrides (in-memory; reset on lineup item change)
+
+    @Published var themeOverride: VisualTheme? = nil
+    @Published var visualizerOverride: VisualizerStyle? = nil
+    @Published var countdownStyleOverride: CountdownStyle? = nil
+    @Published var visualEffectOverride: PostEffect? = nil
+
+    // MARK: - Misc state
+
     @Published var visualsOpen: Bool = true
 
     // Pattern edits made via [ / ] that haven't been written back to JSON yet.
     // Key format: "<songName>/<partName>". Cleared on Cmd+S save.
     @Published var pendingPatternSaves: [String: String] = [:]
 
-    // Live overrides for the synth-layer visualization, set via the `I`
-    // (invert theme) and `M` (cycle motif) keys. Nil falls back to the
-    // current song's JSON values. In-memory only — not persisted to the
-    // song file, so JSON stays the source of truth for "what this song
-    // looks like by default".
-    @Published var themeOverride: VisualTheme? = nil
-    @Published var visualizerOverride: VisualizerStyle? = nil
+    // MARK: - Effective resolvers (override → JSON → default)
 
-    // Effective values, merging override over the current song's JSON.
     var effectiveTheme: VisualTheme {
         themeOverride ?? currentSong?.theme ?? .dark
     }
-    // Precedence: live `M`-key override beats everything, then the
-    // current part's per-part visualizer, then the song's, then default.
+
     var effectiveVisualizer: VisualizerStyle {
         visualizerOverride
             ?? currentPart?.visualizer
@@ -140,12 +132,20 @@ final class AppState: ObservableObject {
             ?? .constellation
     }
 
-    var currentSong: Song? {
-        guard !songs.isEmpty, currentSongIndex >= 0, currentSongIndex < songs.count else {
-            return nil
-        }
-        return songs[currentSongIndex]
+    var effectiveCountdownStyle: CountdownStyle {
+        countdownStyleOverride ?? currentCountdown?.style ?? .digital
     }
+
+    // visualEffect lives on Part for songs and on Countdown for
+    // countdowns. The override (set by the E key) beats both.
+    var effectiveVisualEffect: PostEffect {
+        if let override = visualEffectOverride { return override }
+        if let p = currentPart { return p.visualEffect }
+        if let c = currentCountdown { return c.visualEffect }
+        return .none
+    }
+
+    // MARK: - Per-song derived state
 
     var currentPartName: String? {
         guard let song = currentSong,
@@ -164,11 +164,6 @@ final class AppState: ObservableObject {
         return part.chord(atBar: currentBar)
     }
 
-    // Resolves the current playback position (bar + beat within the
-    // current part) to a full URL under ~/BackTrack/Visuals/, cycling
-    // through the part's `visuals` array according to its `visualMode`.
-    // Returns nil if the part has no visuals or the resolved file is
-    // missing on disk.
     var currentPartVisualURL: URL? {
         guard let part = currentPart,
               let name = part.visualFilename(bar: currentBar, beat: currentBeat),
@@ -186,7 +181,6 @@ final class AppState: ObservableObject {
         if currentBar + 1 < part.bars {
             return part.chord(atBar: currentBar + 1)
         }
-        // Next bar belongs to the next part.
         guard let song = currentSong,
               currentPartIndex + 1 < song.structure.count,
               let nextPart = song.parts[song.structure[currentPartIndex + 1]] else { return nil }
@@ -220,6 +214,64 @@ final class AppState: ObservableObject {
     // MARK: - Device display
 
     @Published var outputDevice: String? = nil
+
+    // MARK: - Lineup construction
+
+    // Resolves the active setlist's refs (or falls back to all songs +
+    // all countdowns when none is active) and writes the result to
+    // `lineup` + `setlistIssues`. Called by Coordinator whenever any
+    // input changes — songs reload, countdowns reload, setlists
+    // reload, or D-key changes the active setlist.
+    //
+    // Doesn't touch `currentLineupIndex` aside from clamping it into
+    // range — preserving the cursor across reloads is the friendly
+    // behavior (e.g. an unrelated countdown JSON edit shouldn't snap
+    // you back to item 0). Index resets are the caller's job (e.g.
+    // KeyboardHandler clears the cursor on D-cycle).
+    func rebuildLineup() {
+        var resolveIssues: [String] = []
+        let resolved: [LineupItem]
+
+        if let active = currentSetlist {
+            var items: [LineupItem] = []
+            for ref in active.items {
+                switch ref {
+                case .song(let n):
+                    if let s = songs.first(where: { $0.name == n }) {
+                        items.append(.song(s))
+                    } else {
+                        resolveIssues.append(
+                            "setlist '\(active.name)': song '\(n)' not found in Songs/"
+                        )
+                    }
+                case .countdown(let n):
+                    if let c = countdowns.first(where: { $0.name == n }) {
+                        items.append(.countdown(c))
+                    } else {
+                        resolveIssues.append(
+                            "setlist '\(active.name)': countdown '\(n)' not found in Countdowns/"
+                        )
+                    }
+                }
+            }
+            resolved = items
+        } else {
+            // No setlist → fall back to "all songs then all countdowns".
+            resolved = songs.map(LineupItem.song) + countdowns.map(LineupItem.countdown)
+        }
+
+        lineup = resolved
+        // Resolve issues are appended to whatever the loader produced.
+        // The loader writes to setlistIssues first; we additionally
+        // append unresolved-ref issues here. Coordinator orchestrates
+        // the order so the loader's setlistIssues are present when
+        // rebuildLineup runs.
+        setlistIssues = (setlistIssues + resolveIssues).filter { !$0.isEmpty }
+
+        if currentLineupIndex >= lineup.count {
+            currentLineupIndex = max(0, lineup.count - 1)
+        }
+    }
 
     // MARK: - Volume helpers
 

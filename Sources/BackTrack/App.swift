@@ -46,6 +46,8 @@ final class Coordinator: ObservableObject {
         Generators.loadPatterns()
         reloadSongs()
         reloadCountdowns()
+        reloadSetlists()
+        rebuildLineup()
         if let first = state.songs.first {
             state.tempo = first.bpm
         }
@@ -53,14 +55,19 @@ final class Coordinator: ObservableObject {
         keyboard.install()
         state.outputDevice = AudioDevices.defaultOutputName()
 
-        // Poll song JSONs + countdown JSONs + patterns.json for edits so
-        // the app picks up changes without a manual R press. Samples
-        // are expensive to reload and change rarely, so they stay on R.
+        // Poll song JSONs + countdown JSONs + setlist JSONs +
+        // patterns.json for edits so the app picks up changes without
+        // a manual R press. Samples are expensive to reload and
+        // change rarely, so they stay on R.
         fileWatcher = FileWatcher(
             paths: {
                 var urls: [URL] = []
                 let fm = FileManager.default
-                for dir in [SongLoader.defaultDirectory(), CountdownLoader.defaultDirectory()] {
+                for dir in [
+                    SongLoader.defaultDirectory(),
+                    CountdownLoader.defaultDirectory(),
+                    SetlistLoader.defaultDirectory(),
+                ] {
                     if let entries = try? fm.contentsOfDirectory(
                         at: dir,
                         includingPropertiesForKeys: nil
@@ -82,15 +89,31 @@ final class Coordinator: ObservableObject {
         Generators.loadPatterns()
         reloadSongs()
         reloadCountdowns()
+        reloadSetlists()
+        rebuildLineup()
     }
 
     func reloadCountdowns() {
         let result = CountdownLoader.loadAll()
         state.countdowns = result.countdowns
         state.countdownIssues = result.issues
-        if state.currentCountdownIndex >= state.countdowns.count {
-            state.currentCountdownIndex = max(0, state.countdowns.count - 1)
+    }
+
+    func reloadSetlists() {
+        let result = SetlistLoader.loadAll()
+        state.setlists = result.setlists
+        state.setlistIssues = result.issues
+        if state.currentSetlistIndex >= state.setlists.count {
+            state.currentSetlistIndex = max(0, state.setlists.count - 1)
         }
+    }
+
+    // Resolves the active setlist's refs (or falls back to all songs
+    // + all countdowns when no setlist is active) and writes the
+    // result to state.lineup. Called after any inventory reload and
+    // after the active-setlist cursor moves.
+    func rebuildLineup() {
+        state.rebuildLineup()
     }
 
     func reloadSongs() {
@@ -108,10 +131,9 @@ final class Coordinator: ObservableObject {
             applyPendingPattern(songName: songName, partName: partName, pattern: pattern)
         }
 
-        // Keep the user's current song/part selection if still valid.
-        if state.currentSongIndex >= state.songs.count {
-            state.currentSongIndex = max(0, state.songs.count - 1)
-        }
+        // Keep the user's current part selection if still valid. The
+        // lineup-level cursor (`currentLineupIndex`) is clamped by
+        // rebuildLineup() — that's invoked after this method returns.
         if let song = state.currentSong {
             if state.currentPartIndex >= song.structure.count {
                 state.currentPartIndex = 0

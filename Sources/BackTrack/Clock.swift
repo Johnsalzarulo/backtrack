@@ -126,33 +126,10 @@ final class Clock: ObservableObject {
         }
     }
 
-    // MARK: - Song navigation (immediate, stops playback)
-
-    func nextSong() {
-        guard !state.songs.isEmpty else { return }
-        if state.isPlaying { stop() }
-        state.currentSongIndex = (state.currentSongIndex + 1) % state.songs.count
-        resetSongPosition()
-    }
-
-    func previousSong() {
-        guard !state.songs.isEmpty else { return }
-        if state.isPlaying { stop() }
-        let n = state.songs.count
-        state.currentSongIndex = ((state.currentSongIndex - 1) % n + n) % n
-        resetSongPosition()
-    }
-
-    private func resetSongPosition() {
-        state.currentPartIndex = 0
-        state.currentBar = 0
-        state.pendingPartIndex = nil
-        lastChordKey = ""
-        tick = 0
-        if let song = state.currentSong {
-            state.tempo = song.bpm
-        }
-    }
+    // Lineup navigation (next/previous lineup item) lives in
+    // KeyboardHandler now — it owns the cursor + override resets.
+    // Clock just provides `stop()` and the in-song part navigation
+    // helpers (nextPart / previousPart) above.
 
     // MARK: - Timer
 
