@@ -312,6 +312,23 @@ struct ChromaModifier: ViewModifier {
     @ObservedObject var state: AppState
 
     func body(content: Content) -> some View {
+        // The additive `.plusLighter` math below assumes content is bright
+        // on a dark background — three colored offset copies sum to white
+        // where they overlap and produce RGB fringes at the offset edges.
+        // With a light theme (dark text on white paper) the same math
+        // drowns the text: each offset copy's *paper* becomes R/G/B and
+        // the three additive papers sum back to white over the text
+        // positions of the other two siblings, so text only survives at
+        // the geometric intersection of all three offsets — effectively
+        // invisible. Symptom is "screen goes full white when chroma is on
+        // in light mode".
+        //
+        // Fix: in light mode, invert the input → run the additive pass in
+        // "dark-mode space" → invert the result back. RGB fringes become
+        // CMY fringes (correct for the subtractive feel of light paper)
+        // and the dark text stays visible.
+        let isLight = state.effectiveTheme == .light
+
         TimelineView(.animation) { context in
             let beatAge = context.date.timeIntervalSince(state.lastBeatTime)
             let pulse = max(0, 1 - beatAge / 0.30)
@@ -345,15 +362,18 @@ struct ChromaModifier: ViewModifier {
             // first, so the multiplier actually applies to the text.
             ZStack {
                 content
+                    .colorInvertIf(isLight)
                     .compositingGroup()
                     .colorMultiply(.red)
                     .offset(x: -dx, y: -dy)
                     .blendMode(.plusLighter)
                 content
+                    .colorInvertIf(isLight)
                     .compositingGroup()
                     .colorMultiply(.green)
                     .blendMode(.plusLighter)
                 content
+                    .colorInvertIf(isLight)
                     .compositingGroup()
                     .colorMultiply(.blue)
                     .offset(x: dx, y: dy)
@@ -362,8 +382,25 @@ struct ChromaModifier: ViewModifier {
             .compositingGroup()
             // A black background so plusLighter has something to blend
             // against; without it the additive layers don't composite
-            // cleanly when nothing else is behind them.
+            // cleanly when nothing else is behind them. The outer
+            // colorInvertIf flips this to white in light mode after the
+            // additive pass — exactly the paper colour we want.
             .background(Color.black)
+            .colorInvertIf(isLight)
+        }
+    }
+}
+
+private extension View {
+    // Conditional `.colorInvert()`. SwiftUI doesn't accept a Bool on the
+    // built-in modifier so we wrap it in a @ViewBuilder for the chroma
+    // light/dark branching.
+    @ViewBuilder
+    func colorInvertIf(_ condition: Bool) -> some View {
+        if condition {
+            self.colorInvert()
+        } else {
+            self
         }
     }
 }

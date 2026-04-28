@@ -317,7 +317,7 @@ is a rest, and spaces are ignored. Songs reference patterns by the
 `name` string. Pattern names are unique; redefining a name overrides
 the built-in default.
 
-The shipped library ships 22 patterns, indie-rock-leaning:
+The shipped library ships 34 patterns, indie-rock-leaning:
 
 | Name | Feel |
 |------|------|
@@ -343,6 +343,19 @@ The shipped library ships 22 patterns, indie-rock-leaning:
 | Snare build | Kick 1, snare roll on beat 4 — fill into chorus |
 | Verse hush | Kick 1&3, no snare, ghost hats 2&4 — whispered verse |
 | Outro wind-down | Kick 1, snare 4, quarter hats — tapered exit |
+| Hats only | Quarter-note hats, no kick or snare — ambient pulse |
+| Hats 8ths | 8th-note hats, no kick or snare — driving texture |
+| Hats 16ths | 16th-note hats, no kick or snare — shimmer |
+| Hats poly | Dotted 3-3-3-3-2-2 hat polyrhythm, no kick or snare |
+| Pure kick | Four-on-floor kick, no hats or snare — primal pulse |
+| Heartbeat | Paired kick hits on 1 & 1+, then 3 & 3+ — organic |
+| Snare march | Quarter-note snare, no kick or hats — military |
+| Hats + backbeat | Snare 2&4 + 8th hats, no kick — atmospheric verse |
+| Old-school | Kick 1&3 + snare 2&4, no hats — 60s rock feel |
+| One-drop | Kick & snare together on beat 3, offbeat hats — reggae |
+| Punk drive | 8th-note kicks + snare 2&4 + 8th hats — fast & aggressive |
+| Trip-hop | Half-time kick + ghost snare, ghosted 8th hats |
+| Long build | Snare ramp 8th→16th with hat acceleration — extended fill |
 
 Edit the file to customize any of them or add your own. Auto-reloads
 on save (within ~1 s).
