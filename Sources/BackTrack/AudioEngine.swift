@@ -98,6 +98,18 @@ final class AudioEngineController: ObservableObject {
     private var padFadeGen: [Int] = []
     private var padBuffer: AVAudioPCMBuffer?
     private var padSourcePitchClass: Int?
+    private var padSoundName: String?
+
+    // Per-pad-sound default octave offset. Negative shifts the pad
+    // down by N octaves at playback time, positive shifts up. This is
+    // a sound-level register hint — e.g. "hollow" sounds best a full
+    // octave below the others — so we don't need a per-song JSON
+    // override every time. Pad sounds not listed here play at the
+    // engine's default register (no shift).
+    private static let padOctaveDefaults: [String: Int] = [
+        "hollow": -1,
+        "piano": -1
+    ]
 
     // Bass voice pool — 4 voices is enough for overlapping note transitions.
     private var bassVoices: [PitchedVoice] = []
@@ -315,6 +327,7 @@ final class AudioEngineController: ObservableObject {
         let (buf, pc) = loadPitchedSample(prefix: "pad_", in: kit, missing: &missing)
         padBuffer = buf
         padSourcePitchClass = pc
+        padSoundName = kit.name
     }
 
     private func loadBassSound(_ kit: SoundKit, missing: inout [String]) {
@@ -530,7 +543,14 @@ final class AudioEngineController: ObservableObject {
 
     private func playPad(pitchClass: Int, volume: Float) {
         guard let buffer = padBuffer, let source = padSourcePitchClass else { return }
-        let rate = rateFor(pitchClass: pitchClass, source: source)
+        var rate = rateFor(pitchClass: pitchClass, source: source)
+        // Apply the pad sound's default octave offset. Multiplicative
+        // so it stacks with the pitch-class shift cleanly: each octave
+        // down halves the playback rate, each up doubles it.
+        if let name = padSoundName,
+           let octaves = Self.padOctaveDefaults[name.lowercased()] {
+            rate *= Float(pow(2.0, Double(octaves)))
+        }
         let idx = padVoiceIndex
         padVoiceIndex = (padVoiceIndex + 1) % padVoices.count
         padFadeGen[idx] += 1
