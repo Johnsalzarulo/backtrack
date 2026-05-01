@@ -162,14 +162,39 @@ final class KeyboardHandler {
     // Put the visuals window into (or out of) macOS native full-screen.
     // The title bar auto-hides in full-screen and the window covers the
     // entire display, which is the cleanest answer for projector use.
-    // Open the window first if it was closed.
+    // Open the window first if it was closed; the small delay lets
+    // SwiftUI actually materialize the NSWindow before we look it up.
     private func toggleVisualsFullScreen() {
-        if !state.visualsOpen {
-            state.visualsOpen = true
-        }
-        DispatchQueue.main.async {
-            guard let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "visuals" }) else { return }
+        let wasClosed = !state.visualsOpen
+        if wasClosed { state.visualsOpen = true }
+        let delay: TimeInterval = wasClosed ? 0.15 : 0
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            guard let window = VisualsWindow.find() else { return }
+            // Belt-and-suspenders: SwiftUI's `Window` scene doesn't
+            // always set the collectionBehavior + styleMask that
+            // toggleFullScreen requires. WindowConfigurator inside
+            // VisualsView sets these on appearance, but in case that
+            // path missed (window already up before view materialized),
+            // ensure they're set here too. Idempotent.
+            window.collectionBehavior.insert(.fullScreenPrimary)
+            window.styleMask.insert(.resizable)
             window.toggleFullScreen(nil)
+        }
+    }
+}
+
+// SwiftUI's `Window` scene on macOS doesn't reliably populate
+// `NSWindow.identifier` from the scene id, so identifier-based
+// lookup misses the window. The title is set verbatim from the
+// `Window("BackTrack Visuals", ...)` initializer and is unique in
+// our app, so match on that. Identifier kept as a fallback.
+enum VisualsWindow {
+    static let title = "BackTrack Visuals"
+
+    static func find() -> NSWindow? {
+        NSApp.windows.first { window in
+            window.title == title
+                || window.identifier?.rawValue == "visuals"
         }
     }
 }
