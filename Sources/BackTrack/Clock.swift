@@ -6,9 +6,8 @@ import Foundation
 // position on bar boundaries.
 //
 // Grid: 16 ticks per bar (1, 1e, 1+, 1a, 2, 2e, ...). Tempo in BPM
-// translates to tick interval = 60 / (BPM × 4) seconds. A tempo change
-// (via T key tap-tempo) applies at the next tick boundary so we don't
-// stretch the currently-pending tick.
+// translates to tick interval = 60 / (BPM × 4) seconds. Tempo is the
+// active song's `bpm` field — no live retiming.
 //
 // Part navigation while playing is queued to the next bar (so arrow
 // presses don't chop mid-bar); while stopped, selection applies
@@ -25,8 +24,6 @@ final class Clock: ObservableObject {
 
     private var timer: DispatchSourceTimer?
     private var tick: Int = 0              // 0..15 within current bar
-    private var tapTimes: [Date] = []
-    private var scheduledTempo: Double = 0
     private var lastChordKey: String = ""  // tracks chord-change for pad drone
 
     // Count-in pre-roll. While `countInRemaining` > 0 the timer fires
@@ -58,11 +55,10 @@ final class Clock: ObservableObject {
         guard !state.isPlaying else { return }
         guard let song = state.currentSong, !song.structure.isEmpty else { return }
 
-        // Apply song-level setup: kit, pad sound, bass sound, tempo.
+        // Apply song-level setup: kit, pad sound, bass sound.
         audio.selectDrumKit(named: song.kit)
         if let pad = song.padSound { audio.selectPadSound(named: pad) }
         if let bass = song.bassSound { audio.selectBassSound(named: bass) }
-        state.tempo = song.bpm
 
         // Respect whatever part the user arrowed to while stopped —
         // don't forcibly rewind to the intro on each Space press.
@@ -135,14 +131,14 @@ final class Clock: ObservableObject {
 
     private func scheduleTimer(immediate: Bool) {
         timer?.cancel()
+        let bpm = state.currentSong?.bpm ?? 100
         let t = DispatchSource.makeTimerSource(queue: clockQueue)
-        let seconds = 60.0 / (state.tempo * 4.0)
+        let seconds = 60.0 / (bpm * 4.0)
         let interval = DispatchTimeInterval.nanoseconds(Int(seconds * 1_000_000_000))
         let first: DispatchTime = immediate ? .now() : .now() + interval
         t.schedule(deadline: first, repeating: interval, leeway: .milliseconds(1))
         t.setEventHandler { [weak self] in self?.onTick() }
         timer = t
-        scheduledTempo = state.tempo
         t.resume()
     }
 
@@ -281,10 +277,6 @@ final class Clock: ObservableObject {
             // Next tick starts the song at bar 0, tick 0.
             tick = 0
         }
-
-        if state.tempo != scheduledTempo {
-            scheduleTimer(immediate: false)
-        }
     }
 
     private func scheduleTickAdvance() {
@@ -304,9 +296,6 @@ final class Clock: ObservableObject {
         if tick >= Generators.ticksPerBar {
             tick = 0
             writeState { s in s.currentBar += 1 }
-        }
-        if state.tempo != scheduledTempo {
-            scheduleTimer(immediate: false)
         }
     }
 
@@ -341,38 +330,5 @@ final class Clock: ObservableObject {
             audio.trigger(e)
         }
         for e in Generators.bass(level: part.bassLevel, chord: chord, tick: tick) { audio.trigger(e) }
-    }
-
-    // MARK: - Tap tempo
-
-    func tapTempo() {
-        let now = Date()
-        if let last = tapTimes.last, now.timeIntervalSince(last) > 2.0 {
-            tapTimes.removeAll()
-        }
-        tapTimes.append(now)
-        if tapTimes.count > 4 {
-            tapTimes.removeFirst(tapTimes.count - 4)
-        }
-        if tapTimes.count >= 2 {
-            var intervals: [TimeInterval] = []
-            for i in 1..<tapTimes.count {
-                intervals.append(tapTimes[i].timeIntervalSince(tapTimes[i - 1]))
-            }
-            let avg = intervals.reduce(0, +) / Double(intervals.count)
-            if avg > 0 {
-                let bpm = 60.0 / avg
-                state.tempo = max(40, min(240, bpm))
-            }
-            if state.isPlaying {
-                tick = 0
-                state.currentBeat = 0
-                scheduleTimer(immediate: true)
-            }
-        }
-        state.bpmFlash = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
-            self?.state.bpmFlash = false
-        }
     }
 }

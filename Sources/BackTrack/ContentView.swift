@@ -203,8 +203,6 @@ struct ContentView: View {
     //   - activity light that fires on any trigger into that role
     //   - the role label
     //   - relevant meta: current drum pattern + kit, or pad/bass sound
-    // Volume still cycles via K/S/H/P/B keys — it's audible feedback so we
-    // don't need it in the HUD too.
     private var mixBlock: some View {
         VStack(alignment: .leading, spacing: 10) {
             drumsRow
@@ -222,24 +220,14 @@ struct ContentView: View {
         }
     }
 
-    // Pattern field gains a trailing `*` when the current part has unsaved
-    // in-memory pattern edits (from [ / ]) not yet persisted via Cmd+S.
     @ViewBuilder
     private var patternField: some View {
         if let part = state.currentPart {
             HStack(spacing: 6) {
                 Text("Pattern:").foregroundColor(dim.opacity(0.7))
                 Text(part.pattern)
-                if isCurrentPatternDirty {
-                    Text("*").foregroundColor(fg)
-                }
             }
         }
-    }
-
-    private var isCurrentPatternDirty: Bool {
-        guard let song = state.currentSong, let partName = state.currentPartName else { return false }
-        return state.pendingPatternSaves["\(song.name)/\(partName)"] != nil
     }
 
     private var padRow: some View {
@@ -247,7 +235,6 @@ struct ContentView: View {
             activityLight(last: state.padLastTrigger)
             Text("PAD").foregroundColor(dim).frame(width: 60, alignment: .leading)
             metaPair(label: "Sound", value: state.currentSong?.padSound)
-            mutedBadge(level: state.padVolume)
         }
     }
 
@@ -256,7 +243,6 @@ struct ContentView: View {
             activityLight(last: state.bassLastTrigger)
             Text("BASS").foregroundColor(dim).frame(width: 60, alignment: .leading)
             metaPair(label: "Sound", value: state.currentSong?.bassSound)
-            mutedBadge(level: state.bassVolume)
         }
     }
 
@@ -273,15 +259,6 @@ struct ContentView: View {
                 Text("\(label):").foregroundColor(dim.opacity(0.7))
                 Text(value)
             }
-        }
-    }
-
-    // Surface muted-ness only — partial volumes are audible feedback, but
-    // "why is the bass silent?" deserves a HUD cue.
-    @ViewBuilder
-    private func mutedBadge(level: Int) -> some View {
-        if level == 0 {
-            Text("(muted)").foregroundColor(dim.opacity(0.6))
         }
     }
 
@@ -345,14 +322,10 @@ struct ContentView: View {
 
     private var keybindingBlock: some View {
         VStack(alignment: .leading, spacing: 3) {
-            row("SPACE", "start / stop",        "← →",   "prev / next song")
-            row("↑ ↓",   "next / prev part",    "T",     "tap tempo")
-            row("K S H", "drum volume",         "P B",   "pad / bass volume")
-            row("[ ]",   "audition pattern",    "L",     "loop current part")
-            row("⌘ S",   "save pattern edit",   "V",     "show / hide visuals")
-            row("F",     "visuals full-screen", "R",     "reload everything")
-            row("M",     "cycle visualizer",    "I",     "invert theme")
-            row("E",     "cycle effect",        "D",     "cycle setlist")
+            row("SPACE", "start / stop",        "← →", "prev / next item")
+            row("↑ ↓",   "next / prev part",    "L",   "loop current part")
+            row("D",     "cycle setlist",       "V",   "show / hide visuals")
+            row("F",     "visuals full-screen", "",    "")
         }
         .foregroundColor(dim)
         .font(.system(.caption, design: .monospaced))
@@ -451,10 +424,11 @@ struct ContentView: View {
                         Text(key)
                     }
                 }
-                HStack(spacing: 10) {
-                    Text("BPM").foregroundColor(dim).frame(width: 44, alignment: .leading)
-                    Text("\(Int(state.tempo.rounded()))")
-                        .opacity(state.bpmFlash ? 0.35 : 1.0)
+                if let bpm = state.currentSong?.bpm {
+                    HStack(spacing: 10) {
+                        Text("BPM").foregroundColor(dim).frame(width: 44, alignment: .leading)
+                        Text("\(Int(bpm.rounded()))")
+                    }
                 }
             }
         }

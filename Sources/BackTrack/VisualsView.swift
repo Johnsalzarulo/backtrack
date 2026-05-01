@@ -80,11 +80,10 @@ struct VisualsView: View {
                     ink: nsInk,
                     paper: nsPaper
                 )
-            } else if let url = state.currentPartVisualURL, !userOverridingVisuals {
-                // Part has a visual and the user hasn't asked to see
-                // the synth layer instead — GIF/image/video takes over.
-                // Keeps playing even when transport is stopped, matching
-                // the loop behavior of the source media.
+            } else if let url = state.currentPartVisualURL {
+                // Part has a visual — GIF/image/video takes over. Keeps
+                // playing even when transport is stopped, matching the
+                // loop behavior of the source media.
                 VisualView(url: url)
             } else if !state.isPlaying {
                 // No part-level visual and transport is stopped — the
@@ -93,11 +92,7 @@ struct VisualsView: View {
                 // launch, between songs, and any pause.
                 IdleStaticView(ink: ink, paper: paper)
             } else {
-                // Playing the synth layer. Either no part-level visual,
-                // or the user pressed I or M to pull into the synth
-                // layer. Their override beats the song's configured
-                // visual so `M` actually cycles something visible even
-                // on parts with a GIF.
+                // Playing the synth layer.
                 GeometryReader { geo in
                     let inset = min(geo.size.width, geo.size.height) * overscanMargin
                     synthContent
@@ -127,15 +122,6 @@ struct VisualsView: View {
                     state.visualsOpen = false
                 }
         }
-    }
-
-    // True once the user has expressed intent to see a specific synth
-    // motif via the M key. Theme override is deliberately ignored here:
-    // theme doesn't affect GIF display, so pressing I on a part with a
-    // GIF shouldn't hide the GIF. The theme override just waits in
-    // memory until the user navigates to a synth view.
-    private var userOverridingVisuals: Bool {
-        state.visualizerOverride != nil
     }
 
     // Synth-layer content — geometric motifs render into a Canvas;

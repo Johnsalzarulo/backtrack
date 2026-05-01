@@ -98,7 +98,7 @@ scans the directory; any malformed songs surface in the HUD's
 | `theme` | song | `"dark"` (default — black paper, white ink) or `"light"` (inverted). Only affects the synth layer of the visuals window; parts with a `visuals` file aren't themed. |
 | `visualizer` | song | Synth-layer motif. One of `"constellation"` (default), `"orbit"`, `"ink"`, `"squares"`, `"dots"`, `"lines"`, `"ripple"`, `"lyrics-block"`, `"lyrics-line"`. See the Visuals window section below. |
 | `countIn` | song | Optional integer. When > 0, pressing Space plays N bars of metronome clicks (4 hi-hat hits per bar at the song's BPM, beat 1 accented) before the song actually starts. The HUD shows `● COUNT-IN n/N` and the visuals window shows the current beat-in-bar number large. Default 0 = no count-in. |
-| `visualEffect` | part | Optional. Post-processing layer wrapping the entire visuals window for this part. One of `"none"` (default), `"glitch"` (beat-synced digital-corruption jitter + slice flashes; every 4th bar's downbeat fires a major tear with longer decay and ~3× slice count), `"tracking"` (continuous VCR distortion band + slight VHS desaturation; every ~6 s the picture rolls vertically with a sync seam at the wrap point), `"chroma"` (RGB channel separation; per-beat random angle, downbeat boost, part-start blowout — Spider-Verse / vintage 3D feel). `E` cycles this live during playback. Different parts can have different effects. |
+| `visualEffect` | part | Optional. Post-processing layer wrapping the entire visuals window for this part. One of `"none"` (default), `"glitch"` (beat-synced digital-corruption jitter + slice flashes; every 4th bar's downbeat fires a major tear with longer decay and ~3× slice count), `"tracking"` (continuous VCR distortion band + slight VHS desaturation; every ~6 s the picture rolls vertically with a sync seam at the wrap point), `"chroma"` (RGB channel separation; per-beat random angle, downbeat boost, part-start blowout — Spider-Verse / vintage 3D feel). Different parts can have different effects. |
 | `pattern` | part | Drum pattern name from `patterns.json` (e.g. `"Rock basic"`, `"Four on the floor"`). |
 | `chords` | part | The chord progression of the part — one symbol per bar of the progression. |
 | `repeats` | part | How many times the chord progression cycles. Optional, default 1. Total bars = `chords.length × repeats`. |
@@ -240,13 +240,6 @@ When a song reaches its last bar (or a countdown hits 0:00), playback
 auto-start. The next Space starts the next item. Live performers
 want a beat between songs.
 
-### Override reset
-
-Live overrides set with `M` (cycle visualizer), `I` (invert theme),
-and `E` (cycle visual effect) reset whenever the cursor moves to a
-new lineup item. Each item plays as its JSON intends, no override
-leakage between songs.
-
 ## Run
 
 ```
@@ -262,26 +255,23 @@ swift build -c release
 
 ## Keybindings
 
+The runtime surface is intentionally small — songs, countdowns, and
+setlists are configured in JSON, not at the venue. Every key here is
+about navigating that pre-built structure.
+
 | Key | Action |
 |-----|--------|
 | `Space` | Start / stop |
-| `←` / `→` | Previous / next song (stops playback) |
+| `←` / `→` | Previous / next lineup item (stops playback) |
 | `↑` / `↓` | Next / previous part. Wraps around (up from last part → first). While stopped: immediate; Space starts from the selected part. While playing: queued to next bar; repeated presses accumulate. |
-| `T` | Tap tempo (live override) |
-| `R` | Reload songs, samples, and patterns from disk (samples only need this — song JSONs and `patterns.json` auto-reload within ~1 s of being saved) |
-| `L` | Toggle loop-current-part — disables auto-advance so the part repeats indefinitely. Great for auditioning drum patterns. |
-| `[` / `]` | Previous / next drum pattern for the current part. Change is live (next bar) but in-memory only until saved. |
-| `⌘ S` | Save in-memory pattern edits back to the song's JSON. |
+| `L` | Toggle loop-current-part — disables auto-advance so the part repeats indefinitely. |
+| `D` | Cycle the active setlist alphabetically (no-op with 0 or 1 setlists). Stops in-flight playback, rebuilds the lineup, and resets to item 0 of the new setlist. |
 | `V` | Show / hide the visuals window. |
 | `F` | Toggle the visuals window into macOS native full-screen (title bar auto-hides, window covers the display). Opens the window first if it was closed. |
-| `I` | Invert the synth-layer theme (dark ↔ light). Live in-memory override on top of the song's `theme` JSON — not persisted. |
-| `M` | Cycle the visualizer style for the active deck. **Songs:** synth-layer motif (constellation → orbit → ink → squares → dots → lines → ripple → lyrics-block → lyrics-line → song default). **Countdowns:** countdown style (digital → pie → hourglass → JSON default). Same in-memory override behavior on both decks: the cycle ends on a "default" slot that clears the override and falls back to the JSON setting. |
-| `E` | Cycle the post-processing visual effect across both decks: none → glitch → tracking → chroma → JSON default. The effect wraps the entire visuals window. Audio is fully decoupled from the effect render (Clock runs on a dedicated high-priority queue) so heavy effects don't jitter the playback. |
-| `D` | Cycle the active setlist alphabetically (no-op with 0 or 1 setlists). Stops in-flight playback, rebuilds the lineup, and resets to item 0 of the new setlist. |
-| `K` / `S` / `H` | Cycle kick / snare / hi-hat volume |
-| `P` / `B` | Cycle pad / bass volume |
 
-Volume cycle: `100 → 75 → 50 → 0 → 100`.
+Songs, countdowns, setlists, and `patterns.json` auto-reload within
+~1 s of being saved. Sample folders only load at launch — restart
+the app to pick up new kits.
 
 ## HUD
 
@@ -295,7 +285,7 @@ readouts around.
 - **Structure**: all parts in play order, current one wrapped in `▸ ◂`. Wraps to multiple lines for long structures.
 - **Bar counter**: `bar N / M` plus a one-cell-per-bar progress bar (`█░░░`) so remaining bars in instrumental sections are glanceable.
 - **Chord line**: current chord large (40pt), next bar's chord dim to the right, and four 1 / 2 / 3 / 4 beat dots on the right that track the current beat so you can come in on the one.
-- **Mix**: three rows, one per role. `DRUMS` shows the current pattern + kit; `PAD` / `BASS` show the active sound. Each row has its own activity light (drums light fires on any kick / snare / hh hit). Volumes cycle via K / S / H / P / B — muted rows get a dim `(muted)` badge. A `*` after the pattern name means the current part has unsaved in-memory pattern edits.
+- **Mix**: three rows, one per role. `DRUMS` shows the current pattern + kit; `PAD` / `BASS` show the active sound. Each row has its own activity light (drums light fires on any kick / snare / hh hit).
 - **Loop badge**: when loop-current-part is on (`L` toggle), a bright `LOOP` appears in the structure header.
 - **Transport**: `● PLAYING` / `○ STOPPED`.
 - **Issues**: `MISSING SAMPLES` and `SONG ISSUES` blocks appear when files are missing or a song file fails to parse.
@@ -303,7 +293,7 @@ readouts around.
 
 **Right column:**
 
-- **Song header**: name, key, tempo. Tempo dims briefly on each tap-tempo hit as visual feedback.
+- **Song header**: name, key, tempo.
 - **Lyrics**: full text of the active part, larger and line-spaced for readability at arm's length.
 - **Next part peek**: a `NEXT — PARTNAME` line under the lyrics shows the first line of the upcoming part (or the queued part if `↑ ↓` is pending), so the first lyric of a chorus isn't a surprise when you're starting from an instrumental intro.
 - **OUT**: system default output device with a signal-present dot.
@@ -359,21 +349,6 @@ The shipped library ships 34 patterns, indie-rock-leaning:
 
 Edit the file to customize any of them or add your own. Auto-reloads
 on save (within ~1 s).
-
-### Auditioning patterns live
-
-Finding the right pattern by editing the JSON and reloading gets old
-fast. In-app keyboard audition:
-
-1. Play the song, navigate to the part in question with `↑ ↓`.
-2. Press `L` to loop the current part indefinitely.
-3. `[` / `]` cycle through every pattern in `patterns.json` — the
-   change is live on the next bar. A `*` appears next to the pattern
-   name to remind you the edit is in-memory only.
-4. When you find one you like, `⌘ S` saves it back to the song's
-   JSON (pretty-printed, sorted keys). `L` again to exit loop mode.
-5. If you don't save, the pattern reverts to whatever's on disk the
-   next time you reload.
 
 ## Visuals window
 
@@ -474,24 +449,6 @@ feels in sync at normal tempos.
 **Theme.** Set `"theme": "dark"` (default: black paper, white ink) or
 `"light"` (white paper, black ink) on the song.
 
-**Live overrides.** `I` inverts theme; `M` cycles through the eight
-motifs (six geometric, two lyric) plus a ninth "song default" stop.
-Both are in-memory only — not written back to JSON. Useful for
-auditioning. The song's JSON values remain the source of truth for
-"what this song looks like by default"; the overrides just replace
-them for the current session.
-
-When a visualizer override is active, the synth layer takes priority
-over any part-level visual (GIF / image / video) — so pressing `M`
-on a part with a `visuals` file actually cycles something you can
-see instead of silently updating the hidden synth layer underneath.
-Cycle past `lyrics-line` and you land on the "song default" stop,
-which clears the visualizer override and restores the part's
-`visuals` (or the song's JSON visualizer if the part has none).
-`I` alone never hides a GIF — theme doesn't affect GIF display, so
-the theme override just waits in memory until you navigate to a
-synth view.
-
 **Overscan safety.** Every motif except the part-level visual (GIF /
 image / video) is inset by 7% of `min(width, height)` on each edge,
 so CRT/projector overscan won't clip shapes or text. Part-level
@@ -512,11 +469,11 @@ full-screen with `F`.
 ## Files
 
 - `App.swift` — entry point, coordinator wiring
-- `AppState.swift` — observable state (songs, transport, mix)
+- `AppState.swift` — observable state (songs, transport, lineup)
 - `AudioEngine.swift` — AVAudioEngine graph, sample loading, pitched voice pools
 - `AudioDevices.swift` — CoreAudio helpers for default output device name
 - `ChordParser.swift` — chord symbol → root pitch class + quality + 7th
-- `Clock.swift` — 16th-note timer, song playback engine, tap tempo
+- `Clock.swift` — 16th-note timer, song playback engine
 - `ContentView.swift` — SwiftUI HUD
 - `Generators.swift` — drum pattern loader, pad + bass generators
 - `KeyboardHandler.swift` — NSEvent local monitor
