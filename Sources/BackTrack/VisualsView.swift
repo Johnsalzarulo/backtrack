@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 // Secondary window showing the synth layer — chunky, linocut-inspired
 // ink shapes that react to drum / pad / bass triggers. Runs on SwiftUI's
@@ -18,8 +19,6 @@ import SwiftUI
 //
 // Palette follows the current song's theme (`.dark` default). Style
 // follows the song's visualizer field (`.constellation` default).
-// Both can be overridden live via the `I` and `M` hotkeys; overrides
-// live in AppState.
 struct VisualsView: View {
     @EnvironmentObject var state: AppState
 
@@ -115,6 +114,19 @@ struct VisualsView: View {
         } else {
             content
                 .ignoresSafeArea()
+                .background(
+                    // Configure the hosting NSWindow for fullscreen use
+                    // — SwiftUI's secondary `Window` scene on macOS 13
+                    // doesn't reliably set `.fullScreenPrimary` in the
+                    // collection behavior, which makes both F (our
+                    // hotkey) and the View > Enter Full Screen menu
+                    // item silently no-op. Forcing it on appearance
+                    // ensures both routes work.
+                    WindowConfigurator { window in
+                        window.collectionBehavior.insert(.fullScreenPrimary)
+                        window.styleMask.insert(.resizable)
+                    }
+                )
                 .onDisappear {
                     // Window was closed (either via X or programmatic
                     // dismiss). Reflect in state so the next V press
@@ -920,5 +932,27 @@ struct VisualsView: View {
         let mixed = (raw ^ (raw >> 16)) &* 2246822507
         let norm = Double(mixed & 0xFFFF) / Double(0xFFFF)
         return norm * 2 - 1
+    }
+}
+
+// Bridges back to AppKit so we can configure the hosting NSWindow
+// once it's available. SwiftUI doesn't expose collectionBehavior or
+// styleMask on its Window scene, so this is the path for guaranteeing
+// fullscreen capability is set on the visuals window.
+struct WindowConfigurator: NSViewRepresentable {
+    let configure: (NSWindow) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        // view.window is nil at makeNSView time — defer until SwiftUI
+        // has parented this NSView into the window's content view.
+        DispatchQueue.main.async {
+            if let window = view.window { configure(window) }
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        if let window = nsView.window { configure(window) }
     }
 }

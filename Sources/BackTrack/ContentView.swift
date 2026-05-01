@@ -39,12 +39,10 @@ struct ContentView: View {
     }
 
     // macOS 13 doesn't have SwiftUI.dismissWindow (macOS 14+). Walk
-    // NSApp.windows — SwiftUI sets NSWindow.identifier from the Window
-    // scene's id so matching on "visuals" finds the right one.
+    // NSApp.windows and match on title (the scene-id route via
+    // NSWindow.identifier isn't reliably populated by SwiftUI).
     private func closeVisualsWindow() {
-        for window in NSApp.windows where window.identifier?.rawValue == "visuals" {
-            window.close()
-        }
+        VisualsWindow.find()?.close()
     }
 
     // MARK: - Left column (fixed layout)
