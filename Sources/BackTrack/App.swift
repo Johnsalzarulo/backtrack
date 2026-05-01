@@ -34,7 +34,7 @@ final class Coordinator: ObservableObject {
         let audio = AudioEngineController()
         audio.state = state
         let clock = Clock(state: state, audio: audio)
-        let keyboard = KeyboardHandler(state: state, clock: clock, audio: audio)
+        let keyboard = KeyboardHandler(state: state, clock: clock)
         self.state = state
         self.audio = audio
         self.clock = clock
@@ -48,17 +48,13 @@ final class Coordinator: ObservableObject {
         reloadCountdowns()
         reloadSetlists()
         rebuildLineup()
-        if let first = state.songs.first {
-            state.tempo = first.bpm
-        }
-        audio.applyMixVolumes(from: state)
         keyboard.install()
         state.outputDevice = AudioDevices.defaultOutputName()
 
         // Poll song JSONs + countdown JSONs + setlist JSONs +
         // patterns.json for edits so the app picks up changes without
-        // a manual R press. Samples are expensive to reload and
-        // change rarely, so they stay on R.
+        // a restart. Samples only load at launch (changing them rarely
+        // happens, and reloading is expensive).
         fileWatcher = FileWatcher(
             paths: {
                 var urls: [URL] = []
@@ -121,16 +117,6 @@ final class Coordinator: ObservableObject {
         state.songs = result.songs
         state.songIssues = result.issues
 
-        // Re-apply in-memory pattern edits that haven't been saved yet, so
-        // auto-reloads triggered by other file changes don't clobber them.
-        for (key, pattern) in state.pendingPatternSaves {
-            let parts = key.split(separator: "/", maxSplits: 1)
-            guard parts.count == 2 else { continue }
-            let songName = String(parts[0])
-            let partName = String(parts[1])
-            applyPendingPattern(songName: songName, partName: partName, pattern: pattern)
-        }
-
         // Keep the user's current part selection if still valid. The
         // lineup-level cursor (`currentLineupIndex`) is clamped by
         // rebuildLineup() — that's invoked after this method returns.
@@ -143,41 +129,6 @@ final class Coordinator: ObservableObject {
             state.currentPartIndex = 0
             state.currentBar = 0
         }
-    }
-
-    private func applyPendingPattern(songName: String, partName: String, pattern: String) {
-        guard let songIdx = state.songs.firstIndex(where: { $0.name == songName }),
-              let existing = state.songs[songIdx].parts[partName] else { return }
-        let updated = Part(
-            name: existing.name,
-            pattern: pattern,
-            chords: existing.chords,
-            repeats: existing.repeats,
-            padLevel: existing.padLevel,
-            bassLevel: existing.bassLevel,
-            lyrics: existing.lyrics,
-            visuals: existing.visuals,
-            visualMode: existing.visualMode,
-            visualizer: existing.visualizer,
-            visualEffect: existing.visualEffect
-        )
-        var newParts = state.songs[songIdx].parts
-        newParts[partName] = updated
-        let old = state.songs[songIdx]
-        state.songs[songIdx] = Song(
-            sourceURL: old.sourceURL,
-            name: old.name,
-            key: old.key,
-            bpm: old.bpm,
-            kit: old.kit,
-            padSound: old.padSound,
-            bassSound: old.bassSound,
-            parts: newParts,
-            structure: old.structure,
-            theme: old.theme,
-            visualizer: old.visualizer,
-            countIn: old.countIn
-        )
     }
 }
 

@@ -2,10 +2,9 @@ import Foundation
 import SwiftUI
 
 // Observable source of truth for everything the HUD and visuals window
-// need to display: transport (is-playing, tempo, current bar/beat),
-// lineup + part navigation, per-voice mix levels, activity timestamps
-// that drive the reactive visuals, plus in-memory visualizer overrides
-// set via the I/M/E keys.
+// need to display: transport (is-playing, current bar/beat), lineup +
+// part navigation, and activity timestamps that drive the reactive
+// visuals.
 //
 // Lifecycle: one instance per app session, created by Coordinator at
 // launch and shared as an @EnvironmentObject with ContentView (HUD)
@@ -13,10 +12,10 @@ import SwiftUI
 //
 // Concurrency: every mutation happens on the main queue. Clock drives
 // the ticking fields (currentBar, currentBeat, trigger timestamps);
-// KeyboardHandler drives transport + mix + overrides;
-// AudioEngineController stamps the trigger timestamps right after
-// scheduling playback so the visuals fire in sync with the audio.
-// Audio callbacks that need to write here dispatch back to main first.
+// KeyboardHandler drives transport; AudioEngineController stamps the
+// trigger timestamps right after scheduling playback so the visuals
+// fire in sync with the audio. Audio callbacks that need to write here
+// dispatch back to main first.
 //
 // Lineup model (post-setlist refactor): the `lineup` array is the
 // single ordered list of items the performer navigates through with
@@ -26,12 +25,10 @@ import SwiftUI
 // `currentCountdown` accessors stay as computed properties keyed off
 // the current lineup item, so most existing call sites keep working.
 final class AppState: ObservableObject {
-    // MARK: - Transport + tempo
+    // MARK: - Transport
 
-    @Published var tempo: Double = 100
     @Published var isPlaying: Bool = false
     @Published var currentBeat: Int = 0
-    @Published var bpmFlash: Bool = false
 
     // Wall-clock timestamp of the last quarter-note tick. Stamped by
     // Clock when currentBeat advances (and by the count-in path).
@@ -104,42 +101,26 @@ final class AppState: ObservableObject {
     @Published var pendingPartIndex: Int? = nil // queued part jump on next bar
     @Published var loopCurrentPart: Bool = false
 
-    // MARK: - Visuals overrides (in-memory; reset on lineup item change)
-
-    @Published var themeOverride: VisualTheme? = nil
-    @Published var visualizerOverride: VisualizerStyle? = nil
-    @Published var countdownStyleOverride: CountdownStyle? = nil
-    @Published var visualEffectOverride: PostEffect? = nil
-
     // MARK: - Misc state
 
     @Published var visualsOpen: Bool = true
 
-    // Pattern edits made via [ / ] that haven't been written back to JSON yet.
-    // Key format: "<songName>/<partName>". Cleared on Cmd+S save.
-    @Published var pendingPatternSaves: [String: String] = [:]
-
-    // MARK: - Effective resolvers (override → JSON → default)
+    // MARK: - Visual resolvers (read straight from JSON)
 
     var effectiveTheme: VisualTheme {
-        themeOverride ?? currentSong?.theme ?? .dark
+        currentSong?.theme ?? .dark
     }
 
     var effectiveVisualizer: VisualizerStyle {
-        visualizerOverride
-            ?? currentPart?.visualizer
-            ?? currentSong?.visualizer
-            ?? .constellation
+        currentPart?.visualizer ?? currentSong?.visualizer ?? .constellation
     }
 
     var effectiveCountdownStyle: CountdownStyle {
-        countdownStyleOverride ?? currentCountdown?.style ?? .digital
+        currentCountdown?.style ?? .digital
     }
 
-    // visualEffect lives on Part for songs and on Countdown for
-    // countdowns. The override (set by the E key) beats both.
+    // visualEffect lives on Part for songs and on Countdown for countdowns.
     var effectiveVisualEffect: PostEffect {
-        if let override = visualEffectOverride { return override }
         if let p = currentPart { return p.visualEffect }
         if let c = currentCountdown { return c.visualEffect }
         return .none
@@ -186,14 +167,6 @@ final class AppState: ObservableObject {
               let nextPart = song.parts[song.structure[currentPartIndex + 1]] else { return nil }
         return nextPart.chord(atBar: 0)
     }
-
-    // MARK: - Per-instrument mix (0-3: 0%, 50%, 75%, 100%)
-
-    @Published var kickLevel: Int = 3
-    @Published var snareLevel: Int = 3
-    @Published var hhLevel: Int = 3
-    @Published var padVolume: Int = 3
-    @Published var bassVolume: Int = 3
 
     // MARK: - Activity timestamps (HUD dots)
 
@@ -271,18 +244,5 @@ final class AppState: ObservableObject {
         if currentLineupIndex >= lineup.count {
             currentLineupIndex = max(0, lineup.count - 1)
         }
-    }
-
-    // MARK: - Volume helpers
-
-    static let levelGains: [Float] = [0.0, 0.5, 0.75, 1.0]
-    static let maxLevel = levelGains.count - 1
-
-    static func levelGain(_ level: Int) -> Float {
-        levelGains[max(0, min(maxLevel, level))]
-    }
-
-    static func cycleDown(_ level: Int) -> Int {
-        level == 0 ? maxLevel : level - 1
     }
 }

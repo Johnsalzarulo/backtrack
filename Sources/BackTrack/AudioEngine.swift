@@ -43,7 +43,10 @@ final class AudioEngineController: ObservableObject {
     private let engine = AVAudioEngine()
     private let masterMixer = AVAudioMixerNode()
 
-    // Per-instrument mixers so K/S/H/P/B can tweak levels independently.
+    // Per-instrument mixers — kept as routing nodes so the audio graph
+    // stays the same shape it was built around. Volume on each is left
+    // at the engine default (1.0); per-role volume control isn't a user
+    // surface anymore.
     private let kickMixer = AVAudioMixerNode()
     private let snareMixer = AVAudioMixerNode()
     private let hhMixer = AVAudioMixerNode()
@@ -468,22 +471,6 @@ final class AudioEngineController: ObservableObject {
         if status == .error || err != nil { return nil }
         return out
     }
-
-    // MARK: - Volume
-
-    func applyMixVolumes(from state: AppState) {
-        kickMixer.outputVolume = AppState.levelGain(state.kickLevel)
-        snareMixer.outputVolume = AppState.levelGain(state.snareLevel)
-        hhMixer.outputVolume = AppState.levelGain(state.hhLevel)
-        padMixer.outputVolume = AppState.levelGain(state.padVolume)
-        bassMixer.outputVolume = AppState.levelGain(state.bassVolume)
-    }
-
-    func setKickVolume(level: Int) { kickMixer.outputVolume = AppState.levelGain(level) }
-    func setSnareVolume(level: Int) { snareMixer.outputVolume = AppState.levelGain(level) }
-    func setHhVolume(level: Int) { hhMixer.outputVolume = AppState.levelGain(level) }
-    func setPadVolume(level: Int) { padMixer.outputVolume = AppState.levelGain(level) }
-    func setBassVolume(level: Int) { bassMixer.outputVolume = AppState.levelGain(level) }
 
     // MARK: - Playback
 
