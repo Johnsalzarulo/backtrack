@@ -114,7 +114,7 @@ struct Song {
 // ink) — chosen to match the overwhelmingly black-and-white linocut /
 // woodblock feel the project is going for. `.light` is a straight
 // invert: white background, black ink.
-enum VisualTheme: String {
+enum VisualTheme: String, CaseIterable {
     case dark
     case light
 }
@@ -155,7 +155,7 @@ enum VisualizerStyle: String {
 
 // How a part's visuals array advances during playback. Only meaningful
 // when visuals.count > 1.
-enum VisualCycleMode: String {
+enum VisualCycleMode: String, CaseIterable {
     case bar    // one image per bar
     case beat   // one image per quarter-note beat
 }
@@ -197,5 +197,106 @@ struct Part {
             idx = slot % visuals.count
         }
         return visuals[idx]
+    }
+}
+
+// Tweak-mode field-update helpers: produce a copy of the Song / Part
+// with one field replaced. Used by the tweak-mode cycle handlers in
+// Tweak.swift; immutable struct semantics are preserved.
+
+extension Song {
+    func with(kit value: String) -> Song {
+        Song(sourceURL: sourceURL, name: name, key: key, bpm: bpm,
+             kit: value, padSound: padSound, bassSound: bassSound,
+             parts: parts, structure: structure,
+             theme: theme, visualizer: visualizer, countIn: countIn)
+    }
+
+    func with(padSound value: String?) -> Song {
+        Song(sourceURL: sourceURL, name: name, key: key, bpm: bpm,
+             kit: kit, padSound: value, bassSound: bassSound,
+             parts: parts, structure: structure,
+             theme: theme, visualizer: visualizer, countIn: countIn)
+    }
+
+    func with(bassSound value: String?) -> Song {
+        Song(sourceURL: sourceURL, name: name, key: key, bpm: bpm,
+             kit: kit, padSound: padSound, bassSound: value,
+             parts: parts, structure: structure,
+             theme: theme, visualizer: visualizer, countIn: countIn)
+    }
+
+    func with(theme value: VisualTheme) -> Song {
+        Song(sourceURL: sourceURL, name: name, key: key, bpm: bpm,
+             kit: kit, padSound: padSound, bassSound: bassSound,
+             parts: parts, structure: structure,
+             theme: value, visualizer: visualizer, countIn: countIn)
+    }
+
+    func with(visualizer value: VisualizerStyle) -> Song {
+        Song(sourceURL: sourceURL, name: name, key: key, bpm: bpm,
+             kit: kit, padSound: padSound, bassSound: bassSound,
+             parts: parts, structure: structure,
+             theme: theme, visualizer: value, countIn: countIn)
+    }
+
+    func with(countIn value: Int) -> Song {
+        Song(sourceURL: sourceURL, name: name, key: key, bpm: bpm,
+             kit: kit, padSound: padSound, bassSound: bassSound,
+             parts: parts, structure: structure,
+             theme: theme, visualizer: visualizer, countIn: value)
+    }
+
+    func replacingPart(_ partName: String, with replacement: Part) -> Song {
+        var newParts = parts
+        newParts[partName] = replacement
+        return Song(sourceURL: sourceURL, name: name, key: key, bpm: bpm,
+                    kit: kit, padSound: padSound, bassSound: bassSound,
+                    parts: newParts, structure: structure,
+                    theme: theme, visualizer: visualizer, countIn: countIn)
+    }
+}
+
+extension Part {
+    func with(padLevel value: Int) -> Part {
+        Part(name: name, pattern: pattern, chords: chords, repeats: repeats,
+             padLevel: value, bassLevel: bassLevel,
+             lyrics: lyrics, visuals: visuals, visualMode: visualMode,
+             visualizer: visualizer, visualEffect: visualEffect)
+    }
+
+    func with(bassLevel value: Int) -> Part {
+        Part(name: name, pattern: pattern, chords: chords, repeats: repeats,
+             padLevel: padLevel, bassLevel: value,
+             lyrics: lyrics, visuals: visuals, visualMode: visualMode,
+             visualizer: visualizer, visualEffect: visualEffect)
+    }
+
+    func with(visuals value: [String]) -> Part {
+        Part(name: name, pattern: pattern, chords: chords, repeats: repeats,
+             padLevel: padLevel, bassLevel: bassLevel,
+             lyrics: lyrics, visuals: value, visualMode: visualMode,
+             visualizer: visualizer, visualEffect: visualEffect)
+    }
+
+    func with(visualMode value: VisualCycleMode) -> Part {
+        Part(name: name, pattern: pattern, chords: chords, repeats: repeats,
+             padLevel: padLevel, bassLevel: bassLevel,
+             lyrics: lyrics, visuals: visuals, visualMode: value,
+             visualizer: visualizer, visualEffect: visualEffect)
+    }
+
+    func with(visualizer value: VisualizerStyle?) -> Part {
+        Part(name: name, pattern: pattern, chords: chords, repeats: repeats,
+             padLevel: padLevel, bassLevel: bassLevel,
+             lyrics: lyrics, visuals: visuals, visualMode: visualMode,
+             visualizer: value, visualEffect: visualEffect)
+    }
+
+    func with(visualEffect value: PostEffect) -> Part {
+        Part(name: name, pattern: pattern, chords: chords, repeats: repeats,
+             padLevel: padLevel, bassLevel: bassLevel,
+             lyrics: lyrics, visuals: visuals, visualMode: visualMode,
+             visualizer: visualizer, visualEffect: value)
     }
 }

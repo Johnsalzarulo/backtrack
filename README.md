@@ -268,10 +268,73 @@ about navigating that pre-built structure.
 | `D` | Cycle the active setlist alphabetically (no-op with 0 or 1 setlists). Stops in-flight playback, rebuilds the lineup, and resets to item 0 of the new setlist. |
 | `V` | Show / hide the visuals window. |
 | `F` | Toggle the visuals window into macOS native full-screen (title bar auto-hides, window covers the display). Opens the window first if it was closed. |
+| `\` | Toggle **tweak mode** — see below. |
 
 Songs, countdowns, setlists, and `patterns.json` auto-reload within
 ~1 s of being saved. Sample folders only load at launch — restart
 the app to pick up new kits.
+
+## Tweak mode
+
+A structured, in-app editor for the parameters you'd most often want
+to adjust on an existing song — kit, sounds, theme, visualizer,
+count-in, plus per-part pad/bass complexity and visual settings.
+Everything writes back to the song's JSON file on every change, so
+the JSON stays the source of truth.
+
+Tweak mode is **not** a song authoring tool. Chord progressions,
+lyrics, drum patterns, repeats, and the parts/structure remain
+JSON-edited — the editor is for "tweak and finalize," not "make
+something from scratch."
+
+Press `\` to toggle. Works whether transport is stopped or playing —
+cycling values mid-playback so you can hear them land is the intended
+workflow.
+
+### Editable fields
+
+| Scope | Field | Cycles through |
+|-------|-------|----------------|
+| Song | `kit` | folder names under `~/BackTrack/Samples/drums/` |
+| Song | `padSound` | folder names under `pads/`, plus a `(none)` stop |
+| Song | `bassSound` | folder names under `bass/`, plus a `(none)` stop |
+| Song | `theme` | `dark` / `light` |
+| Song | `visualizer` | the nine visualizer styles |
+| Song | `countIn` | 0–4 bars |
+| Part | `padLevel` | 0–3 |
+| Part | `bassLevel` | 0–3 |
+| Part | `visuals` | every file in `~/BackTrack/Visuals/`, plus `(none)` |
+| Part | `visualMode` | `bar` / `beat` |
+| Part | `visualizer` | the nine styles, plus `(use song default)` |
+| Part | `visualEffect` | `none` / `glitch` / `tracking` / `chroma` |
+
+Cycling is bounded — you can never land on an invalid value.
+
+### Keybindings (in tweak mode)
+
+| Key | Action |
+|-----|--------|
+| `↑` / `↓` | Move the cursor between fields |
+| `←` / `→` | Cycle the focused field's value backward / forward |
+| `[` / `]` | Same as `←` / `→` |
+| `Space` | Toggle transport (live preview) |
+| `L` / `V` / `F` | Loop / visuals window / full-screen — same as performance mode |
+| `\` | Exit tweak mode |
+
+`D` (cycle setlist) and lineup navigation are intentionally
+suppressed in tweak mode — exit first to navigate songs.
+
+### Save behavior
+
+Every cycle is auto-saved to disk via `SongLoader.save()` (sorted
+keys, default-fields-omitted, deterministic diff). A toast at the
+bottom of the field list confirms the write, e.g. `saved → kit: 808`.
+
+`kit`, `padSound`, and `bassSound` cycles also tell the audio engine
+to swap its loaded buffers immediately, so the next drum / pad / bass
+trigger uses the new sound — no need to stop and restart playback.
+Other fields (levels, visuals, theme, etc.) are read live from the
+song struct on every tick / render frame, so they're already live.
 
 ## HUD
 

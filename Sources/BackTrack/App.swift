@@ -34,7 +34,7 @@ final class Coordinator: ObservableObject {
         let audio = AudioEngineController()
         audio.state = state
         let clock = Clock(state: state, audio: audio)
-        let keyboard = KeyboardHandler(state: state, clock: clock)
+        let keyboard = KeyboardHandler(state: state, clock: clock, audio: audio)
         self.state = state
         self.audio = audio
         self.clock = clock
@@ -48,6 +48,7 @@ final class Coordinator: ObservableObject {
         reloadCountdowns()
         reloadSetlists()
         rebuildLineup()
+        state.visualsLibrary = VisualsLibrary.scanAll()
         keyboard.install()
         state.outputDevice = AudioDevices.defaultOutputName()
 
