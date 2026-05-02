@@ -8,6 +8,11 @@ struct ContentView: View {
     private let fg = Color(red: 0.82, green: 0.92, blue: 0.82)
     private let dim = Color(white: 0.45)
     private let accent = Color(red: 0.82, green: 0.92, blue: 0.82)
+    // Tweak-mode chrome — warm red so the editor surface is unmistakable
+    // against the normal pale-green ink. Used for the EDITING header,
+    // part section labels, and field label rows when tweakMode is on.
+    private let editAccent = Color(red: 1.0, green: 0.42, blue: 0.42)
+    private let editDim = Color(red: 0.7, green: 0.30, blue: 0.30)
     private let activityDecay: TimeInterval = 0.18
 
     // Left column is a fixed-width, stable layout (structure, chord, mix,
@@ -323,7 +328,7 @@ struct ContentView: View {
             row("SPACE", "start / stop",        "← →", "prev / next item")
             row("↑ ↓",   "next / prev part",    "L",   "loop current part")
             row("D",     "cycle setlist",       "V",   "show / hide visuals")
-            row("F",     "visuals full-screen", "",    "")
+            row("F",     "visuals full-screen", "\\",  "tweak mode")
         }
         .foregroundColor(dim)
         .font(.system(.caption, design: .monospaced))
@@ -338,18 +343,141 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Right column (song header + lyrics)
+    // MARK: - Right column (song header + lyrics, or tweak field list)
 
     private var rightColumn: some View {
         VStack(alignment: .leading, spacing: 14) {
             setlistPositionBlock
-            songHeaderBlock
-            divider
-            lyricsBlock
+            if state.tweakMode {
+                tweakHeader
+                divider
+                tweakFieldList
+                tweakSaveToast
+            } else {
+                songHeaderBlock
+                divider
+                lyricsBlock
+            }
             Spacer(minLength: 0)
             visualsPreviewBlock
             outDeviceBlock
         }
+    }
+
+    // MARK: - Tweak mode
+
+    private var tweakHeader: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 12) {
+                Circle()
+                    .fill(editAccent)
+                    .frame(width: 10, height: 10)
+                Text("EDITING")
+                    .foregroundColor(editAccent)
+                    .font(.system(size: 16, weight: .bold, design: .monospaced))
+                Text("—")
+                    .foregroundColor(editDim)
+                Text(state.currentSong?.name.uppercased() ?? "—")
+                    .foregroundColor(editAccent)
+                    .font(.system(size: 16, design: .monospaced))
+            }
+            HStack(spacing: 10) {
+                Text("AUTO-SAVE")
+                    .foregroundColor(editDim)
+                    .font(.system(.caption2, design: .monospaced))
+                Text("↑↓ field   ←→ value   \\ exit")
+                    .foregroundColor(editDim)
+                    .font(.system(.caption2, design: .monospaced))
+            }
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(editAccent.opacity(0.10))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 4)
+                .stroke(editAccent.opacity(0.45), lineWidth: 1)
+        )
+    }
+
+    // Toast that flashes at the bottom of the field list each time a
+    // cycle saves. Fades over ~1.5 s so consecutive cycles re-trigger
+    // it cleanly, but it doesn't linger and clutter the layout.
+    private var tweakSaveToast: some View {
+        TimelineView(.animation) { context in
+            let elapsed = context.date.timeIntervalSince(state.tweakLastSaved)
+            let visibleWindow: TimeInterval = 1.5
+            let opacity = max(0, 1 - elapsed / visibleWindow)
+            Text(state.tweakLastSavedNote)
+                .foregroundColor(editAccent)
+                .font(.system(.caption, design: .monospaced))
+                .opacity(opacity)
+        }
+    }
+
+    @ViewBuilder
+    private var tweakFieldList: some View {
+        if let song = state.currentSong {
+            let fields = TweakField.fields(for: song)
+            ScrollViewReader { proxy in
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(Array(fields.enumerated()), id: \.offset) { idx, field in
+                            if let header = sectionHeader(at: idx, in: fields) {
+                                Text(header)
+                                    .foregroundColor(editAccent)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .padding(.top, idx == 0 ? 0 : 8)
+                            }
+                            tweakFieldRow(field, song: song, focused: idx == state.tweakCursor)
+                                .id(idx)
+                        }
+                    }
+                    .font(.system(.body, design: .monospaced))
+                    .padding(.vertical, 2)
+                }
+                .onChange(of: state.tweakCursor) { newIdx in
+                    withAnimation(.easeOut(duration: 0.12)) {
+                        proxy.scrollTo(newIdx, anchor: .center)
+                    }
+                }
+            }
+        } else {
+            Text("no song selected").foregroundColor(dim)
+        }
+    }
+
+    // A "PART NAME" header appears whenever the part name changes
+    // between successive fields. Song-level fields (no part name)
+    // get no header — the EDITING banner above is enough for them.
+    private func sectionHeader(at idx: Int, in fields: [TweakField]) -> String? {
+        let current = fields[idx].partName
+        let prev = idx > 0 ? fields[idx - 1].partName : nil
+        if current != prev, let p = current {
+            return p.uppercased()
+        }
+        return nil
+    }
+
+    private func tweakFieldRow(_ field: TweakField, song: Song, focused: Bool) -> some View {
+        HStack(spacing: 8) {
+            Text(focused ? "▸" : " ")
+                .foregroundColor(editAccent)
+                .frame(width: 12, alignment: .leading)
+            Text(field.label)
+                .foregroundColor(focused ? editAccent : editDim)
+                .frame(width: 130, alignment: .leading)
+            Text(field.displayValue(in: song))
+                .foregroundColor(focused ? fg : fg.opacity(0.7))
+        }
+        .padding(.vertical, 2)
+        .padding(.horizontal, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 3)
+                .fill(focused ? editAccent.opacity(0.12) : Color.clear)
+        )
     }
 
     // Setlist marquee shown above the song / countdown header. Tells

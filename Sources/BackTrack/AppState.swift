@@ -105,6 +105,31 @@ final class AppState: ObservableObject {
 
     @Published var visualsOpen: Bool = true
 
+    // Tweak mode swaps the HUD's right column from lyrics to a
+    // structured field list of every tweakable parameter on the
+    // current song (kit, sounds, theme, visualizer, count-in, plus
+    // per-part pad/bass levels and visual fields). Works whether
+    // transport is playing or stopped — cycling values mid-playback
+    // and hearing them land is the intended workflow. See
+    // ContentView and KeyboardHandler for the editor surface.
+    @Published var tweakMode: Bool = false
+
+    // Cursor position into the tweak field list (built by
+    // `TweakField.fields(for:)`). Reset to 0 on every entry into
+    // tweak mode so it's always valid and predictable.
+    @Published var tweakCursor: Int = 0
+
+    // Filenames in ~/BackTrack/Visuals/, scanned once at launch via
+    // VisualsLibrary.scanAll. Powers the `partVisuals` cycle in
+    // tweak mode. Restart-only refresh (matches sample folders).
+    @Published var visualsLibrary: [String] = []
+
+    // Most recent successful tweak-mode save — used for the toast
+    // shown beneath the field list ("saved → kit: 808"). The toast
+    // fades over a short window via TimelineView reading lastSaved.
+    @Published var tweakLastSaved: Date = .distantPast
+    @Published var tweakLastSavedNote: String = ""
+
     // MARK: - Visual resolvers (read straight from JSON)
 
     var effectiveTheme: VisualTheme {
