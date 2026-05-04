@@ -152,7 +152,10 @@ enum SongLoader {
                 visuals: visuals,
                 visualMode: mode,
                 visualizer: part.visualizer?.rawValue,
-                visualEffect: part.visualEffect == .none ? nil : part.visualEffect.rawValue
+                visualEffect: part.visualEffect == .none ? nil : part.visualEffect.rawValue,
+                videoClip: part.videoClip,
+                // Omit when default (100) so files stay tidy.
+                videoClipVolume: part.videoClipVolume == 100 ? nil : part.videoClipVolume
             )
         }
         return SongJSON(
@@ -226,6 +229,11 @@ enum SongLoader {
             throw SongValidationError(err.description)
         }
 
+        let videoClipVolume = part.videoClipVolume ?? 100
+        guard (0...200).contains(videoClipVolume) else {
+            throw SongValidationError("part '\(name)' videoClipVolume \(videoClipVolume) out of range (0-200)")
+        }
+
         return Part(
             name: name,
             pattern: part.pattern,
@@ -237,7 +245,9 @@ enum SongLoader {
             visuals: visuals,
             visualMode: visualMode,
             visualizer: visualizer,
-            visualEffect: visualEffect
+            visualEffect: visualEffect,
+            videoClip: (part.videoClip?.isEmpty ?? true) ? nil : part.videoClip,
+            videoClipVolume: videoClipVolume
         )
     }
 

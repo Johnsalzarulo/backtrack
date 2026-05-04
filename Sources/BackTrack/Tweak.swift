@@ -15,12 +15,15 @@ enum TweakField: Hashable {
     case theme
     case songVisualizer
     case countIn
+    case partPattern(part: String)
     case partPadLevel(part: String)
     case partBassLevel(part: String)
     case partVisuals(part: String)
     case partVisualMode(part: String)
     case partVisualizer(part: String)
     case partVisualEffect(part: String)
+    case partVideoClip(part: String)
+    case partVideoClipVolume(part: String)
 
     // Display label for the field's row in the HUD.
     var label: String {
@@ -31,12 +34,15 @@ enum TweakField: Hashable {
         case .theme:                return "Theme"
         case .songVisualizer:       return "Visualizer"
         case .countIn:              return "Count-In"
+        case .partPattern:          return "Pattern"
         case .partPadLevel:         return "Pad Level"
         case .partBassLevel:        return "Bass Level"
         case .partVisuals:          return "Visuals"
         case .partVisualMode:       return "Visual Mode"
         case .partVisualizer:       return "Visualizer"
         case .partVisualEffect:     return "Visual Effect"
+        case .partVideoClip:        return "Video Clip"
+        case .partVideoClipVolume:  return "Clip Volume"
         }
     }
 }
@@ -55,12 +61,15 @@ extension TweakField {
         for partName in song.structure where !seen.contains(partName) {
             guard song.parts[partName] != nil else { continue }
             seen.insert(partName)
+            out.append(.partPattern(part: partName))
             out.append(.partPadLevel(part: partName))
             out.append(.partBassLevel(part: partName))
             out.append(.partVisuals(part: partName))
             out.append(.partVisualMode(part: partName))
             out.append(.partVisualizer(part: partName))
             out.append(.partVisualEffect(part: partName))
+            out.append(.partVideoClip(part: partName))
+            out.append(.partVideoClipVolume(part: partName))
         }
         return out
     }
@@ -71,9 +80,10 @@ extension TweakField {
         switch self {
         case .kit, .padSound, .bassSound, .theme, .songVisualizer, .countIn:
             return nil
-        case .partPadLevel(let p), .partBassLevel(let p),
+        case .partPattern(let p), .partPadLevel(let p), .partBassLevel(let p),
              .partVisuals(let p), .partVisualMode(let p),
-             .partVisualizer(let p), .partVisualEffect(let p):
+             .partVisualizer(let p), .partVisualEffect(let p),
+             .partVideoClip(let p), .partVideoClipVolume(let p):
             return p
         }
     }
@@ -87,6 +97,8 @@ struct TweakUniverse {
     let padSounds: [String]
     let bassSounds: [String]
     let visualsFiles: [String]
+    let patternNames: [String]
+    let videoClipsFiles: [String]
 }
 
 // Read the field's current value as a display string for the HUD.
@@ -107,6 +119,8 @@ extension TweakField {
             return song.visualizer.rawValue
         case .countIn:
             return "\(song.countIn)"
+        case .partPattern(let p):
+            return song.parts[p]?.pattern ?? "(unset)"
         case .partPadLevel(let p):
             return "\(song.parts[p]?.padLevel ?? 0)"
         case .partBassLevel(let p):
@@ -120,6 +134,10 @@ extension TweakField {
             return song.parts[p]?.visualizer?.rawValue ?? "(use song default)"
         case .partVisualEffect(let p):
             return song.parts[p]?.visualEffect.rawValue ?? PostEffect.none.rawValue
+        case .partVideoClip(let p):
+            return song.parts[p]?.videoClip ?? "(none)"
+        case .partVideoClipVolume(let p):
+            return "\(song.parts[p]?.videoClipVolume ?? 100)%"
         }
     }
 }
@@ -136,12 +154,32 @@ extension TweakField {
             return song.with(kit: next)
 
         case .padSound:
-            guard let next = nextOptionalString(song.padSound, in: universe.padSounds, forwards: forwards) else { return nil }
-            return song.with(padSound: next.value)
+            // The `(none)` stop is only valid when no part actually
+            // uses pad. Including it for songs where parts use pad
+            // would silently produce JSON that fails the loader's
+            // "parts use pad but song has no pad sound name" check —
+            // the song would then drop out of the lineup mid-edit.
+            if song.anyPartUsesPad {
+                guard !universe.padSounds.isEmpty else { return nil }
+                let current = song.padSound ?? universe.padSounds[0]
+                let next = step(universe.padSounds, current: current, forwards: forwards)
+                return song.with(padSound: next)
+            } else {
+                guard let next = nextOptionalString(song.padSound, in: universe.padSounds, forwards: forwards) else { return nil }
+                return song.with(padSound: next.value)
+            }
 
         case .bassSound:
-            guard let next = nextOptionalString(song.bassSound, in: universe.bassSounds, forwards: forwards) else { return nil }
-            return song.with(bassSound: next.value)
+            // Same gate as padSound — see comment there.
+            if song.anyPartUsesBass {
+                guard !universe.bassSounds.isEmpty else { return nil }
+                let current = song.bassSound ?? universe.bassSounds[0]
+                let next = step(universe.bassSounds, current: current, forwards: forwards)
+                return song.with(bassSound: next)
+            } else {
+                guard let next = nextOptionalString(song.bassSound, in: universe.bassSounds, forwards: forwards) else { return nil }
+                return song.with(bassSound: next.value)
+            }
 
         case .theme:
             let cycle = VisualTheme.allCases
@@ -157,6 +195,16 @@ extension TweakField {
             let cycle = [0, 1, 2, 3, 4]
             let next = step(cycle, current: song.countIn, forwards: forwards)
             return song.with(countIn: next)
+
+        case .partPattern(let p):
+            guard let part = song.parts[p] else { return nil }
+            // Universe is every pattern in patterns.json (sorted in
+            // KeyboardHandler so cycling is alphabetical and stable).
+            // SongLoader requires `pattern` to be a known name, so we
+            // can only cycle through valid values — no nil stop.
+            guard !universe.patternNames.isEmpty else { return nil }
+            let next = step(universe.patternNames, current: part.pattern, forwards: forwards)
+            return song.replacingPart(p, with: part.with(pattern: next))
 
         case .partPadLevel(let p):
             guard let part = song.parts[p] else { return nil }
@@ -194,6 +242,25 @@ extension TweakField {
             guard let part = song.parts[p] else { return nil }
             let next = step(PostEffect.allCases, current: part.visualEffect, forwards: forwards)
             return song.replacingPart(p, with: part.with(visualEffect: next))
+
+        case .partVideoClip(let p):
+            guard let part = song.parts[p] else { return nil }
+            // Cycle: (none) → file1 → file2 → ... → fileN → (none).
+            // No file existence check on the cycle universe — the
+            // visuals window treats a missing file as "no clip" and
+            // falls back to the part's normal visuals.
+            guard let next = nextOptionalString(part.videoClip, in: universe.videoClipsFiles, forwards: forwards) else { return nil }
+            return song.replacingPart(p, with: part.with(videoClip: next.value))
+
+        case .partVideoClipVolume(let p):
+            guard let part = song.parts[p] else { return nil }
+            // 110% and 120% are over-unity — AVPlayer may clamp them
+            // to 100% depending on the macOS version, but the cycle
+            // exposes them so the performer can ask for boost when
+            // the clip's audio is quieter than expected.
+            let cycle = [0, 25, 50, 75, 100, 110, 120]
+            let next = step(cycle, current: part.videoClipVolume, forwards: forwards)
+            return song.replacingPart(p, with: part.with(videoClipVolume: next))
         }
     }
 }
@@ -264,5 +331,42 @@ enum VisualsLibrary {
             .filter { supportedExtensions.contains($0.pathExtension.lowercased()) }
             .map { $0.lastPathComponent }
             .sorted()
+    }
+}
+
+// MARK: - Video clips library scan
+
+// Flat list of video filenames in ~/BackTrack/VideoClips/. Powers the
+// `partVideoClip` cycle in tweak mode and the runtime URL lookup. Like
+// the visuals/sample folders, scanned at launch only.
+enum VideoClipsLibrary {
+    static let supportedExtensions: Set<String> = [
+        "mp4", "mov", "m4v", "mpg", "mpeg", "m2v", "webm", "avi"
+    ]
+
+    static func directory() -> URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("BackTrack")
+            .appendingPathComponent("VideoClips")
+    }
+
+    static func scanAll() -> [String] {
+        let dir = directory()
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: dir,
+            includingPropertiesForKeys: nil
+        ) else { return [] }
+        return entries
+            .filter { supportedExtensions.contains($0.pathExtension.lowercased()) }
+            .map { $0.lastPathComponent }
+            .sorted()
+    }
+
+    // Resolve a stored filename to an on-disk URL. Returns nil if the
+    // file is missing — the visuals layer treats missing clips as
+    // "no clip" and falls back to normal visuals.
+    static func url(for filename: String) -> URL? {
+        let url = directory().appendingPathComponent(filename)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 }

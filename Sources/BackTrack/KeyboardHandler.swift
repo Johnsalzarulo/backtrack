@@ -17,10 +17,23 @@ final class KeyboardHandler {
 
     private var monitor: Any?
 
+    // Pending auto-advance for an interstitial that has a `duration`
+    // set. Cancelled whenever the lineup cursor moves (so navigating
+    // away early doesn't trigger an unrelated nav after the timer
+    // fires). Video interstitials don't use this — they auto-advance
+    // via the AVPlayer's didPlayToEndTime callback instead.
+    private var interstitialAutoAdvance: DispatchWorkItem?
+
     init(state: AppState, clock: Clock, audio: AudioEngineController) {
         self.state = state
         self.clock = clock
         self.audio = audio
+        // Bridge the closure VisualsView calls when an interstitial's
+        // timer or video runs out. Captures self weakly so this
+        // doesn't keep KeyboardHandler alive past app teardown.
+        state.advanceLineupCursor = { [weak self] in
+            self?.nextLineupItem()
+        }
     }
 
     func install() {
@@ -188,7 +201,11 @@ final class KeyboardHandler {
             kits: state.drumKitNames,
             padSounds: state.padSoundNames,
             bassSounds: state.bassSoundNames,
-            visualsFiles: state.visualsLibrary
+            visualsFiles: state.visualsLibrary,
+            // Sorted so cycling order is stable + alphabetical
+            // regardless of patterns.json's internal ordering.
+            patternNames: Array(Generators.allPatternNames()).sorted(),
+            videoClipsFiles: state.videoClipsLibrary
         )
         guard let updated = field.cycled(forwards: forwards, in: song, universe: universe) else { return }
 
@@ -255,6 +272,11 @@ final class KeyboardHandler {
             clock.toggleTransport()
         case .countdown?:
             toggleCountdown()
+        case .interstitial?:
+            // Interstitials show their content the moment the cursor
+            // lands on them — there's nothing for Space to start.
+            // (Video pause/resume could go here later if useful.)
+            break
         case nil:
             break
         }
@@ -271,17 +293,40 @@ final class KeyboardHandler {
 
     // Move the lineup cursor and tear down per-item state. Stops any
     // in-flight playback (regardless of item kind) and resets song-side
-    // position fields. Wraps modulo at both ends.
+    // position fields. Wraps modulo at both ends. Also (re)schedules
+    // any auto-advance the new item needs.
     private func selectLineupItem(at index: Int) {
         guard !state.lineup.isEmpty else { return }
         if state.isPlaying { clock.stop() }
         stopCountdown()
+        cancelInterstitialAutoAdvance()
 
         let n = state.lineup.count
         state.currentLineupIndex = ((index % n) + n) % n
         state.currentPartIndex = 0
         state.currentBar = 0
         state.pendingPartIndex = nil
+
+        scheduleInterstitialAutoAdvanceIfNeeded()
+    }
+
+    // Text/image interstitials with a `duration` field auto-advance
+    // to the next lineup item after that many seconds. Video kind
+    // doesn't use this path — its auto-advance fires off the
+    // AVPlayer's didPlayToEndTime in VisualsView.
+    private func scheduleInterstitialAutoAdvanceIfNeeded() {
+        guard let inter = state.currentInterstitial,
+              let duration = inter.duration else { return }
+        let work = DispatchWorkItem { [weak self] in
+            self?.nextLineupItem()
+        }
+        interstitialAutoAdvance = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: work)
+    }
+
+    private func cancelInterstitialAutoAdvance() {
+        interstitialAutoAdvance?.cancel()
+        interstitialAutoAdvance = nil
     }
 
     // D — cycle to the next setlist alphabetically. Rebuilds the
@@ -291,6 +336,7 @@ final class KeyboardHandler {
         guard state.setlists.count > 1 else { return }
         if state.isPlaying { clock.stop() }
         stopCountdown()
+        cancelInterstitialAutoAdvance()
 
         let n = state.setlists.count
         state.currentSetlistIndex = (state.currentSetlistIndex + 1) % n
@@ -300,6 +346,8 @@ final class KeyboardHandler {
         state.currentPartIndex = 0
         state.currentBar = 0
         state.pendingPartIndex = nil
+
+        scheduleInterstitialAutoAdvanceIfNeeded()
     }
 
     // MARK: - Countdown transport

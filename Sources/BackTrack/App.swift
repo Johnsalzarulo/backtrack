@@ -46,9 +46,23 @@ final class Coordinator: ObservableObject {
         Generators.loadPatterns()
         reloadSongs()
         reloadCountdowns()
+        reloadInterstitials()
         reloadSetlists()
         rebuildLineup()
         state.visualsLibrary = VisualsLibrary.scanAll()
+        // Ensure the VideoClips directory exists so the user has an
+        // obvious place to drop files. Then scan it.
+        try? FileManager.default.createDirectory(
+            at: VideoClipsLibrary.directory(),
+            withIntermediateDirectories: true
+        )
+        state.videoClipsLibrary = VideoClipsLibrary.scanAll()
+        // Same for Interstitials/ — created on first launch so the
+        // user has a clear place to drop interstitial JSONs.
+        try? FileManager.default.createDirectory(
+            at: InterstitialLoader.defaultDirectory(),
+            withIntermediateDirectories: true
+        )
         keyboard.install()
         state.outputDevice = AudioDevices.defaultOutputName()
 
@@ -63,6 +77,7 @@ final class Coordinator: ObservableObject {
                 for dir in [
                     SongLoader.defaultDirectory(),
                     CountdownLoader.defaultDirectory(),
+                    InterstitialLoader.defaultDirectory(),
                     SetlistLoader.defaultDirectory(),
                 ] {
                     if let entries = try? fm.contentsOfDirectory(
@@ -86,6 +101,7 @@ final class Coordinator: ObservableObject {
         Generators.loadPatterns()
         reloadSongs()
         reloadCountdowns()
+        reloadInterstitials()
         reloadSetlists()
         rebuildLineup()
     }
@@ -94,6 +110,12 @@ final class Coordinator: ObservableObject {
         let result = CountdownLoader.loadAll()
         state.countdowns = result.countdowns
         state.countdownIssues = result.issues
+    }
+
+    func reloadInterstitials() {
+        let result = InterstitialLoader.loadAll()
+        state.interstitials = result.interstitials
+        state.interstitialIssues = result.issues
     }
 
     func reloadSetlists() {
@@ -144,7 +166,12 @@ struct BackTrackApp: App {
                 .environmentObject(coord.state)
                 .onAppear { coord.bootstrap() }
         }
-        .windowResizability(.contentSize)
+        // .contentMinSize lets the window resize freely while honoring
+        // ContentView's minWidth / minHeight as the floor. Combined
+        // with the maxWidth: .infinity / maxHeight: .infinity on the
+        // root frame, the HUD scales up to whatever size the user
+        // drags the window to.
+        .windowResizability(.contentMinSize)
         .windowStyle(.titleBar)
 
         Window("BackTrack Visuals", id: "visuals") {

@@ -256,6 +256,17 @@ enum Generators {
             kick:  "X . . . . . . . X . . . . . . .",
             snare: ". . . . . . . . . . . . . x . .",
             hh:    "X . . . . . . . X . . . . . . ."
+        ),
+        // No drums at all — the "off" stop on the per-part Pattern
+        // cycle in tweak mode. Compiles to empty event lists, so the
+        // Clock's drum trigger pass produces nothing on every tick.
+        // Pad and bass voices are unaffected; the part still has its
+        // chord progression, lyrics, and visuals.
+        PatternDefinition(
+            name: "Silent",
+            kick:  ". . . . . . . . . . . . . . . .",
+            snare: ". . . . . . . . . . . . . . . .",
+            hh:    ". . . . . . . . . . . . . . . ."
         )
     ]
 }

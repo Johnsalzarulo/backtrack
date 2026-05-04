@@ -50,6 +50,15 @@ struct PartJSON: Codable {
     // Each part declares its own — different sections of a song can
     // have different effects. Default "none".
     let visualEffect: String?
+    // Optional video clip (filename in ~/BackTrack/VideoClips/) that
+    // plays once with audio when the part starts. Overrides the
+    // visuals layer for the duration of the clip; falls back to the
+    // part's normal visuals (GIF / synth) when the clip ends. The
+    // backing track keeps playing alongside the clip's own audio.
+    let videoClip: String?
+    // Audio gain for the clip, 0–100. Default 100. Only meaningful
+    // when `videoClip` is set; ignored otherwise.
+    let videoClipVolume: Int?
 }
 
 // Polymorphic JSON container: decodes either `"visuals": "foo.gif"` or
@@ -172,6 +181,8 @@ struct Part {
     let visualMode: VisualCycleMode // cycling behavior when visuals.count > 1
     let visualizer: VisualizerStyle? // per-part override; nil = inherit from song
     let visualEffect: PostEffect    // post-processing effect for this part; .none = no effect
+    let videoClip: String?          // filename under VideoClips/; nil = no clip
+    let videoClipVolume: Int        // 0..100; ignored unless videoClip is set
 
     // Derived: total bar count for this part.
     var bars: Int { chords.count * repeats }
@@ -205,6 +216,21 @@ struct Part {
 // Tweak.swift; immutable struct semantics are preserved.
 
 extension Song {
+    // True if any part needs a pad voice (padLevel > 0). When true,
+    // the song JSON must declare a pad sound name; SongLoader rejects
+    // the file otherwise. Tweak mode reads this to omit the `(none)`
+    // stop from the padSound cycle for songs whose parts use pad,
+    // so cycling can never produce a JSON that fails to reload.
+    var anyPartUsesPad: Bool {
+        parts.values.contains { $0.padLevel > 0 }
+    }
+
+    // Same as above for bass — gates the `(none)` stop on the
+    // bassSound cycle in tweak mode.
+    var anyPartUsesBass: Bool {
+        parts.values.contains { $0.bassLevel > 0 }
+    }
+
     func with(kit value: String) -> Song {
         Song(sourceURL: sourceURL, name: name, key: key, bpm: bpm,
              kit: value, padSound: padSound, bassSound: bassSound,
@@ -258,45 +284,75 @@ extension Song {
 }
 
 extension Part {
+    func with(pattern value: String) -> Part {
+        Part(name: name, pattern: value, chords: chords, repeats: repeats,
+             padLevel: padLevel, bassLevel: bassLevel,
+             lyrics: lyrics, visuals: visuals, visualMode: visualMode,
+             visualizer: visualizer, visualEffect: visualEffect,
+             videoClip: videoClip, videoClipVolume: videoClipVolume)
+    }
+
     func with(padLevel value: Int) -> Part {
         Part(name: name, pattern: pattern, chords: chords, repeats: repeats,
              padLevel: value, bassLevel: bassLevel,
              lyrics: lyrics, visuals: visuals, visualMode: visualMode,
-             visualizer: visualizer, visualEffect: visualEffect)
+             visualizer: visualizer, visualEffect: visualEffect,
+             videoClip: videoClip, videoClipVolume: videoClipVolume)
     }
 
     func with(bassLevel value: Int) -> Part {
         Part(name: name, pattern: pattern, chords: chords, repeats: repeats,
              padLevel: padLevel, bassLevel: value,
              lyrics: lyrics, visuals: visuals, visualMode: visualMode,
-             visualizer: visualizer, visualEffect: visualEffect)
+             visualizer: visualizer, visualEffect: visualEffect,
+             videoClip: videoClip, videoClipVolume: videoClipVolume)
     }
 
     func with(visuals value: [String]) -> Part {
         Part(name: name, pattern: pattern, chords: chords, repeats: repeats,
              padLevel: padLevel, bassLevel: bassLevel,
              lyrics: lyrics, visuals: value, visualMode: visualMode,
-             visualizer: visualizer, visualEffect: visualEffect)
+             visualizer: visualizer, visualEffect: visualEffect,
+             videoClip: videoClip, videoClipVolume: videoClipVolume)
     }
 
     func with(visualMode value: VisualCycleMode) -> Part {
         Part(name: name, pattern: pattern, chords: chords, repeats: repeats,
              padLevel: padLevel, bassLevel: bassLevel,
              lyrics: lyrics, visuals: visuals, visualMode: value,
-             visualizer: visualizer, visualEffect: visualEffect)
+             visualizer: visualizer, visualEffect: visualEffect,
+             videoClip: videoClip, videoClipVolume: videoClipVolume)
     }
 
     func with(visualizer value: VisualizerStyle?) -> Part {
         Part(name: name, pattern: pattern, chords: chords, repeats: repeats,
              padLevel: padLevel, bassLevel: bassLevel,
              lyrics: lyrics, visuals: visuals, visualMode: visualMode,
-             visualizer: value, visualEffect: visualEffect)
+             visualizer: value, visualEffect: visualEffect,
+             videoClip: videoClip, videoClipVolume: videoClipVolume)
     }
 
     func with(visualEffect value: PostEffect) -> Part {
         Part(name: name, pattern: pattern, chords: chords, repeats: repeats,
              padLevel: padLevel, bassLevel: bassLevel,
              lyrics: lyrics, visuals: visuals, visualMode: visualMode,
-             visualizer: visualizer, visualEffect: value)
+             visualizer: visualizer, visualEffect: value,
+             videoClip: videoClip, videoClipVolume: videoClipVolume)
+    }
+
+    func with(videoClip value: String?) -> Part {
+        Part(name: name, pattern: pattern, chords: chords, repeats: repeats,
+             padLevel: padLevel, bassLevel: bassLevel,
+             lyrics: lyrics, visuals: visuals, visualMode: visualMode,
+             visualizer: visualizer, visualEffect: visualEffect,
+             videoClip: value, videoClipVolume: videoClipVolume)
+    }
+
+    func with(videoClipVolume value: Int) -> Part {
+        Part(name: name, pattern: pattern, chords: chords, repeats: repeats,
+             padLevel: padLevel, bassLevel: bassLevel,
+             lyrics: lyrics, visuals: visuals, visualMode: visualMode,
+             visualizer: visualizer, visualEffect: visualEffect,
+             videoClip: videoClip, videoClipVolume: value)
     }
 }

@@ -77,9 +77,11 @@ enum SetlistLoader {
                 items.append(.song(name: raw.ref))
             case "countdown":
                 items.append(.countdown(name: raw.ref))
+            case "interstitial":
+                items.append(.interstitial(name: raw.ref))
             default:
                 throw SetlistValidationError(
-                    "item \(idx + 1) ('\(raw.ref)') kind '\(raw.kind)' — expected 'song' or 'countdown'"
+                    "item \(idx + 1) ('\(raw.ref)') kind '\(raw.kind)' — expected 'song', 'countdown', or 'interstitial'"
                 )
             }
         }

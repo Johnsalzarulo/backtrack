@@ -99,6 +99,8 @@ scans the directory; any malformed songs surface in the HUD's
 | `visualizer` | song | Synth-layer motif. One of `"constellation"` (default), `"orbit"`, `"ink"`, `"squares"`, `"dots"`, `"lines"`, `"ripple"`, `"lyrics-block"`, `"lyrics-line"`. See the Visuals window section below. |
 | `countIn` | song | Optional integer. When > 0, pressing Space plays N bars of metronome clicks (4 hi-hat hits per bar at the song's BPM, beat 1 accented) before the song actually starts. The HUD shows `● COUNT-IN n/N` and the visuals window shows the current beat-in-bar number large. Default 0 = no count-in. |
 | `visualEffect` | part | Optional. Post-processing layer wrapping the entire visuals window for this part. One of `"none"` (default), `"glitch"` (beat-synced digital-corruption jitter + slice flashes; every 4th bar's downbeat fires a major tear with longer decay and ~3× slice count), `"tracking"` (continuous VCR distortion band + slight VHS desaturation; every ~6 s the picture rolls vertically with a sync seam at the wrap point), `"chroma"` (RGB channel separation; per-beat random angle, downbeat boost, part-start blowout — Spider-Verse / vintage 3D feel). Different parts can have different effects. |
+| `videoClip` | part | Optional filename in `~/BackTrack/VideoClips/` (mp4, mov, m4v, mpg, mpeg, m2v, webm, avi). When set, plays once with audio when the part starts, taking over the visuals window. The backing track keeps playing alongside. When the clip ends mid-part, the visuals window falls back to the part's normal `visuals` / `visualizer`. |
+| `videoClipVolume` | part | Optional integer 0–100, default 100. Audio gain for `videoClip`. Ignored when `videoClip` is unset. |
 | `pattern` | part | Drum pattern name from `patterns.json` (e.g. `"Rock basic"`, `"Four on the floor"`). |
 | `chords` | part | The chord progression of the part — one symbol per bar of the progression. |
 | `repeats` | part | How many times the chord progression cycles. Optional, default 1. Total bars = `chords.length × repeats`. |
@@ -192,12 +194,73 @@ the cursor lands on a countdown:
 - `Space` — start → pause → resume → pause → ... (timer keeps its place)
 - `←` / `→` — leave for the previous / next lineup item (resets the timer)
 
+## Interstitials
+
+The third lineup-item kind, alongside songs and countdowns. An
+interstitial shows a single thing on screen while the performer is
+between songs — tuning, taking a beat, introducing what's next.
+
+Three flavors: a **text** card, a **still image**, or a **video clip**
+with audio. One file per interstitial, under
+`~/BackTrack/Interstitials/`.
+
+```
+~/BackTrack/Interstitials/welcome.json
+```
+
+### Schema
+
+```json
+{
+  "name": "Welcome",
+  "kind": "text",
+  "text": "Welcome to the show",
+  "notes": "Hi everyone — quick housekeeping then into the first one.",
+  "duration": 30,
+  "theme": "dark"
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `name` | Display name; matched by setlist refs. |
+| `kind` | One of `"text"` / `"image"` / `"video"`. The required content field below depends on this. |
+| `text` | Required for `kind: "text"`. Multi-line via `\n`. Rendered big, centered, theme-tinted (lyrics-block style). |
+| `image` | Required for `kind: "image"`. Filename in `~/BackTrack/Visuals/`. CSS-cover full-bleed. |
+| `video` | Required for `kind: "video"`. Filename in `~/BackTrack/VideoClips/`. Plays unmuted, full-bleed. |
+| `volume` | Video only. Integer 0–100, default 100. |
+| `loop` | Video only. Default `false`. When `false`, the video plays once and the lineup auto-advances to the next item when it ends. When `true`, the video keeps replaying until you `←/→` away. |
+| `duration` | Optional integer seconds. Auto-advance to the next lineup item after this many seconds. **Text/image only** — for video, the clip's actual length determines auto-advance. |
+| `notes` | Optional. Talking points shown in the HUD's right column where song lyrics normally appear — a place for what to say while the visual is on screen. |
+| `theme` | `"dark"` (default) / `"light"`. Affects text/background colors for `text` kind. |
+
+### Transport
+
+When the cursor lands on an interstitial, its content shows in the
+visuals window immediately — no `Space` needed. The HUD's right
+column shows the notes; left column shows an INTERSTITIAL block with
+the name + kind.
+
+`←` / `→` navigates away (tears down the video / clears the screen).
+`Space` is a no-op for interstitials.
+
+When the auto-advance trigger fires (duration expired for text/image,
+non-looping video reached its end), the lineup moves to the next item
+on its own.
+
+### Sound during a video interstitial
+
+Only the video's own audio plays — there's no song clock running on a
+non-song lineup item, so no drums / pad / bass. Use `volume` (or
+edit it in the JSON) to set the level.
+
 ## Setlists
 
-Songs and countdowns are arranged into ordered setlists for live use.
-The "lineup" — what `←` and `→` actually navigate — is whichever
-setlist is currently active. With no setlist active, the lineup falls
-back to all songs followed by all countdowns.
+Songs, countdowns, and interstitials are arranged into ordered
+setlists for live use. The "lineup" — what `←` and `→` actually
+navigate — is whichever setlist is currently active. With no setlist
+active, the lineup falls back to all songs, then all countdowns,
+then all interstitials.
 
 ```
 ~/BackTrack/Setlists/01_full_show.json
@@ -209,11 +272,12 @@ back to all songs followed by all countdowns.
 {
   "name": "Full Show",
   "items": [
-    { "kind": "countdown", "ref": "Pre-show" },
-    { "kind": "song",      "ref": "Double Yellow Lines" },
-    { "kind": "song",      "ref": "Get Yourself Together" },
-    { "kind": "countdown", "ref": "Intermission" },
-    { "kind": "song",      "ref": "Listen to the Dead" }
+    { "kind": "countdown",    "ref": "Pre-show" },
+    { "kind": "song",         "ref": "Double Yellow Lines" },
+    { "kind": "interstitial", "ref": "Welcome" },
+    { "kind": "song",         "ref": "Get Yourself Together" },
+    { "kind": "countdown",    "ref": "Intermission" },
+    { "kind": "song",         "ref": "Listen to the Dead" }
   ]
 }
 ```
@@ -296,19 +360,26 @@ workflow.
 | Scope | Field | Cycles through |
 |-------|-------|----------------|
 | Song | `kit` | folder names under `~/BackTrack/Samples/drums/` |
-| Song | `padSound` | folder names under `pads/`, plus a `(none)` stop |
-| Song | `bassSound` | folder names under `bass/`, plus a `(none)` stop |
+| Song | `padSound` | folder names under `pads/` (plus `(none)` only if no part uses pad) |
+| Song | `bassSound` | folder names under `bass/` (plus `(none)` only if no part uses bass) |
 | Song | `theme` | `dark` / `light` |
 | Song | `visualizer` | the nine visualizer styles |
 | Song | `countIn` | 0–4 bars |
+| Part | `pattern` | every drum pattern in `patterns.json` (alphabetical) |
 | Part | `padLevel` | 0–3 |
 | Part | `bassLevel` | 0–3 |
 | Part | `visuals` | every file in `~/BackTrack/Visuals/`, plus `(none)` |
 | Part | `visualMode` | `bar` / `beat` |
 | Part | `visualizer` | the nine styles, plus `(use song default)` |
 | Part | `visualEffect` | `none` / `glitch` / `tracking` / `chroma` |
+| Part | `videoClip` | every file in `~/BackTrack/VideoClips/`, plus `(none)` |
+| Part | `videoClipVolume` | `0%` / `25%` / `50%` / `75%` / `100%` / `110%` / `120%` |
 
-Cycling is bounded — you can never land on an invalid value.
+Cycling is bounded — you can never land on an invalid value. The
+`(none)` stop on `padSound` / `bassSound` is suppressed when any
+part of the song has a non-zero `padLevel` / `bassLevel`, since
+saving with no song-level sound name in that case would cause the
+song to fail to reload.
 
 ### Keybindings (in tweak mode)
 
@@ -370,7 +441,7 @@ is a rest, and spaces are ignored. Songs reference patterns by the
 `name` string. Pattern names are unique; redefining a name overrides
 the built-in default.
 
-The shipped library ships 34 patterns, indie-rock-leaning:
+The shipped library ships 35 patterns, indie-rock-leaning:
 
 | Name | Feel |
 |------|------|
@@ -409,6 +480,7 @@ The shipped library ships 34 patterns, indie-rock-leaning:
 | Punk drive | 8th-note kicks + snare 2&4 + 8th hats — fast & aggressive |
 | Trip-hop | Half-time kick + ghost snare, ghosted 8th hats |
 | Long build | Snare ramp 8th→16th with hat acceleration — extended fill |
+| Silent | No drum hits at all — for parts that should be drum-free (pad / bass / vocals only) |
 
 Edit the file to customize any of them or add your own. Auto-reloads
 on save (within ~1 s).
@@ -435,6 +507,30 @@ subdirectories — parts reference files by filename only.
 All media is scaled CSS-cover style: fills both axes, preserves aspect
 ratio, crops whatever overflows. Videos play muted — BackTrack is the
 only audio source.
+
+### Video clips (with audio)
+
+A second media path on each part: drop files into `~/BackTrack/VideoClips/`
+(directory is created on first launch), then reference them per part
+via `videoClip` + optional `videoClipVolume` (see Songs schema above).
+
+Differences vs. the visuals layer:
+
+- Plays **once** with audio, start to finish
+- Volume is per-part-configurable, defaults to 100%
+- Overrides everything else in the visuals window for the duration
+  of the clip
+- When the clip finishes mid-part, the visuals window falls back to
+  whatever the part normally would show (GIF / synth)
+- The backing track keeps playing alongside the clip's audio — to
+  silence the backing track during the clip, set the part's
+  `padLevel: 0`, `bassLevel: 0`, and `pattern: "Silent"`
+
+Stop / part change / song change tears the clip down. Looping a part
+with a videoClip plays the clip once on the first loop only.
+
+Same supported extensions as the visuals layer's video files.
+Restart the app to pick up new files in the directory.
 
 Each part can specify either a single visual or an array that cycles
 during playback, controlled by `visualMode`:
