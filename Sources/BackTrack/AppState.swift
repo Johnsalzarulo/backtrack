@@ -47,10 +47,12 @@ final class AppState: ObservableObject {
 
     @Published var songs: [Song] = []
     @Published var countdowns: [Countdown] = []
+    @Published var interstitials: [Interstitial] = []
     @Published var setlists: [Setlist] = []
 
     @Published var songIssues: [String] = []
     @Published var countdownIssues: [String] = []
+    @Published var interstitialIssues: [String] = []
     @Published var setlistIssues: [String] = []
 
     // MARK: - Lineup (the navigable arrangement)
@@ -90,6 +92,11 @@ final class AppState: ObservableObject {
         return nil
     }
 
+    var currentInterstitial: Interstitial? {
+        if case .interstitial(let i) = currentLineupItem { return i }
+        return nil
+    }
+
     // MARK: - Countdown transport
 
     @Published var countdownTransport: CountdownTransport = .stopped
@@ -124,11 +131,37 @@ final class AppState: ObservableObject {
     // tweak mode. Restart-only refresh (matches sample folders).
     @Published var visualsLibrary: [String] = []
 
+    // Filenames in ~/BackTrack/VideoClips/. Same lifecycle as the
+    // visuals library — scanned at launch; restart to pick up new
+    // files. Powers the `partVideoClip` cycle in tweak mode.
+    @Published var videoClipsLibrary: [String] = []
+
+    // URL of the video clip that's currently rendering in the
+    // visuals window (nil = no clip). Set by Clock when the
+    // transport enters a part with a `videoClip`; cleared when the
+    // clip plays through to its end, when transport stops, or when
+    // the part / lineup item changes. The visuals window observes
+    // this and renders an unmuted AVPlayer over the rest of the
+    // visual layers when set.
+    @Published var activeVideoClip: URL? = nil
+
+    // Audio gain applied to `activeVideoClip` (0.0–1.0). Mirrors the
+    // current part's `videoClipVolume / 100`.
+    @Published var activeVideoClipVolume: Float = 1.0
+
     // Most recent successful tweak-mode save — used for the toast
     // shown beneath the field list ("saved → kit: 808"). The toast
     // fades over a short window via TimelineView reading lastSaved.
     @Published var tweakLastSaved: Date = .distantPast
     @Published var tweakLastSavedNote: String = ""
+
+    // Bridge from views (e.g. interstitial video onFinish) back to
+    // KeyboardHandler's lineup-cursor logic. Set by KeyboardHandler
+    // at init; called by VisualsView when an interstitial finishes
+    // playing or its duration timer expires. Doing it through a
+    // closure avoids a direct view→controller dependency in either
+    // direction.
+    var advanceLineupCursor: (() -> Void)?
 
     // MARK: - Visual resolvers (read straight from JSON)
 
@@ -250,12 +283,23 @@ final class AppState: ObservableObject {
                             "setlist '\(active.name)': countdown '\(n)' not found in Countdowns/"
                         )
                     }
+                case .interstitial(let n):
+                    if let i = interstitials.first(where: { $0.name == n }) {
+                        items.append(.interstitial(i))
+                    } else {
+                        resolveIssues.append(
+                            "setlist '\(active.name)': interstitial '\(n)' not found in Interstitials/"
+                        )
+                    }
                 }
             }
             resolved = items
         } else {
-            // No setlist → fall back to "all songs then all countdowns".
-            resolved = songs.map(LineupItem.song) + countdowns.map(LineupItem.countdown)
+            // No setlist → fall back to "all songs, all countdowns,
+            // all interstitials" in that order.
+            resolved = songs.map(LineupItem.song)
+                + countdowns.map(LineupItem.countdown)
+                + interstitials.map(LineupItem.interstitial)
         }
 
         lineup = resolved

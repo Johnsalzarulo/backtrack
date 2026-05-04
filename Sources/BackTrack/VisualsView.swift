@@ -69,6 +69,10 @@ struct VisualsView: View {
                     ink: ink,
                     paper: paper
                 )
+            } else if let inter = state.currentInterstitial {
+                // Current lineup item is an interstitial — render
+                // text / image / video full-bleed depending on kind.
+                interstitialContent(inter)
             } else if let beat = state.countInBeat {
                 // Count-in pre-roll. The song hasn't started yet — show
                 // a giant beat-in-bar number ("1, 2, 3, 4") that flips
@@ -78,6 +82,25 @@ struct VisualsView: View {
                     text: "\(((beat - 1) % 4) + 1)",
                     ink: nsInk,
                     paper: nsPaper
+                )
+            } else if let clip = state.activeVideoClip {
+                // Active part has a `videoClip` set. Plays once,
+                // sitting above the visuals layer for its duration.
+                // When done, Clock clears state.activeVideoClip and we
+                // fall back into the normal visuals branches below.
+                //
+                // The preview thumbnail in the HUD also renders the
+                // clip (so the performer sees the same thing the
+                // audience sees), but with volume forced to 0 — the
+                // main visuals window owns the audio for the clip,
+                // and we don't want a second AVPlayer playing the
+                // soundtrack on top of itself. Only the main-window
+                // instance fires `onFinish`; the preview's callback
+                // is a no-op so the lifecycle stays single-sourced.
+                VideoClipView(
+                    url: clip,
+                    volume: isPreview ? 0 : state.activeVideoClipVolume,
+                    onFinish: isPreview ? {} : { state.activeVideoClip = nil }
                 )
             } else if let url = state.currentPartVisualURL {
                 // Part has a visual — GIF/image/video takes over. Keeps
@@ -134,6 +157,74 @@ struct VisualsView: View {
                     state.visualsOpen = false
                 }
         }
+    }
+
+    // Render an interstitial (text / image / video) full-bleed in the
+    // visuals window. Each kind uses an existing display primitive:
+    //   - text  → LyricsBlockView (auto-fit large monospace, theme-tinted)
+    //   - image → VisualView (CSS-cover image/GIF rendering)
+    //   - video → VideoClipView (with audio + loop awareness)
+    // Theme is sourced from the interstitial itself, not the song's,
+    // since interstitials are between-song and have their own intent.
+    @ViewBuilder
+    private func interstitialContent(_ inter: Interstitial) -> some View {
+        let interInk: NSColor = inter.theme == .dark ? .white : .black
+        let interPaper: NSColor = inter.theme == .dark ? .black : .white
+        switch inter.kind {
+        case .text:
+            LyricsBlockView(
+                text: inter.text ?? "",
+                ink: interInk,
+                paper: interPaper
+            )
+        case .image:
+            if let name = inter.image,
+               let url = interstitialImageURL(filename: name) {
+                VisualView(url: url)
+            } else {
+                // Image file missing — fall back to TV static so the
+                // performer can see something's wrong without a crash.
+                IdleStaticView(
+                    ink: Color(nsColor: interInk),
+                    paper: Color(nsColor: interPaper)
+                )
+            }
+        case .video:
+            if let name = inter.video,
+               let url = VideoClipsLibrary.url(for: name) {
+                // Loop=true → keep replaying until nav-away.
+                // Loop=false → onFinish triggers nav-forward.
+                // Volume is preview-suppressed like videoClip so the
+                // HUD's small thumbnail mirrors the visuals without
+                // doubling the audio.
+                VideoClipView(
+                    url: url,
+                    volume: isPreview ? 0 : Float(inter.volume) / 100.0,
+                    loop: inter.loop,
+                    onFinish: {
+                        if !isPreview && !inter.loop {
+                            state.advanceLineupCursor?()
+                        }
+                    }
+                )
+            } else {
+                IdleStaticView(
+                    ink: Color(nsColor: interInk),
+                    paper: Color(nsColor: interPaper)
+                )
+            }
+        }
+    }
+
+    // Resolve an interstitial's image filename to a URL under the
+    // existing Visuals/ directory (same convention as part-level
+    // visuals — keeps file management simple).
+    private func interstitialImageURL(filename: String) -> URL? {
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("BackTrack")
+            .appendingPathComponent("Visuals")
+            .appendingPathComponent(filename)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
     // Synth-layer content — geometric motifs render into a Canvas;

@@ -79,10 +79,14 @@ final class Clock: ObservableObject {
             countInRemaining = song.countIn * Generators.ticksPerBar
             state.countInTotal = song.countIn * 4
             state.countInBeat = nil // first click sets it on tick 0
+            // Defer videoClip activation until count-in finishes —
+            // count-in's giant 1/2/3/4 display takes the visuals window
+            // on its own.
         } else {
             countInRemaining = 0
             state.countInTotal = 0
             state.countInBeat = nil
+            applyVideoClip(for: state.currentPart)
         }
         scheduleTimer(immediate: true)
     }
@@ -95,7 +99,32 @@ final class Clock: ObservableObject {
         countInRemaining = 0
         state.countInBeat = nil
         state.countInTotal = 0
+        // Tear down any in-progress video clip; the visuals window
+        // will fall back to the synth / static idle view.
+        state.activeVideoClip = nil
         audio.stopAllPadAndBass()
+    }
+
+    // Resolve a part's videoClip (if any) into state so the visuals
+    // window can render it. Volume is mirrored from the part's
+    // videoClipVolume (0–100) into a 0.0–1.0 float for AVPlayer.
+    // Called whenever the transport enters a new part.
+    private func applyVideoClip(for part: Part?) {
+        let url: URL?
+        let volume: Float
+        if let part = part,
+           let filename = part.videoClip,
+           let resolved = VideoClipsLibrary.url(for: filename) {
+            url = resolved
+            volume = Float(max(0, min(100, part.videoClipVolume))) / 100.0
+        } else {
+            url = nil
+            volume = 1.0
+        }
+        writeState { s in
+            s.activeVideoClip = url
+            s.activeVideoClipVolume = volume
+        }
     }
 
     // MARK: - Part navigation
@@ -193,12 +222,16 @@ final class Clock: ObservableObject {
                 // Re-fetch the resolved part directly off the song so
                 // we don't depend on the @Published state having flushed.
                 let newPart = song.parts[song.structure[pending]] ?? part
+                applyVideoClip(for: newPart)
                 fireTick0(part: newPart, atBar: 0)
                 scheduleTickAdvance()
                 return
             }
             if state.currentBar >= part.bars {
                 // Loop mode: restart the same part instead of advancing.
+                // Don't re-trigger videoClip — looping a part with a
+                // clip would otherwise replay the clip every loop, and
+                // loops are mostly used for pattern auditioning.
                 if state.loopCurrentPart {
                     writeState { s in s.currentBar = 0 }
                     audio.stopAllPadAndBass()
@@ -220,6 +253,7 @@ final class Clock: ObservableObject {
                 audio.stopAllPadAndBass()
                 lastChordKey = ""
                 let newPart = song.parts[song.structure[next]] ?? part
+                applyVideoClip(for: newPart)
                 fireTick0(part: newPart, atBar: 0)
                 scheduleTickAdvance()
                 return
@@ -274,6 +308,9 @@ final class Clock: ObservableObject {
                 s.countInTotal = 0
                 s.currentBeat = 0
             }
+            // Now the song proper begins — surface the first part's
+            // videoClip, if any, so it starts together with the music.
+            applyVideoClip(for: state.currentPart)
             // Next tick starts the song at bar 0, tick 0.
             tick = 0
         }

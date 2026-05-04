@@ -30,7 +30,13 @@ struct ContentView: View {
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 18)
-        .frame(width: 1000, height: 560, alignment: .topLeading)
+        .frame(
+            minWidth: 1000,
+            maxWidth: .infinity,
+            minHeight: 560,
+            maxHeight: .infinity,
+            alignment: .topLeading
+        )
         .background(Color.black)
         .foregroundColor(fg)
         .font(.system(.body, design: .monospaced))
@@ -39,6 +45,16 @@ struct ContentView: View {
                 openWindow(id: "visuals")
             } else {
                 closeVisualsWindow()
+            }
+        }
+        .onAppear {
+            // SwiftUI's secondary `Window` scene doesn't reliably
+            // auto-open at launch on macOS 13. Force-open it here if
+            // the user's visualsOpen preference is true (the default),
+            // so videoClip / synth / GIF rendering all happen out of
+            // the box without the user pressing V first.
+            if state.visualsOpen {
+                openWindow(id: "visuals")
             }
         }
     }
@@ -50,14 +66,22 @@ struct ContentView: View {
         VisualsWindow.find()?.close()
     }
 
-    // MARK: - Left column (fixed layout)
+    // MARK: - Left column (context info)
 
+    // Left column carries "context I glance at occasionally": which
+    // song / where in the structure / what's loaded into the mix /
+    // what's playing on the visuals. Performance-critical info
+    // (chord, beat, bar progress, lyrics) lives in the right column
+    // so the eye doesn't have to ping-pong across the screen mid-song.
     private var leftColumn: some View {
         VStack(alignment: .leading, spacing: 14) {
+            if state.currentSong != nil {
+                songMetadataBlock
+            }
             structureBlock
-            divider
-            chordLine
-            mixBlock
+            if state.currentSong != nil {
+                mixBlock
+            }
             Spacer(minLength: 0)
             transportLine
             issuesBlock
@@ -65,12 +89,64 @@ struct ContentView: View {
         }
     }
 
+    // SONG / KEY / BPM — moved here from the right column as part of
+    // the performance-column refactor. Shows for songs only; for
+    // countdowns/interstitials the structureBlock below carries the
+    // relevant per-item meta instead.
+    @ViewBuilder
+    private var songMetadataBlock: some View {
+        if let song = state.currentSong {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 10) {
+                    Text("SONG").foregroundColor(dim).frame(width: 44, alignment: .leading)
+                    Text(song.name)
+                }
+                if !song.key.isEmpty {
+                    HStack(spacing: 10) {
+                        Text("KEY").foregroundColor(dim).frame(width: 44, alignment: .leading)
+                        Text(song.key)
+                    }
+                }
+                HStack(spacing: 10) {
+                    Text("BPM").foregroundColor(dim).frame(width: 44, alignment: .leading)
+                    Text("\(Int(song.bpm.rounded()))")
+                }
+            }
+        }
+    }
+
     @ViewBuilder
     private var structureBlock: some View {
         if state.currentCountdown != nil {
             countdownDeckBlock
+        } else if state.currentInterstitial != nil {
+            interstitialDeckBlock
         } else {
             songStructureBlock
+        }
+    }
+
+    private var interstitialDeckBlock: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("INTERSTITIAL")
+                .foregroundColor(dim)
+                .font(.system(.caption, design: .monospaced))
+            if let i = state.currentInterstitial {
+                partBadge(name: i.name, isActive: true, isQueued: false)
+                HStack(spacing: 10) {
+                    Text(i.kind.rawValue.uppercased())
+                    if let d = i.duration {
+                        Text("· \(Int(d))s")
+                    }
+                    if i.kind == .video && i.loop {
+                        Text("· LOOP")
+                    }
+                }
+                .foregroundColor(dim)
+                .font(.system(.caption, design: .monospaced))
+            } else {
+                Text("no interstitial selected").foregroundColor(dim)
+            }
         }
     }
 
@@ -96,14 +172,10 @@ struct ContentView: View {
                         )
                     }
                 }
-                if let part = state.currentPart {
-                    HStack(spacing: 10) {
-                        Text("bar \(state.currentBar + 1) / \(part.bars)")
-                        Text(partProgressBar(current: state.currentBar, total: part.bars))
-                    }
-                    .foregroundColor(dim)
-                    .font(.system(.caption, design: .monospaced))
-                }
+                // Bar counter + progress moved to the right column's
+                // performanceChordBlock so it lives next to chord +
+                // beat dots — all "where am I right now" info in one
+                // glance, no eye ping-pong to the left column.
             } else {
                 Text("no songs loaded").foregroundColor(dim)
             }
@@ -160,17 +232,31 @@ struct ContentView: View {
             .frame(height: 1)
     }
 
+    // Performance chord block — the right-column header above lyrics.
+    // Big chord (56pt), smaller next-chord preview, beat dots at the
+    // right, and the bar counter / progress underneath. Replaces the
+    // smaller chord line that previously sat in the left column.
     private var chordLine: some View {
-        HStack(spacing: 16) {
-            Text(state.currentChord?.display ?? "—")
-                .font(.system(size: 40, weight: .regular, design: .monospaced))
-            if let next = state.nextChord {
-                Text("→ \(next.display)")
-                    .foregroundColor(dim)
-                    .font(.system(size: 22, design: .monospaced))
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 18) {
+                Text(state.currentChord?.display ?? "—")
+                    .font(.system(size: 56, weight: .regular, design: .monospaced))
+                if let next = state.nextChord {
+                    Text("→ \(next.display)")
+                        .foregroundColor(dim)
+                        .font(.system(size: 32, design: .monospaced))
+                }
+                Spacer(minLength: 0)
+                beatDots
             }
-            Spacer(minLength: 0)
-            beatDots
+            if let part = state.currentPart {
+                HStack(spacing: 12) {
+                    Text("bar \(state.currentBar + 1) / \(part.bars)")
+                    Text(partProgressBar(current: state.currentBar, total: part.bars))
+                }
+                .foregroundColor(dim)
+                .font(.system(size: 18, design: .monospaced))
+            }
         }
     }
 
@@ -178,20 +264,20 @@ struct ContentView: View {
     // where the downbeat is and come in on the one. Leftmost dot is
     // beat 1; lit dot tracks the current beat.
     private var beatDots: some View {
-        VStack(alignment: .center, spacing: 4) {
-            HStack(spacing: 14) {
+        VStack(alignment: .center, spacing: 5) {
+            HStack(spacing: 16) {
                 ForEach(0..<4, id: \.self) { i in
                     Circle()
                         .fill(beatDotColor(i))
-                        .frame(width: 14, height: 14)
+                        .frame(width: 18, height: 18)
                 }
             }
-            HStack(spacing: 14) {
+            HStack(spacing: 16) {
                 ForEach(0..<4, id: \.self) { i in
                     Text("\(i + 1)")
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(.system(size: 11, design: .monospaced))
                         .foregroundColor(dim)
-                        .frame(width: 14)
+                        .frame(width: 18)
                 }
             }
         }
@@ -343,8 +429,14 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Right column (song header + lyrics, or tweak field list)
+    // MARK: - Right column (the performance column)
 
+    // The right column is the singer's eye-line during a song:
+    // setlist position (top), then chord + beat + bar progress, then
+    // lyrics, then the next-part preview. All vertical, no horizontal
+    // jumping. For non-song lineup items the chord block is replaced
+    // by the appropriate header (countdown / interstitial). Tweak
+    // mode hijacks the whole column for the field-list editor.
     private var rightColumn: some View {
         VStack(alignment: .leading, spacing: 14) {
             setlistPositionBlock
@@ -353,10 +445,19 @@ struct ContentView: View {
                 divider
                 tweakFieldList
                 tweakSaveToast
-            } else {
-                songHeaderBlock
+            } else if state.currentCountdown != nil {
+                countdownHeaderBlock
+            } else if let i = state.currentInterstitial {
+                interstitialHeaderBlock
                 divider
-                lyricsBlock
+                interstitialNotesBlock(notes: i.notes)
+            } else {
+                // Song path — chord block as the eye-anchor, lyrics
+                // immediately below. SONG/KEY/BPM moved to the left
+                // column so this column is purely moment-to-moment
+                // performance info.
+                chordLine
+                songLyricsBlock
             }
             Spacer(minLength: 0)
             visualsPreviewBlock
@@ -534,32 +635,6 @@ struct ContentView: View {
         }
     }
 
-    @ViewBuilder
-    private var songHeaderBlock: some View {
-        if state.currentCountdown != nil {
-            countdownHeaderBlock
-        } else {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 10) {
-                    Text("SONG").foregroundColor(dim).frame(width: 44, alignment: .leading)
-                    Text(state.currentSong?.name ?? "—")
-                }
-                if let key = state.currentSong?.key, !key.isEmpty {
-                    HStack(spacing: 10) {
-                        Text("KEY").foregroundColor(dim).frame(width: 44, alignment: .leading)
-                        Text(key)
-                    }
-                }
-                if let bpm = state.currentSong?.bpm {
-                    HStack(spacing: 10) {
-                        Text("BPM").foregroundColor(dim).frame(width: 44, alignment: .leading)
-                        Text("\(Int(bpm.rounded()))")
-                    }
-                }
-            }
-        }
-    }
-
     private var countdownHeaderBlock: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 10) {
@@ -575,13 +650,30 @@ struct ContentView: View {
         }
     }
 
+    private var interstitialHeaderBlock: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 10) {
+                Text("INTER").foregroundColor(dim).frame(width: 44, alignment: .leading)
+                Text(state.currentInterstitial?.name ?? "—")
+            }
+            if let i = state.currentInterstitial {
+                HStack(spacing: 10) {
+                    Text("KIND").foregroundColor(dim).frame(width: 44, alignment: .leading)
+                    Text(i.kind.rawValue)
+                }
+            }
+        }
+    }
+
     @ViewBuilder
-    private var lyricsBlock: some View {
-        if state.currentCountdown != nil {
-            // Lyrics + next-part preview only make sense for songs.
+    private func interstitialNotesBlock(notes: String) -> some View {
+        if notes.isEmpty {
             EmptyView()
         } else {
-            songLyricsBlock
+            Text(notes)
+                .font(.system(size: 16, design: .monospaced))
+                .lineSpacing(6)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

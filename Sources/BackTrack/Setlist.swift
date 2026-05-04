@@ -18,8 +18,8 @@ struct SetlistJSON: Codable {
 }
 
 struct SetlistItemJSON: Codable {
-    let kind: String  // "song" | "countdown"
-    let ref: String   // matches Song.name or Countdown.name
+    let kind: String  // "song" | "countdown" | "interstitial"
+    let ref: String   // matches Song.name / Countdown.name / Interstitial.name
 }
 
 // Compiled, validated setlist ready to drive lineup construction.
@@ -30,33 +30,35 @@ struct Setlist {
 }
 
 // Reference within a setlist — kind-discriminated, name-keyed.
-// The actual Song/Countdown is looked up at lineup-build time.
+// The actual Song/Countdown/Interstitial is looked up at lineup-build time.
 enum SetlistItemRef {
     case song(name: String)
     case countdown(name: String)
+    case interstitial(name: String)
 
     var name: String {
         switch self {
-        case .song(let n), .countdown(let n): return n
+        case .song(let n), .countdown(let n), .interstitial(let n): return n
         }
     }
 }
 
-// What the navigable lineup actually contains. Either a fully-
-// resolved song or a fully-resolved countdown — by the time something
-// becomes a LineupItem, the ref has been matched to an inventory
-// entry and we have the real model object.
+// What the navigable lineup actually contains. Fully-resolved Song,
+// Countdown, or Interstitial — by the time something becomes a
+// LineupItem, the ref has been matched to an inventory entry.
 //
 // This is the shape arrows + Space act on: the unified item type that
 // replaces the old "two parallel decks toggled by D" model.
 enum LineupItem {
     case song(Song)
     case countdown(Countdown)
+    case interstitial(Interstitial)
 
     var name: String {
         switch self {
         case .song(let s): return s.name
         case .countdown(let c): return c.name
+        case .interstitial(let i): return i.name
         }
     }
 }
