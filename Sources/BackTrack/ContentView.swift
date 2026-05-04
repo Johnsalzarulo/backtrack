@@ -406,6 +406,21 @@ struct ContentView: View {
             all.append("SONG ISSUES")
             all.append(contentsOf: state.songIssues)
         }
+        if !state.countdownIssues.isEmpty {
+            if !all.isEmpty { all.append("") }
+            all.append("COUNTDOWN ISSUES")
+            all.append(contentsOf: state.countdownIssues)
+        }
+        if !state.interstitialIssues.isEmpty {
+            if !all.isEmpty { all.append("") }
+            all.append("INTERSTITIAL ISSUES")
+            all.append(contentsOf: state.interstitialIssues)
+        }
+        if !state.setlistIssues.isEmpty {
+            if !all.isEmpty { all.append("") }
+            all.append("SETLIST ISSUES")
+            all.append(contentsOf: state.setlistIssues)
+        }
         return all
     }
 

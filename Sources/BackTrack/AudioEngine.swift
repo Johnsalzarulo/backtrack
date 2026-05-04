@@ -142,8 +142,18 @@ final class AudioEngineController: ObservableObject {
 
     // MARK: - Graph setup
 
+    // Permanent bed level for the backing track (drums + pad + bass).
+    // Sits at -2.5dB so video clips played by VideoClipView (which run
+    // at unity through their own AVPlayer, not through this engine)
+    // sit naturally on top instead of getting buried. No auto-ducking
+    // — keeping a constant bed means musical moments with a videoClip
+    // (where the clip IS the song's accent, not a comedic break) keep
+    // their full intensity.
+    private static let backingBedLevel: Float = 0.75
+
     private func setupGraph() {
         engine.attach(masterMixer)
+        masterMixer.outputVolume = Self.backingBedLevel
         engine.connect(masterMixer, to: engine.mainMixerNode, format: nil)
 
         for sub in [kickMixer, snareMixer, hhMixer, padMixer, bassMixer] {
