@@ -526,6 +526,15 @@ Differences vs. the visuals layer:
   silence the backing track during the clip, set the part's
   `padLevel: 0`, `bassLevel: 0`, and `pattern: "Silent"`
 
+**Mix dynamic.** The whole backing track (drums + pad + bass) runs
+through a master mixer pinned at `0.5` (-6dB). Video clips play
+through their own `AVPlayer` at unity, so they sit naturally on top
+of the bed without any auto-ducking. A constant bed (vs. ducking
+during clips) means musical moments where the clip *is* the song's
+accent — not a comedic break — keep their full intensity. If a clip
+still feels buried, bump `videoClipVolume` per part; if it's
+clipping over the bed, drop it.
+
 Stop / part change / song change tears the clip down. Looping a part
 with a videoClip plays the clip once on the first loop only.
 
