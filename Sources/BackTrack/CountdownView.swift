@@ -125,7 +125,16 @@ struct CountdownView: View {
     // doesn't compete with the rotating message above. Identical
     // across all three styles by design.
     private func audienceButtonPrompt(font: CGFloat, availW: CGFloat) -> some View {
-        Text("press 🔴 or 🟢")
+        // Composed Text with colored ⬤ glyphs in place of the 🔴 / 🟢
+        // emoji we used to render. Emoji rendering varies wildly with
+        // font and platform; a unicode large-black-circle character
+        // colored via foregroundColor on a Text fragment renders as a
+        // crisp, predictable solid dot in any monospace font.
+        let line = Text("press ")
+            + Text("⬤").foregroundColor(.red)
+            + Text(" or ")
+            + Text("⬤").foregroundColor(.green)
+        return line
             .font(.system(size: font, weight: .light, design: .monospaced))
             .foregroundColor(ink)
             .multilineTextAlignment(.center)

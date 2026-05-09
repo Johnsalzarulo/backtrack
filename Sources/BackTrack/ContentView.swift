@@ -121,8 +121,28 @@ struct ContentView: View {
             countdownDeckBlock
         } else if state.currentInterstitial != nil {
             interstitialDeckBlock
+        } else if state.currentAudienceInteractive != nil {
+            audienceInteractiveDeckBlock
         } else {
             songStructureBlock
+        }
+    }
+
+    private var audienceInteractiveDeckBlock: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("AUDIENCE INTERACTIVE")
+                .foregroundColor(dim)
+                .font(.system(.caption, design: .monospaced))
+            if let a = state.currentAudienceInteractive {
+                partBadge(name: a.name, isActive: true, isQueued: false)
+                HStack(spacing: 10) {
+                    Text(a.kind.rawValue.uppercased())
+                }
+                .foregroundColor(dim)
+                .font(.system(.caption, design: .monospaced))
+            } else {
+                Text("no audience-interactive selected").foregroundColor(dim)
+            }
         }
     }
 
@@ -416,6 +436,11 @@ struct ContentView: View {
             all.append("INTERSTITIAL ISSUES")
             all.append(contentsOf: state.interstitialIssues)
         }
+        if !state.audienceInteractiveIssues.isEmpty {
+            if !all.isEmpty { all.append("") }
+            all.append("AUDIENCE-INTERACTIVE ISSUES")
+            all.append(contentsOf: state.audienceInteractiveIssues)
+        }
         if !state.setlistIssues.isEmpty {
             if !all.isEmpty { all.append("") }
             all.append("SETLIST ISSUES")
@@ -467,6 +492,8 @@ struct ContentView: View {
                 interstitialHeaderBlock
                 divider
                 interstitialNotesBlock(notes: i.notes)
+            } else if state.currentAudienceInteractive != nil {
+                audienceInteractiveHeaderBlock
             } else {
                 // Song path — chord block as the eye-anchor, lyrics
                 // immediately below. SONG/KEY/BPM moved to the left
@@ -676,6 +703,21 @@ struct ContentView: View {
                 HStack(spacing: 10) {
                     Text("KIND").foregroundColor(dim).frame(width: 44, alignment: .leading)
                     Text(i.kind.rawValue)
+                }
+            }
+        }
+    }
+
+    private var audienceInteractiveHeaderBlock: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 10) {
+                Text("AUDX").foregroundColor(dim).frame(width: 44, alignment: .leading)
+                Text(state.currentAudienceInteractive?.name ?? "—")
+            }
+            if let a = state.currentAudienceInteractive {
+                HStack(spacing: 10) {
+                    Text("KIND").foregroundColor(dim).frame(width: 44, alignment: .leading)
+                    Text(a.kind.rawValue)
                 }
             }
         }

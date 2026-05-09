@@ -174,12 +174,18 @@ final class KeyboardHandler {
         case "1":
             // Audience-facing red button. Behavior depends on what's
             // currently on stage:
-            //   - song:     cycle a temporary post-effect (auto-reverts
-            //               after ~10s so audience-triggered effects
-            //               always feel like a moment, not a takeover)
-            //   - countdown: cycle the render style indefinitely until
-            //                the lineup cursor moves
-            //   - anything else: no-op
+            //   - song:                cycle a temporary post-effect
+            //                          (auto-reverts after ~10s so
+            //                          audience-triggered effects feel
+            //                          like a moment, not a takeover)
+            //   - countdown:           cycle the render style
+            //                          indefinitely until the lineup
+            //                          cursor moves
+            //   - audience-interactive: kind-specific. start_button
+            //                          flags this as the wrong button
+            //                          (system beep + "WRONG BUTTON"
+            //                          flash for ~1.5s)
+            //   - anything else:       no-op
             if state.currentSong != nil {
                 // Suppress while a videoClip is taking over the visuals
                 // window — the clip IS the song's intentional moment
@@ -196,15 +202,23 @@ final class KeyboardHandler {
                 cycleCountdownStyle()
                 return true
             }
+            if state.currentAudienceInteractive != nil {
+                handleAudienceInteractiveRed()
+                return true
+            }
             return false
         case "2":
             // Audience-facing green button. Behavior depends on what's
             // currently on stage:
-            //   - song:     hold-to-show telemetry panel (momentary).
-            //               Suppressed during videoClips so the clip
-            //               keeps the screen.
-            //   - countdown: tap to advance the rotating message.
-            //   - anything else: no-op.
+            //   - song:                hold-to-show telemetry panel
+            //                          (momentary). Suppressed during
+            //                          videoClips.
+            //   - countdown:           tap to advance the rotating
+            //                          message.
+            //   - audience-interactive: kind-specific. start_button
+            //                          advances the lineup to the
+            //                          next item ("show is starting").
+            //   - anything else:       no-op.
             if state.currentSong != nil {
                 if state.activeVideoClip != nil { return true }
                 state.telemetryHeldDown = true
@@ -212,6 +226,10 @@ final class KeyboardHandler {
             }
             if state.currentCountdown != nil {
                 advanceCountdownMessage()
+                return true
+            }
+            if state.currentAudienceInteractive != nil {
+                handleAudienceInteractiveGreen()
                 return true
             }
             return false
@@ -389,6 +407,16 @@ final class KeyboardHandler {
             // lands on them — there's nothing for Space to start.
             // (Video pause/resume could go here later if useful.)
             break
+        case .audienceInteractive(let a)?:
+            // Space mirrors whichever button is the "advance" action
+            // for this kind, so the operator can also drive the show
+            // forward from the keyboard. For start_button, that's
+            // green (advance). New kinds may differ — extend here as
+            // they're added.
+            switch a.kind {
+            case .startButton:
+                nextLineupItem()
+            }
         case nil:
             break
         }
@@ -424,6 +452,7 @@ final class KeyboardHandler {
         state.countdownStyleOverride = nil
         state.countdownMessageOffset = 0
         state.telemetryHeldDown = false
+        state.wrongButtonAt = .distantPast
         clearSongEffectOverride()
 
         scheduleInterstitialAutoAdvanceIfNeeded()
@@ -571,6 +600,38 @@ final class KeyboardHandler {
         songEffectAutoRevert = nil
         state.songEffectOverride = nil
         state.songEffectExpiresAt = .distantPast
+    }
+
+    // MARK: - Audience interactive routing
+
+    // Green button on an audience-interactive item. Behavior depends
+    // on the kind — for start_button green = "advance the show".
+    private func handleAudienceInteractiveGreen() {
+        guard let a = state.currentAudienceInteractive else { return }
+        switch a.kind {
+        case .startButton:
+            // The show is starting — green advances the lineup to
+            // whatever comes next. Same code path as the right-arrow
+            // key, so the behavior is identical operator-side.
+            nextLineupItem()
+        }
+    }
+
+    // Red button on an audience-interactive item. start_button treats
+    // red as the wrong choice — 8-bit error beep through the audio
+    // engine plus a 1.5 s "WRONG BUTTON" overlay (driven by
+    // state.wrongButtonAt that the view reads via TimelineView).
+    private func handleAudienceInteractiveRed() {
+        guard let a = state.currentAudienceInteractive else { return }
+        switch a.kind {
+        case .startButton:
+            // Routed through AudioEngineController so the beep comes
+            // out the same output device the music goes to (FOH at a
+            // live rig, not the laptop speakers — NSSound.beep would
+            // do the wrong thing here).
+            audio.playWrongButtonBeep()
+            state.wrongButtonAt = Date()
+        }
     }
 
     // Put the visuals window into (or out of) macOS native full-screen.

@@ -63,6 +63,15 @@ final class AudioEngineController: ObservableObject {
     private var snareBuffer: AVAudioPCMBuffer?
     private var hhBuffer: AVAudioPCMBuffer?
 
+    // SFX player — one-shot synthesized sounds for audience-interactive
+    // feedback (currently just the "wrong button" beep). Connected
+    // DIRECTLY to mainMixerNode, bypassing the bed-level master mixer,
+    // so the beep plays at full volume regardless of how attenuated
+    // the music bed is. Lives outside the music graph by design: SFX
+    // shouldn't share the same -6 dB bed treatment as the song.
+    private let sfxPlayer = AVAudioPlayerNode()
+    private var wrongButtonBuffer: AVAudioPCMBuffer?
+
     // Canonical format all buffers are normalized to, so no player
     // connection ever needs reconfiguration on kit/sound cycle.
     //
@@ -190,9 +199,78 @@ final class AudioEngineController: ObservableObject {
         }
         bassFadeGen = Array(repeating: 0, count: bassVoices.count)
 
+        // SFX player — bypasses masterMixer entirely so the wrong-button
+        // beep is heard at full volume regardless of the bed attenuation.
+        engine.attach(sfxPlayer)
+        engine.connect(sfxPlayer, to: engine.mainMixerNode, format: Self.canonicalFormat)
+        wrongButtonBuffer = makeWrongButtonBuffer()
+
         // Tap master for the OUT activity dot.
         masterMixer.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
             self?.markOutSignal(buffer)
+        }
+    }
+
+    // Generates an 8-bit-style descending two-tone square-wave error
+    // beep, in memory at engine startup. ~880 Hz → 440 Hz, 120 ms each
+    // (240 ms total), no envelope — sharp on, sharp off — for that
+    // classic IBM PC speaker / NES sound effect feel. Hard 0.85 peak
+    // amplitude so it's clearly louder than any individual drum hit
+    // through the bed mixer.
+    private func makeWrongButtonBuffer() -> AVAudioPCMBuffer? {
+        let format = Self.canonicalFormat
+        let sampleRate = Float(format.sampleRate)
+        let note1Freq: Float = 880     // A5
+        let note2Freq: Float = 440     // A4
+        let note1Duration: Float = 0.12
+        let note2Duration: Float = 0.12
+        let totalDuration = note1Duration + note2Duration
+        let amplitude: Float = 0.85
+
+        let frameCount = AVAudioFrameCount(sampleRate * totalDuration)
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else {
+            return nil
+        }
+        buffer.frameLength = frameCount
+        guard let channels = buffer.floatChannelData else { return nil }
+        let left = channels[0]
+        let right = channels[1]
+        let note1Frames = Int(sampleRate * note1Duration)
+
+        // Track phase per-note to avoid a discontinuity / click at the
+        // note boundary that would muddy the 8-bit silhouette.
+        var phase1: Float = 0
+        var phase2: Float = 0
+        let phaseInc1 = note1Freq / sampleRate
+        let phaseInc2 = note2Freq / sampleRate
+
+        for i in 0..<Int(frameCount) {
+            let sample: Float
+            if i < note1Frames {
+                sample = (phase1 < 0.5 ? amplitude : -amplitude)
+                phase1 += phaseInc1
+                if phase1 >= 1.0 { phase1 -= 1.0 }
+            } else {
+                sample = (phase2 < 0.5 ? amplitude : -amplitude)
+                phase2 += phaseInc2
+                if phase2 >= 1.0 { phase2 -= 1.0 }
+            }
+            left[i] = sample
+            right[i] = sample
+        }
+        return buffer
+    }
+
+    // One-shot trigger for the wrong-button beep. Called by the
+    // KeyboardHandler when the audience presses the red button on a
+    // start_button audience-interactive item. Cancels any in-flight
+    // beep so rapid presses each restart from the top cleanly.
+    func playWrongButtonBeep() {
+        guard let buffer = wrongButtonBuffer else { return }
+        sfxPlayer.stop()
+        sfxPlayer.scheduleBuffer(buffer, at: nil, options: [], completionHandler: nil)
+        if !sfxPlayer.isPlaying {
+            sfxPlayer.play()
         }
     }
 

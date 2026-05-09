@@ -28,24 +28,21 @@ enum PostEffect: String {
 // nil for a missing/empty value so the loader can decide what default
 // to apply. Throws with the field name in the error message so the
 // HUD's issues block points at the right place.
+//
+// Drives off `PostEffect(rawValue:)` so adding a new effect case
+// automatically makes it parseable — no hand-maintained case list to
+// drift out of sync with the enum.
 enum PostEffectParser {
     static func parse(_ raw: String?, context: String) throws -> PostEffect? {
-        switch raw?.lowercased() {
-        case nil, "":
-            return nil
-        case "none":
-            return PostEffect.none
-        case "glitch":
-            return .glitch
-        case "tracking":
-            return .tracking
-        case "chroma":
-            return .chroma
-        case let other?:
-            throw PostEffectParseError(
-                description: "\(context) visualEffect '\(other)' — expected one of: none, glitch, tracking, chroma"
-            )
+        guard let raw = raw, !raw.isEmpty else { return nil }
+        let normalized = raw.lowercased()
+        if let effect = PostEffect(rawValue: normalized) {
+            return effect
         }
+        let known = PostEffect.allCases.map(\.rawValue).joined(separator: ", ")
+        throw PostEffectParseError(
+            description: "\(context) visualEffect '\(raw)' — expected one of: \(known)"
+        )
     }
 }
 

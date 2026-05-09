@@ -65,18 +65,20 @@ enum CountdownLoader {
             throw CountdownValidationError("messageInterval must be > 0 (got \(interval))")
         }
 
+        // CountdownStyle(rawValue:) drives parsing — a new case in the
+        // enum is automatically parseable, no parallel switch to drift.
         let style: CountdownStyle
-        switch raw.style?.lowercased() {
-        case nil, "", "digital":
+        if let rawStyle = raw.style?.lowercased().trimmingCharacters(in: .whitespacesAndNewlines),
+           !rawStyle.isEmpty {
+            guard let parsed = CountdownStyle(rawValue: rawStyle) else {
+                let known = CountdownStyle.allCases.map(\.rawValue).joined(separator: ", ")
+                throw CountdownValidationError(
+                    "style '\(raw.style ?? "")' — expected one of: \(known)"
+                )
+            }
+            style = parsed
+        } else {
             style = .digital
-        case "pie":
-            style = .pie
-        case "hourglass":
-            style = .hourglass
-        case let other?:
-            throw CountdownValidationError(
-                "style '\(other)' — expected one of: digital, pie, hourglass"
-            )
         }
 
         let visualEffect: PostEffect

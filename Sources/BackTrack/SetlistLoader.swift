@@ -72,16 +72,25 @@ enum SetlistLoader {
             guard !raw.ref.isEmpty else {
                 throw SetlistValidationError("item \(idx + 1) has empty ref")
             }
-            switch raw.kind.lowercased() {
+            // Normalize the kind string so authors can write
+            // "audience-interactive" / "audience_interactive" / etc.
+            // without us forcing one specific punctuation. The four
+            // canonical kinds are: song, countdown, interstitial,
+            // audience-interactive.
+            let normalized = raw.kind.lowercased()
+                .replacingOccurrences(of: "_", with: "-")
+            switch normalized {
             case "song":
                 items.append(.song(name: raw.ref))
             case "countdown":
                 items.append(.countdown(name: raw.ref))
             case "interstitial":
                 items.append(.interstitial(name: raw.ref))
+            case "audience-interactive", "audienceinteractive":
+                items.append(.audienceInteractive(name: raw.ref))
             default:
                 throw SetlistValidationError(
-                    "item \(idx + 1) ('\(raw.ref)') kind '\(raw.kind)' — expected 'song', 'countdown', or 'interstitial'"
+                    "item \(idx + 1) ('\(raw.ref)') kind '\(raw.kind)' — expected 'song', 'countdown', 'interstitial', or 'audience-interactive'"
                 )
             }
         }

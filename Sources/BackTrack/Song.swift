@@ -140,6 +140,11 @@ enum VisualTheme: String, CaseIterable {
 //   dots          — everything becomes circles / dot-rings
 //   lines         — horizontal bars at fixed Y positions
 //   ripple        — nested concentric rings, one per voice
+//   oscilloscope  — full-bleed CRT-style waveform: each voice contributes
+//                   a sine at its own frequency, weighted by the current
+//                   pulse envelope, summed into a single scrolling trace
+//                   over a 4×6 grid. Reads as a real instrument scope
+//                   wired to the song's drum + bass + pad voices.
 //   lyrics-block  — all lyrics as one justified paragraph, filling screen
 //   lyrics-line   — current lyric line, one at a time
 enum VisualizerStyle: String {
@@ -150,6 +155,7 @@ enum VisualizerStyle: String {
     case dots
     case lines
     case ripple
+    case oscilloscope
     case lyricsBlock = "lyrics-block"
     case lyricsLine = "lyrics-line"
 
@@ -157,7 +163,7 @@ enum VisualizerStyle: String {
     // cycling hits the signature styles before the simpler ones.
     static let allCases: [VisualizerStyle] = [
         .constellation, .orbit, .ink,
-        .squares, .dots, .lines, .ripple,
+        .squares, .dots, .lines, .ripple, .oscilloscope,
         .lyricsBlock, .lyricsLine
     ]
 }

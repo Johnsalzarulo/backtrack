@@ -47,6 +47,7 @@ final class Coordinator: ObservableObject {
         reloadSongs()
         reloadCountdowns()
         reloadInterstitials()
+        reloadAudienceInteractives()
         reloadSetlists()
         rebuildLineup()
         state.visualsLibrary = VisualsLibrary.scanAll()
@@ -61,6 +62,12 @@ final class Coordinator: ObservableObject {
         // user has a clear place to drop interstitial JSONs.
         try? FileManager.default.createDirectory(
             at: InterstitialLoader.defaultDirectory(),
+            withIntermediateDirectories: true
+        )
+        // And AudienceInteractives/ — fourth lineup-item kind, same
+        // first-launch placement.
+        try? FileManager.default.createDirectory(
+            at: AudienceInteractiveLoader.defaultDirectory(),
             withIntermediateDirectories: true
         )
         keyboard.install()
@@ -78,6 +85,7 @@ final class Coordinator: ObservableObject {
                     SongLoader.defaultDirectory(),
                     CountdownLoader.defaultDirectory(),
                     InterstitialLoader.defaultDirectory(),
+                    AudienceInteractiveLoader.defaultDirectory(),
                     SetlistLoader.defaultDirectory(),
                 ] {
                     if let entries = try? fm.contentsOfDirectory(
@@ -102,6 +110,7 @@ final class Coordinator: ObservableObject {
         reloadSongs()
         reloadCountdowns()
         reloadInterstitials()
+        reloadAudienceInteractives()
         reloadSetlists()
         rebuildLineup()
     }
@@ -116,6 +125,12 @@ final class Coordinator: ObservableObject {
         let result = InterstitialLoader.loadAll()
         state.interstitials = result.interstitials
         state.interstitialIssues = result.issues
+    }
+
+    func reloadAudienceInteractives() {
+        let result = AudienceInteractiveLoader.loadAll()
+        state.audienceInteractives = result.interactives
+        state.audienceInteractiveIssues = result.issues
     }
 
     func reloadSetlists() {

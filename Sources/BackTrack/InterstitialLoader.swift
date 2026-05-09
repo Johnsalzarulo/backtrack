@@ -56,14 +56,16 @@ enum InterstitialLoader {
     }
 
     private static func compile(_ raw: InterstitialJSON, sourceURL: URL) throws -> Interstitial {
-        let kind: InterstitialKind
-        switch raw.kind.lowercased() {
-        case "text":  kind = .text
-        case "image": kind = .image
-        case "video": kind = .video
-        default:
+        // Driven off InterstitialKind(rawValue:) so a new case in the
+        // enum is automatically parseable — no second list to keep
+        // in sync.
+        let normalizedKind = raw.kind
+            .lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let kind = InterstitialKind(rawValue: normalizedKind) else {
+            let known = InterstitialKind.allCases.map(\.rawValue).joined(separator: ", ")
             throw InterstitialValidationError(
-                "kind '\(raw.kind)' — expected one of: text, image, video"
+                "kind '\(raw.kind)' — expected one of: \(known)"
             )
         }
 
@@ -88,16 +90,15 @@ enum InterstitialLoader {
             throw InterstitialValidationError("volume \(volume) out of range (0-200)")
         }
 
+        // Reuse the shared theme parser so the same source-of-truth
+        // (VisualTheme.allCases) drives every loader. Wraps the
+        // SongValidationError it throws into our own error type so
+        // the HUD's interstitial-issues block stays correctly tagged.
         let theme: VisualTheme
-        switch raw.theme?.lowercased() {
-        case nil, "", "dark":
-            theme = .dark
-        case "light":
-            theme = .light
-        case let other?:
-            throw InterstitialValidationError(
-                "theme '\(other)' — expected 'dark' or 'light'"
-            )
+        do {
+            theme = try SongLoader.parseTheme(raw.theme, context: "interstitial") ?? .dark
+        } catch let err as SongValidationError {
+            throw InterstitialValidationError(err.description)
         }
 
         // For video kind, duration is ignored — the clip's actual

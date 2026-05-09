@@ -83,6 +83,17 @@ struct VisualsView: View {
                 // Current lineup item is an interstitial — render
                 // text / image / video full-bleed depending on kind.
                 interstitialContent(inter)
+            } else if let interactive = state.currentAudienceInteractive {
+                // Current lineup item is an audience-interactive
+                // piece (e.g. the start-button gate). Full-bleed
+                // takeover with the same monospace / themed aesthetic
+                // the countdown uses.
+                AudienceInteractiveView(
+                    interactive: interactive,
+                    wrongButtonAt: state.wrongButtonAt,
+                    ink: ink,
+                    paper: paper
+                )
             } else if let beat = state.countInBeat {
                 // Count-in pre-roll. The song hasn't started yet — show
                 // a giant beat-in-bar number ("1, 2, 3, 4") that flips
@@ -282,7 +293,7 @@ struct VisualsView: View {
     @ViewBuilder
     private var synthContent: some View {
         switch visualizer {
-        case .constellation, .orbit, .ink, .squares, .dots, .lines, .ripple:
+        case .constellation, .orbit, .ink, .squares, .dots, .lines, .ripple, .oscilloscope:
             TimelineView(.animation) { context in
                 Canvas { ctx, size in
                     render(ctx: ctx, size: size, now: context.date)
@@ -374,6 +385,8 @@ struct VisualsView: View {
             renderLines(ctx: ctx, size: size, minDim: minDim, time: time, now: now)
         case .ripple:
             renderRipple(ctx: ctx, center: center, minDim: minDim, time: time, now: now)
+        case .oscilloscope:
+            renderOscilloscope(ctx: ctx, size: size, minDim: minDim, time: time, now: now)
         case .lyricsBlock, .lyricsLine:
             // Lyric motifs don't use Canvas — handled by synthContent
             // at the SwiftUI view level. render() never sees them in
@@ -403,8 +416,10 @@ struct VisualsView: View {
 
     // Celestial bodies orbit the center on their own rings. Each voice
     // has a fixed orbit radius + period, so the bodies trace Kepler-ish
-    // paths — inner orbits run faster. Bodies are always visible and
-    // pulse (radius × 1.6) during their trigger's hold window. The
+    // paths — inner orbits run faster. Bodies are always visible. On
+    // each trigger they SLAM bigger (×2.8 peak) and punch toward the
+    // center (radial throw), then both decay smoothly back to resting
+    // size + radius — gives every beat a visible burst of motion. The
     // outermost ring doubles as a progress arc showing how far through
     // the current part we are.
     private func renderOrbit(ctx: GraphicsContext, center: CGPoint, minDim: CGFloat, time: Double, now: Date) {
@@ -412,30 +427,49 @@ struct VisualsView: View {
         // a thicker arc filled to the current playback fraction.
         drawProgressRing(ctx: ctx, center: center, radius: minDim * 0.56, minDim: minDim)
 
-        // Single-body voices. (radius, body radius, period, seed, voice)
-        let bodies: [(CGFloat, CGFloat, Double, Int, Bool)] = [
-            (0.14, 0.055, 6.0,  11, isFiring(last: state.kickLastTrigger,  now: now, hold: kickHold)),
-            (0.22, 0.040, 9.0,  23, isFiring(last: state.snareLastTrigger, now: now, hold: snareHold)),
-            (0.30, 0.028, 12.0, 61, isFiring(last: state.hhLastTrigger,    now: now, hold: hhHold)),
-            (0.40, 0.045, 18.0, 41, isFiring(last: state.bassLastTrigger,  now: now, hold: bassHold))
+        // Per-voice pulse envelopes — smooth decay tails so each hit
+        // creates a visible swell rather than a binary scale snap.
+        let kickPulse  = pulseEnvelope(last: state.kickLastTrigger,  now: now, decay: kickVisualDecay)
+        let snarePulse = pulseEnvelope(last: state.snareLastTrigger, now: now, decay: snareVisualDecay)
+        let hhPulse    = pulseEnvelope(last: state.hhLastTrigger,    now: now, decay: hhVisualDecay)
+        let bassPulse  = pulseEnvelope(last: state.bassLastTrigger,  now: now, decay: bassVisualDecay)
+        let padPulse   = pulseEnvelope(last: state.padLastTrigger,   now: now, decay: padVisualDecay)
+
+        // Single-body voices. (radius, body radius, period, seed, pulse).
+        // Periods are ~40% faster than the original tuning so bodies
+        // visibly travel between beats at typical 90-140 BPM rather
+        // than crawling.
+        let bodies: [(CGFloat, CGFloat, Double, Int, CGFloat)] = [
+            (0.14, 0.055, 4.0, 11, kickPulse),
+            (0.22, 0.040, 6.0, 23, snarePulse),
+            (0.30, 0.028, 8.0, 61, hhPulse),
+            (0.40, 0.045, 12.0, 41, bassPulse)
         ]
-        for (rFrac, bodyFrac, period, seed, firing) in bodies {
-            let orbitR = minDim * rFrac
+        // Throw amount: how far the body punches toward center on a hit.
+        // Fraction of minDim, scaled by the pulse — so the body returns
+        // to its orbit smoothly as the pulse decays.
+        let throwFrac: CGFloat = 0.045
+        for (rFrac, bodyFrac, period, seed, pulse) in bodies {
+            // Radial throw — a kick visibly snaps the body inward and
+            // it returns over the pulse decay.
+            let orbitR = minDim * (rFrac - throwFrac * pulse)
             let pos = orbitPosition(time: time, center: center, radius: orbitR, period: period, phase: Double(seed) * 0.1)
-            let body = minDim * bodyFrac * (firing ? 1.6 : 1.0)
+            // Scale: 1.0 at rest → 2.8 at peak, smooth decay.
+            let body = minDim * bodyFrac * (1.0 + 1.8 * pulse)
             let blob = chiseledBlob(center: pos, baseRadius: body, time: time, jitter: body * 0.08, seed: seed, points: 28)
             ctx.fill(blob, with: .color(ink))
         }
 
         // Pad — 1, 2, or 3 bodies depending on pad level, evenly
-        // distributed around the outermost orbit (but inside progress ring).
+        // distributed around the outermost orbit (but inside the
+        // progress ring). Period also sped up so the cluster moves
+        // visibly across a song's lifetime.
         let padBodies = max(1, padCount() / 2)       // 4/6/8 → 2/3/4
-        let padFiring = isFiring(last: state.padLastTrigger, now: now, hold: padHold)
-        let padR = minDim * 0.48
-        let padBodySize = minDim * 0.033 * (padFiring ? 1.6 : 1.0)
+        let padR = minDim * (0.48 - throwFrac * padPulse)
+        let padBodySize = minDim * 0.033 * (1.0 + 1.8 * padPulse)
         for i in 0..<padBodies {
             let orbitPhase = Double(i) / Double(padBodies)
-            let pos = orbitPosition(time: time, center: center, radius: padR, period: 24.0, phase: orbitPhase)
+            let pos = orbitPosition(time: time, center: center, radius: padR, period: 16.0, phase: orbitPhase)
             let blob = chiseledBlob(center: pos, baseRadius: padBodySize, time: time, jitter: padBodySize * 0.08, seed: 301 + i * 7, points: 24)
             ctx.fill(blob, with: .color(ink))
         }
@@ -595,6 +629,29 @@ struct VisualsView: View {
         return 1.0 - (elapsed / decay)
     }
 
+    // Same shape as inkForce but typed for the geometric styles
+    // (orbit, dots) that scale CGFloat sizes / offsets. Returns 1.0
+    // at the trigger frame and decays linearly to 0 over `decay`
+    // seconds — gives the orbit bodies + dots a smooth visual tail
+    // off each hit instead of binary on/off.
+    private func pulseEnvelope(last: Date, now: Date, decay: Double) -> CGFloat {
+        let elapsed = now.timeIntervalSince(last)
+        if elapsed < 0 || elapsed >= decay { return 0 }
+        return CGFloat(1.0 - (elapsed / decay))
+    }
+
+    // Visual-only decay windows — extended past the audio hold values
+    // so the screen has a tail of motion off each beat. Keeping the
+    // audio-side `kickHold` etc. unchanged because they're tuned for
+    // distinct hit-counting (e.g. "is the kick still firing on this
+    // tick?"); these visual decays are tuned for "how long should the
+    // eye still see the trigger."
+    private var kickVisualDecay: TimeInterval  { 0.45 }
+    private var snareVisualDecay: TimeInterval { 0.35 }
+    private var hhVisualDecay: TimeInterval    { 0.20 }
+    private var bassVisualDecay: TimeInterval  { 0.55 }
+    private var padVisualDecay: TimeInterval   { 1.00 }
+
     // MARK: - Style: squares
 
     // Everything is a wobbly-edged rectangle. Pad tiles arranged radially,
@@ -641,13 +698,24 @@ struct VisualsView: View {
 
     // Every voice is expressed as circles. Big central blobs for
     // kick/snare, rings of many small dots for bass/hh, a scatter of
-    // dots at fixed angles for the pad.
+    // dots at fixed angles for the pad. Dots snap on at full size on
+    // each trigger and *shrink-decay* back to invisible over the
+    // voice's visual decay window — gives the screen a visible tail
+    // of motion off every beat instead of binary appear/disappear.
     private func renderDots(ctx: GraphicsContext, center: CGPoint, minDim: CGFloat, time: Double, now: Date) {
+        // Per-voice pulse envelopes (1.0 at trigger, decays to 0).
+        let kickPulse  = pulseEnvelope(last: state.kickLastTrigger,  now: now, decay: kickVisualDecay)
+        let snarePulse = pulseEnvelope(last: state.snareLastTrigger, now: now, decay: snareVisualDecay)
+        let hhPulse    = pulseEnvelope(last: state.hhLastTrigger,    now: now, decay: hhVisualDecay)
+        let bassPulse  = pulseEnvelope(last: state.bassLastTrigger,  now: now, decay: bassVisualDecay)
+        let padPulse   = pulseEnvelope(last: state.padLastTrigger,   now: now, decay: padVisualDecay)
+
         // Pad — scattered dots at golden-ratio angles around the orbit.
-        if isFiring(last: state.padLastTrigger, now: now, hold: padHold) {
+        // Dots inflate on trigger and shrink to nothing as pad decays.
+        if padPulse > 0 {
             let count = padCount()
             let orbitR = minDim * 0.42
-            let dotR = minDim * 0.022
+            let dotR = minDim * 0.022 * padPulse
             for i in 0..<count {
                 // Spread via golden ratio so 4/6/8 dots land at pleasing
                 // non-symmetric angles.
@@ -658,30 +726,32 @@ struct VisualsView: View {
                 ctx.fill(dot, with: .color(ink))
             }
         }
-        // Bass — ring of 12 small dots at ~38% radius.
-        if isFiring(last: state.bassLastTrigger, now: now, hold: bassHold) {
-            dotRing(ctx: ctx, center: center, radius: minDim * 0.38, dotRadius: minDim * 0.014, count: 12, time: time, seedBase: 700)
+        // Bass — ring of 12 small dots at ~38% radius. Each dot scales
+        // with the bass pulse so the whole ring grows + shrinks.
+        if bassPulse > 0 {
+            dotRing(ctx: ctx, center: center, radius: minDim * 0.38, dotRadius: minDim * 0.014 * bassPulse, count: 12, time: time, seedBase: 700)
         }
         // HH — tight ring of 8 tiny dots at ~11% radius.
-        if isFiring(last: state.hhLastTrigger, now: now, hold: hhHold) {
-            dotRing(ctx: ctx, center: center, radius: minDim * 0.11, dotRadius: minDim * 0.008, count: 8, time: time, seedBase: 800)
+        if hhPulse > 0 {
+            dotRing(ctx: ctx, center: center, radius: minDim * 0.11, dotRadius: minDim * 0.008 * hhPulse, count: 8, time: time, seedBase: 800)
         }
-        // Kick — big filled dot in the center.
-        if isFiring(last: state.kickLastTrigger, now: now, hold: kickHold) {
-            let r = minDim * 0.22
+        // Kick — big filled dot in the center, scales 0 → full → 0.
+        if kickPulse > 0 {
+            let r = minDim * 0.22 * kickPulse
             let dot = chiseledBlob(center: center, baseRadius: r, time: time, jitter: r * 0.06, seed: 11, points: 56)
             ctx.fill(dot, with: .color(ink))
         }
         // Snare — smaller filled dot.
-        if isFiring(last: state.snareLastTrigger, now: now, hold: snareHold) {
-            let r = minDim * 0.075
+        if snarePulse > 0 {
+            let r = minDim * 0.075 * snarePulse
             let dot = chiseledBlob(center: center, baseRadius: r, time: time, jitter: r * 0.07, seed: 23, points: 40)
             ctx.fill(dot, with: .color(ink))
         }
     }
 
     // Helper used by dots-style bass + hh: N small filled dots arranged
-    // on a circle of the given radius.
+    // on a circle of the given radius. The caller scales `dotRadius`
+    // by the voice's pulse envelope so the ring naturally fades.
     private func dotRing(ctx: GraphicsContext, center: CGPoint, radius: CGFloat, dotRadius: CGFloat, count: Int, time: Double, seedBase: Int) {
         for i in 0..<count {
             let angle = Double(i) * 2 * .pi / Double(count)
@@ -771,6 +841,135 @@ struct VisualsView: View {
             let ring = chiseledBlob(center: center, baseRadius: minDim * 0.11, time: time, jitter: minDim * 0.002, seed: 61, points: 48)
             ctx.stroke(ring, with: .color(ink), style: StrokeStyle(lineWidth: minDim * 0.009, lineCap: .round, lineJoin: .round))
         }
+    }
+
+    // MARK: - Style: oscilloscope
+
+    // Full-bleed CRT-style scope. Each voice contributes a sine wave
+    // at its own characteristic frequency, weighted by its current
+    // pulse envelope; the trace is the running sum, drawn over a 4×6
+    // grid like an actual instrument display.
+    //
+    // Why this design: a real oscilloscope monitoring a band's stem
+    // bus would show the kick as a low-frequency thump, the bass as
+    // a sustained mid wave, the snare as a sharper mid-high transient,
+    // and the hh as fast jitter — all riding on whatever pad pitch
+    // is currently sustained. We simulate that, summing per-voice
+    // sines at proportionally chosen frequencies and amplitudes. The
+    // result reads as "I can see the song breathing" rather than as
+    // five separate light-up indicators.
+    //
+    // Theme-aware: trace + grid use the song's ink color, paper for
+    // background, so the scope flips clean between dark phosphor-style
+    // (white-on-black) and light schematic-style (black-on-white).
+    private func renderOscilloscope(ctx: GraphicsContext, size: CGSize, minDim: CGFloat, time: Double, now: Date) {
+        // Grid first so the trace renders over it.
+        drawScopeGrid(ctx: ctx, size: size, minDim: minDim)
+
+        // Per-voice pulse envelopes. Same decay windows the orbit /
+        // dots styles use so the visual response timings line up.
+        let kp = pulseEnvelope(last: state.kickLastTrigger,  now: now, decay: kickVisualDecay)
+        let sp = pulseEnvelope(last: state.snareLastTrigger, now: now, decay: snareVisualDecay)
+        let hp = pulseEnvelope(last: state.hhLastTrigger,    now: now, decay: hhVisualDecay)
+        let bp = pulseEnvelope(last: state.bassLastTrigger,  now: now, decay: bassVisualDecay)
+        let pp = pulseEnvelope(last: state.padLastTrigger,   now: now, decay: padVisualDecay)
+
+        // Scrolling phase based on wall-clock so the trace never sits
+        // perfectly still even at idle — like a CRT running unlocked.
+        let scrollPhase = time * 0.8
+        // Pad uses a slow secondary phase so its component drifts on
+        // its own timeline relative to the percussive voices.
+        let padPhase = time * 0.4
+
+        let samples = 320  // ~screen-width density — small enough that
+                           // pathing is cheap, big enough that high-freq
+                           // hh component renders without aliasing.
+        let amplitude = size.height * 0.32
+        let centerY = size.height / 2
+        // 6 cycles of the slowest (kick) component fit across screen.
+        let baseCycles: Double = 6
+
+        var path = Path()
+        for i in 0..<samples {
+            let frac = Double(i) / Double(samples - 1)
+            let x = frac * Double(size.width)
+            let phase = frac * 2 * .pi * baseCycles + scrollPhase
+
+            // Sum each voice's sine at its frequency multiplier,
+            // amplitude × current pulse envelope.
+            var y = 0.0
+            y += Double(kp) * sin(phase * 1.0) * 0.60      // kick: low + slow (×1)
+            y += Double(bp) * sin(phase * 2.0) * 0.50      // bass: low-mid (×2)
+            y += Double(pp) * sin(phase * 0.5 + padPhase) * 0.35  // pad: very slow (×0.5), drifts
+            y += Double(sp) * sin(phase * 5.0) * 0.40      // snare: medium-fast (×5)
+            y += Double(hp) * sin(phase * 22.0) * 0.25     // hh: high jitter (×22)
+
+            // Tiny baseline hiss so the trace never reads dead-flat —
+            // serves the same role as CRT phosphor noise floor.
+            let noise = (sin(phase * 47 + time * 13) + cos(phase * 73 + time * 17)) * 0.015
+            y += noise
+
+            // Clamp into the drawable band so big simultaneous hits
+            // don't draw past the grid — clipping reads better than
+            // an off-screen trace.
+            let clamped = max(-1.0, min(1.0, y))
+            let yPos = centerY + CGFloat(clamped) * amplitude
+            let pt = CGPoint(x: CGFloat(x), y: yPos)
+            if i == 0 {
+                path.move(to: pt)
+            } else {
+                path.addLine(to: pt)
+            }
+        }
+
+        // Phosphor glow underlay — wider, dimmer pass beneath the
+        // sharp trace gives the line a soft halo that reads as CRT
+        // bloom in dark mode and as a heavier ink stroke in light.
+        ctx.stroke(
+            path,
+            with: .color(ink.opacity(0.25)),
+            style: StrokeStyle(lineWidth: minDim * 0.014, lineCap: .round, lineJoin: .round)
+        )
+        // Sharp main trace.
+        ctx.stroke(
+            path,
+            with: .color(ink),
+            style: StrokeStyle(lineWidth: minDim * 0.005, lineCap: .round, lineJoin: .round)
+        )
+    }
+
+    // Draws the scope's reticle: a 4×6 grid of dim ink lines, with the
+    // mid-horizontal "0V" line slightly stronger, plus a thin viewport
+    // outline. Scaled off minDim so the line widths feel right at any
+    // window size.
+    private func drawScopeGrid(ctx: GraphicsContext, size: CGSize, minDim: CGFloat) {
+        let dim = ink.opacity(0.18)
+        let mid = ink.opacity(0.40)
+        let lw = max(0.5, minDim * 0.001)
+
+        // Horizontal divisions — 4 cells = 5 lines, edges drawn by
+        // the outer rect below.
+        let hDivs = 4
+        for i in 1..<hDivs {
+            let y = size.height * CGFloat(i) / CGFloat(hDivs)
+            let isMid = i == hDivs / 2
+            var line = Path()
+            line.move(to: CGPoint(x: 0, y: y))
+            line.addLine(to: CGPoint(x: size.width, y: y))
+            ctx.stroke(line, with: .color(isMid ? mid : dim), lineWidth: lw)
+        }
+        // Vertical divisions — 6 cells.
+        let vDivs = 6
+        for i in 1..<vDivs {
+            let x = size.width * CGFloat(i) / CGFloat(vDivs)
+            var line = Path()
+            line.move(to: CGPoint(x: x, y: 0))
+            line.addLine(to: CGPoint(x: x, y: size.height))
+            ctx.stroke(line, with: .color(dim), lineWidth: lw)
+        }
+        // Viewport outline so the "scope" reads as a contained instrument.
+        let frame = Path(CGRect(origin: .zero, size: size))
+        ctx.stroke(frame, with: .color(ink.opacity(0.30)), lineWidth: lw * 1.5)
     }
 
     // MARK: - Style: constellation

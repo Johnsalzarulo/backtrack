@@ -48,11 +48,13 @@ final class AppState: ObservableObject {
     @Published var songs: [Song] = []
     @Published var countdowns: [Countdown] = []
     @Published var interstitials: [Interstitial] = []
+    @Published var audienceInteractives: [AudienceInteractive] = []
     @Published var setlists: [Setlist] = []
 
     @Published var songIssues: [String] = []
     @Published var countdownIssues: [String] = []
     @Published var interstitialIssues: [String] = []
+    @Published var audienceInteractiveIssues: [String] = []
     @Published var setlistIssues: [String] = []
 
     // MARK: - Lineup (the navigable arrangement)
@@ -94,6 +96,11 @@ final class AppState: ObservableObject {
 
     var currentInterstitial: Interstitial? {
         if case .interstitial(let i) = currentLineupItem { return i }
+        return nil
+    }
+
+    var currentAudienceInteractive: AudienceInteractive? {
+        if case .audienceInteractive(let a) = currentLineupItem { return a }
         return nil
     }
 
@@ -143,6 +150,13 @@ final class AppState: ObservableObject {
     // here we care about the entire press duration. Cleared on key-up,
     // window resign, lineup move, or videoClip onset.
     @Published var telemetryHeldDown: Bool = false
+
+    // Wall-clock timestamp of the last audience "wrong button" press
+    // on an AudienceInteractive item. AudienceInteractiveView reads
+    // this to flash a momentary "WRONG BUTTON" overlay (red, ~1.5 s)
+    // before reverting to the per-kind prompt. .distantPast = no
+    // error currently displayed.
+    @Published var wrongButtonAt: Date = .distantPast
 
     // MARK: - Per-song state (only meaningful when currentSong != nil)
 
@@ -338,15 +352,24 @@ final class AppState: ObservableObject {
                             "setlist '\(active.name)': interstitial '\(n)' not found in Interstitials/"
                         )
                     }
+                case .audienceInteractive(let n):
+                    if let a = audienceInteractives.first(where: { $0.name == n }) {
+                        items.append(.audienceInteractive(a))
+                    } else {
+                        resolveIssues.append(
+                            "setlist '\(active.name)': audience-interactive '\(n)' not found in AudienceInteractives/"
+                        )
+                    }
                 }
             }
             resolved = items
         } else {
             // No setlist → fall back to "all songs, all countdowns,
-            // all interstitials" in that order.
+            // all interstitials, all audience interactives" in that order.
             resolved = songs.map(LineupItem.song)
                 + countdowns.map(LineupItem.countdown)
                 + interstitials.map(LineupItem.interstitial)
+                + audienceInteractives.map(LineupItem.audienceInteractive)
         }
 
         lineup = resolved

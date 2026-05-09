@@ -86,17 +86,7 @@ enum SongLoader {
             throw SongValidationError("parts use bass but song has no \"bass\" sound name")
         }
 
-        let theme: VisualTheme
-        switch raw.theme?.lowercased() {
-        case nil, "", "dark":
-            theme = .dark
-        case "light":
-            theme = .light
-        case let other?:
-            throw SongValidationError(
-                "theme '\(other)' — expected 'dark' or 'light'"
-            )
-        }
+        let theme: VisualTheme = try parseTheme(raw.theme, context: "song") ?? .dark
 
         let visualizer = try parseVisualizer(raw.visualizer, context: "song") ?? .constellation
 
@@ -251,38 +241,57 @@ enum SongLoader {
         )
     }
 
+    // Shared theme parser. Drives off `VisualTheme(rawValue:)` so adding
+    // a new theme case automatically makes it parseable. Returns nil
+    // for nil/empty so callers pick their own default. Throws on a
+    // typed-but-unknown value so the HUD's issues block points the
+    // performer at the offending file.
+    static func parseTheme(_ raw: String?, context: String) throws -> VisualTheme? {
+        guard let raw = raw, !raw.isEmpty else { return nil }
+        let normalized = raw.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return nil }
+        if let theme = VisualTheme(rawValue: normalized) {
+            return theme
+        }
+        let known = VisualTheme.allCases.map(\.rawValue).joined(separator: ", ")
+        throw SongValidationError(
+            "\(context) theme '\(raw)' — expected one of: \(known)"
+        )
+    }
+
     // Shared parser for both song-level and part-level visualizer names.
     // Empty/nil returns nil so callers can fall back to their own default.
+    //
+    // Drives off `VisualizerStyle(rawValue:)` rather than a hand-written
+    // switch on case strings — adding a new case to VisualizerStyle now
+    // automatically makes it parseable here, so the loader can't drift
+    // out of sync with the enum the way it did when "oscilloscope" was
+    // added in commit history. The error message also auto-builds from
+    // `allCases`, so the "expected one of:" list stays accurate without
+    // manual edits.
     private static func parseVisualizer(
         _ raw: String?,
         context: String
     ) throws -> VisualizerStyle? {
-        switch raw?.lowercased() {
-        case nil, "":
-            return nil
-        case "constellation":
-            return .constellation
-        case "orbit":
-            return .orbit
-        case "ink":
-            return .ink
-        case "squares":
-            return .squares
-        case "dots":
-            return .dots
-        case "lines":
-            return .lines
-        case "ripple":
-            return .ripple
-        case "lyrics-block", "lyricsblock":
-            return .lyricsBlock
-        case "lyrics-line", "lyricsline":
-            return .lyricsLine
-        case let other?:
-            throw SongValidationError(
-                "\(context) visualizer '\(other)' — expected one of: constellation, orbit, ink, squares, dots, lines, ripple, lyrics-block, lyrics-line"
-            )
+        guard let raw = raw, !raw.isEmpty else { return nil }
+        let normalized = raw.lowercased()
+        if let style = VisualizerStyle(rawValue: normalized) {
+            return style
         }
+        // Backward-compat aliases for the lyric styles, which used to
+        // accept a no-hyphen form alongside the canonical hyphenated
+        // raw value. Anything else falls through to a clear error.
+        let aliases: [String: VisualizerStyle] = [
+            "lyricsblock": .lyricsBlock,
+            "lyricsline": .lyricsLine,
+        ]
+        if let style = aliases[normalized] {
+            return style
+        }
+        let known = VisualizerStyle.allCases.map(\.rawValue).joined(separator: ", ")
+        throw SongValidationError(
+            "\(context) visualizer '\(raw)' — expected one of: \(known)"
+        )
     }
 }
 
