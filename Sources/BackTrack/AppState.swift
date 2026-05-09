@@ -101,6 +101,49 @@ final class AppState: ObservableObject {
 
     @Published var countdownTransport: CountdownTransport = .stopped
 
+    // Runtime style override for the active countdown, set by the "1"
+    // key (audience-facing red button). Cycles .digital → .pie →
+    // .hourglass → .digital independently of the JSON `style`. Reset to
+    // nil whenever the lineup cursor moves so each countdown starts
+    // from its authored default.
+    @Published var countdownStyleOverride: CountdownStyle? = nil
+
+    // Runtime message-rotation offset for the active countdown, advanced
+    // by the "2" key (audience-facing green button). Each press adds 1;
+    // CountdownView lays this over the time-based index so a press
+    // immediately reveals the next message instead of waiting for the
+    // next interval boundary. Reset to 0 when the lineup cursor moves.
+    @Published var countdownMessageOffset: Int = 0
+
+    // Runtime post-effect override for the active song, set by the "1"
+    // key (audience-facing red button) while a song is current. Cycles
+    // through .glitch / .tracking / .chroma and reverts to nil after a
+    // short timeout (managed by KeyboardHandler) so audience-triggered
+    // effects always feel temporary. Layered on top of the part's JSON
+    // visualEffect via effectiveVisualEffect.
+    @Published var songEffectOverride: PostEffect? = nil
+
+    // Wall-clock timestamp of the most recent audience-triggered effect
+    // press during a song. VisualsView reads this to render a brief
+    // white-flash overlay on top of everything (post-effect included)
+    // so the audience gets unambiguous feedback that their button press
+    // landed. .distantPast = no flash currently visible.
+    @Published var audienceFlashTriggeredAt: Date = .distantPast
+
+    // Wall-clock deadline for the active songEffectOverride. Set to
+    // `Date() + holdSeconds` when the override is armed, .distantPast
+    // when no override is active. The telemetry panel reads this to
+    // show a live "Xs remaining" countdown without having to reach
+    // into KeyboardHandler's DispatchWorkItem.
+    @Published var songEffectExpiresAt: Date = .distantPast
+
+    // True while the audience-facing green button ("2") is held down
+    // during a song. Drives the full-screen telemetry panel takeover.
+    // Distinct from a tap (used for advancing countdown messages):
+    // here we care about the entire press duration. Cleared on key-up,
+    // window resign, lineup move, or videoClip onset.
+    @Published var telemetryHeldDown: Bool = false
+
     // MARK: - Per-song state (only meaningful when currentSong != nil)
 
     @Published var currentPartIndex: Int = 0    // index into current song's structure
@@ -174,11 +217,15 @@ final class AppState: ObservableObject {
     }
 
     var effectiveCountdownStyle: CountdownStyle {
-        currentCountdown?.style ?? .digital
+        countdownStyleOverride ?? currentCountdown?.style ?? .digital
     }
 
     // visualEffect lives on Part for songs and on Countdown for countdowns.
+    // The audience "1" button can temporarily override the song-side
+    // value via songEffectOverride; that override wins until it
+    // auto-reverts a few seconds later (timer in KeyboardHandler).
     var effectiveVisualEffect: PostEffect {
+        if let override = songEffectOverride, currentSong != nil { return override }
         if let p = currentPart { return p.visualEffect }
         if let c = currentCountdown { return c.visualEffect }
         return .none

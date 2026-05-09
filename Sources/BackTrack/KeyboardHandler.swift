@@ -16,6 +16,7 @@ final class KeyboardHandler {
     let audio: AudioEngineController
 
     private var monitor: Any?
+    private var resignObserver: NSObjectProtocol?
 
     // Pending auto-advance for an interstitial that has a `duration`
     // set. Cancelled whenever the lineup cursor moves (so navigating
@@ -23,6 +24,19 @@ final class KeyboardHandler {
     // fires). Video interstitials don't use this — they auto-advance
     // via the AVPlayer's didPlayToEndTime callback instead.
     private var interstitialAutoAdvance: DispatchWorkItem?
+
+    // Pending revert for an audience-triggered song effect (the "1"
+    // key during a song). Cancelled + rescheduled on each press so a
+    // rapid double-tap cycles forward without ever timing out, and
+    // cancelled on lineup-cursor moves so a drifting timer doesn't
+    // clear an override on the *next* item.
+    private var songEffectAutoRevert: DispatchWorkItem?
+
+    // How long an audience-triggered effect stays on screen before
+    // reverting to whatever the part's JSON specifies. Short enough
+    // that the effect feels like a "moment", long enough that a slow
+    // press-press-press still cycles each step visibly.
+    private static let songEffectHoldSeconds: TimeInterval = 10
 
     init(state: AppState, clock: Clock, audio: AudioEngineController) {
         self.state = state
@@ -38,20 +52,74 @@ final class KeyboardHandler {
 
     func install() {
         guard monitor == nil else { return }
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        // Listen for both keyDown AND keyUp so the green-button
+        // ("2") momentary-hold telemetry can release on key release.
+        // Every other shortcut is keyDown-only and ignores keyUp via
+        // the early return in handleUp.
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
             guard let self = self else { return event }
-            return self.handle(event) ? nil : event
+            switch event.type {
+            case .keyDown:
+                return self.handle(event) ? nil : event
+            case .keyUp:
+                return self.handleUp(event) ? nil : event
+            default:
+                return event
+            }
+        }
+        // Safety net: if the app loses focus while a momentary key
+        // (the green button "2") is held, we'll never see the
+        // matching keyUp because local monitors only fire while the
+        // app is frontmost. Force-release on resign so the telemetry
+        // panel doesn't get stuck on screen.
+        resignObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            // Force-release any momentary state on focus loss.
+            // Currently just the telemetry panel; if we add more
+            // held-key features they should also reset here.
+            guard let self = self else { return }
+            if self.state.telemetryHeldDown {
+                self.state.telemetryHeldDown = false
+            }
         }
     }
 
     deinit {
         if let monitor = monitor { NSEvent.removeMonitor(monitor) }
+        if let token = resignObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
+    }
+
+    // Handles .keyUp events. Almost every shortcut is fire-on-keyDown
+    // and ignores release; the one exception is the green-button
+    // momentary-hold ("2"), which uses release to dismiss the
+    // telemetry panel. Returns true when consumed.
+    private func handleUp(_ event: NSEvent) -> Bool {
+        let chars = event.charactersIgnoringModifiers?.lowercased() ?? ""
+        if chars == "2", state.telemetryHeldDown {
+            state.telemetryHeldDown = false
+            return true
+        }
+        return false
     }
 
     private func handle(_ event: NSEvent) -> Bool {
         let chars = event.charactersIgnoringModifiers?.lowercased() ?? ""
 
         if event.modifierFlags.contains(.command) { return false }
+
+        // OS key-repeat fires keyDown over and over while a key is
+        // held. For momentary-hold features (telemetry panel) we want
+        // exactly one transition into the held state — ignore repeats
+        // for "2" specifically. Other shortcuts pass through to the
+        // normal switch (a held arrow can validly walk the lineup).
+        if event.isARepeat && chars == "2" {
+            return state.telemetryHeldDown
+        }
 
         if state.tweakMode {
             return handleTweakMode(event: event, chars: chars)
@@ -103,6 +171,50 @@ final class KeyboardHandler {
             // No-op when fewer than 2 setlists exist.
             cycleSetlist()
             return true
+        case "1":
+            // Audience-facing red button. Behavior depends on what's
+            // currently on stage:
+            //   - song:     cycle a temporary post-effect (auto-reverts
+            //               after ~10s so audience-triggered effects
+            //               always feel like a moment, not a takeover)
+            //   - countdown: cycle the render style indefinitely until
+            //                the lineup cursor moves
+            //   - anything else: no-op
+            if state.currentSong != nil {
+                // Suppress while a videoClip is taking over the visuals
+                // window — the clip IS the song's intentional moment
+                // (e.g. Core of the Onion's intro), so layering an
+                // audience-triggered effect on top would step on the
+                // joke. Same suppression while the audience is holding
+                // the green button — that interaction owns the screen.
+                if state.activeVideoClip != nil { return true }
+                if state.telemetryHeldDown { return true }
+                cycleSongEffect()
+                return true
+            }
+            if state.currentCountdown != nil {
+                cycleCountdownStyle()
+                return true
+            }
+            return false
+        case "2":
+            // Audience-facing green button. Behavior depends on what's
+            // currently on stage:
+            //   - song:     hold-to-show telemetry panel (momentary).
+            //               Suppressed during videoClips so the clip
+            //               keeps the screen.
+            //   - countdown: tap to advance the rotating message.
+            //   - anything else: no-op.
+            if state.currentSong != nil {
+                if state.activeVideoClip != nil { return true }
+                state.telemetryHeldDown = true
+                return true
+            }
+            if state.currentCountdown != nil {
+                advanceCountdownMessage()
+                return true
+            }
+            return false
         case "\\":
             toggleTweakMode()
             return true
@@ -306,6 +418,13 @@ final class KeyboardHandler {
         state.currentPartIndex = 0
         state.currentBar = 0
         state.pendingPartIndex = nil
+        // Audience-button overrides ("1" / "2") are scoped to the
+        // active item — moving the cursor wipes them so the next
+        // item starts at its JSON-defined defaults.
+        state.countdownStyleOverride = nil
+        state.countdownMessageOffset = 0
+        state.telemetryHeldDown = false
+        clearSongEffectOverride()
 
         scheduleInterstitialAutoAdvanceIfNeeded()
     }
@@ -371,6 +490,87 @@ final class KeyboardHandler {
 
     private func stopCountdown() {
         state.countdownTransport = .stopped
+    }
+
+    // "1" key — cycle the active countdown's style through
+    // CountdownStyle.allCases. Sets an in-memory override on AppState
+    // (the JSON `style` is left alone); the override gets cleared the
+    // moment the lineup cursor moves so each countdown starts fresh.
+    private func cycleCountdownStyle() {
+        let current = state.effectiveCountdownStyle
+        let cases = CountdownStyle.allCases
+        guard let idx = cases.firstIndex(of: current) else {
+            state.countdownStyleOverride = cases.first
+            return
+        }
+        state.countdownStyleOverride = cases[(idx + 1) % cases.count]
+    }
+
+    // "2" key — bump the message-rotation offset by 1, which makes
+    // CountdownView immediately render the next entry in the
+    // countdown's `messages` array. No-op when there are no messages
+    // (the offset would have nowhere to point).
+    private func advanceCountdownMessage() {
+        guard let countdown = state.currentCountdown,
+              !countdown.messages.isEmpty else { return }
+        state.countdownMessageOffset += 1
+    }
+
+    // "1" key during a song — cycle to the next post-effect from the
+    // currently-effective one and arm a 10s revert. Skips .none so
+    // every press shows something visibly different from the part's
+    // resting state; .none would just return to "no effect" which the
+    // auto-revert already handles for free. Each press cancels the
+    // previous revert and arms a fresh one, so rapid presses cycle
+    // through forever without ever timing out mid-cycle.
+    private func cycleSongEffect() {
+        let cycle: [PostEffect] = [.glitch, .tracking, .chroma]
+        let current = state.effectiveVisualEffect
+        let next: PostEffect
+        if let idx = cycle.firstIndex(of: current) {
+            next = cycle[(idx + 1) % cycle.count]
+        } else {
+            // Current is .none (or something not in the audience cycle)
+            // — start from the first option.
+            next = cycle.first ?? .glitch
+        }
+        state.songEffectOverride = next
+        // Stamp the flash timestamp so VisualsView's overlay reads
+        // "press confirmed" — this is the only visual feedback for an
+        // audience press that happens to land on the same effect as
+        // the part's JSON default (which would otherwise look like a
+        // no-op even though the override is now active).
+        state.audienceFlashTriggeredAt = Date()
+        // Stamp the wall-clock deadline so the telemetry panel can
+        // show a live "Xs remaining" countdown alongside the override.
+        state.songEffectExpiresAt = Date().addingTimeInterval(Self.songEffectHoldSeconds)
+
+        // Cancel-and-rearm the auto-revert. A pending work item from
+        // the previous press would otherwise fire mid-cycle and snap
+        // us back to JSON default before the audience saw the new
+        // effect they just triggered.
+        songEffectAutoRevert?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.state.songEffectOverride = nil
+            self?.state.songEffectExpiresAt = .distantPast
+            self?.songEffectAutoRevert = nil
+        }
+        songEffectAutoRevert = work
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.songEffectHoldSeconds,
+            execute: work
+        )
+    }
+
+    // Tear down any in-flight song-effect override. Used when the
+    // lineup cursor moves; an unrelated work item firing on a new
+    // song would briefly clear *its* JSON-default visualEffect, which
+    // would look like a glitch on stage.
+    private func clearSongEffectOverride() {
+        songEffectAutoRevert?.cancel()
+        songEffectAutoRevert = nil
+        state.songEffectOverride = nil
+        state.songEffectExpiresAt = .distantPast
     }
 
     // Put the visuals window into (or out of) macOS native full-screen.

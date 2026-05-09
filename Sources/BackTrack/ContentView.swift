@@ -430,6 +430,7 @@ struct ContentView: View {
             row("↑ ↓",   "next / prev part",    "L",   "loop current part")
             row("D",     "cycle setlist",       "V",   "show / hide visuals")
             row("F",     "visuals full-screen", "\\",  "tweak mode")
+            row("1",     "song fx / cdn style", "2",   "hold telemetry / next msg")
         }
         .foregroundColor(dim)
         .font(.system(.caption, design: .monospaced))

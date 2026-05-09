@@ -20,8 +20,13 @@ struct CountdownView: View {
     let transport: CountdownTransport
     // Render style — usually `countdown.style` from JSON, but the
     // visuals window resolves it through AppState.effectiveCountdownStyle
-    // so an `M`-key override can take precedence at runtime.
+    // so the "1" key (red audience button) can override at runtime.
     let style: CountdownStyle
+    // Manual offset added to the time-based message index. The "2" key
+    // (green audience button) increments this in AppState; layering it
+    // on top of the rotation means each press immediately advances to
+    // the next message without waiting for the interval boundary.
+    let messageOffset: Int
     // Theme colors come from the visuals window so the countdown
     // honors the same dark/light setting as the surrounding app.
     let ink: Color
@@ -55,7 +60,14 @@ struct CountdownView: View {
                 let safe = min(safeW, safeH)
                 let availW = safeW
                 let labelFont = safe * 0.06
-                let messageFont = safe * 0.05
+                // Message is the rotating audience-facing content, so
+                // we err on the side of legibility — a touch larger
+                // than the static "SHOW BEGINS IN" label.
+                let messageFont = safe * 0.07
+                // Audience-button prompt sits below everything; smaller
+                // than the rotating message because it's static
+                // training-wheels copy, not real content.
+                let promptFont = safe * 0.036
 
                 VStack(alignment: .center, spacing: safe * 0.03) {
                     Spacer(minLength: 0)
@@ -73,6 +85,7 @@ struct CountdownView: View {
                     if !message.isEmpty {
                         messageLine(message: message, font: messageFont, availW: availW)
                     }
+                    audienceButtonPrompt(font: promptFont, availW: availW)
                 }
                 .frame(width: safeW, height: safeH)
                 // Center the safe-area content inside the full window
@@ -102,6 +115,21 @@ struct CountdownView: View {
             .foregroundColor(ink)
             .multilineTextAlignment(.center)
             .lineLimit(3)
+            .minimumScaleFactor(0.5)
+            .frame(maxWidth: availW)
+    }
+
+    // Static "press a button" hint at the bottom of every countdown.
+    // Trains the audience that the red and green buttons in front of
+    // them are wired to the show — keep it small and dimmed so it
+    // doesn't compete with the rotating message above. Identical
+    // across all three styles by design.
+    private func audienceButtonPrompt(font: CGFloat, availW: CGFloat) -> some View {
+        Text("press 🔴 or 🟢")
+            .font(.system(size: font, weight: .light, design: .monospaced))
+            .foregroundColor(ink)
+            .multilineTextAlignment(.center)
+            .lineLimit(1)
             .minimumScaleFactor(0.5)
             .frame(maxWidth: availW)
     }
@@ -164,7 +192,10 @@ struct CountdownView: View {
         safe: CGFloat,
         availW: CGFloat
     ) -> some View {
-        let pieSize = min(availW * 0.85, safe * 0.55)
+        // Pie kept compact relative to the safe area so the rotating
+        // message at the bottom has room to breathe — the pie reads
+        // fine well below half the safe square.
+        let pieSize = min(availW * 0.70, safe * 0.42)
         let smallFont = safe * 0.10
 
         return VStack(alignment: .center, spacing: safe * 0.04) {
@@ -227,8 +258,11 @@ struct CountdownView: View {
         safe: CGFloat,
         availW: CGFloat
     ) -> some View {
-        let glassH = min(safe * 0.62, availW * 1.0)
-        let glassW = min(availW * 0.5, glassH * 0.7)
+        // Hourglass kept compact so the audience message below has
+        // visual weight — the silhouette still reads instantly at this
+        // size, and the trade is more legible bottom-of-screen text.
+        let glassH = min(safe * 0.50, availW * 0.85)
+        let glassW = min(availW * 0.4, glassH * 0.7)
         let smallFont = safe * 0.10
 
         return VStack(alignment: .center, spacing: safe * 0.04) {
@@ -336,7 +370,13 @@ struct CountdownView: View {
     private func currentMessage(elapsed: TimeInterval) -> String {
         guard !countdown.messages.isEmpty else { return "" }
         let interval = max(0.1, countdown.messageInterval)
-        let idx = Int(floor(elapsed / interval)) % countdown.messages.count
+        let timeIdx = Int(floor(elapsed / interval))
+        // Modulo with floored offset handles any sign of messageOffset
+        // safely; Swift's `%` can return negatives for negative dividends
+        // so we re-fold into [0, count) by hand.
+        let count = countdown.messages.count
+        let raw = (timeIdx + messageOffset) % count
+        let idx = (raw + count) % count
         return countdown.messages[idx]
     }
 
