@@ -5,6 +5,10 @@ performance. Songs are JSON files that define parts, chord progressions,
 drum patterns, and lyrics; BackTrack plays them back with sample-based
 drums, pitch-shifted pad chords, and bass. Keyboard-driven. Native macOS.
 
+Two of the keys (`1` / `2`) are wired to physical red and green buttons
+in front of the audience, giving them direct, momentary control over the
+visuals window — see [Audience interaction](#audience-interaction).
+
 ## Requirements
 
 - macOS 13+
@@ -98,8 +102,8 @@ scans the directory; any malformed songs surface in the HUD's
 | `theme` | song | `"dark"` (default — black paper, white ink) or `"light"` (inverted). Only affects the synth layer of the visuals window; parts with a `visuals` file aren't themed. |
 | `visualizer` | song | Synth-layer motif. One of `"constellation"` (default), `"orbit"`, `"ink"`, `"squares"`, `"dots"`, `"lines"`, `"ripple"`, `"lyrics-block"`, `"lyrics-line"`. See the Visuals window section below. |
 | `countIn` | song | Optional integer. When > 0, pressing Space plays N bars of metronome clicks (4 hi-hat hits per bar at the song's BPM, beat 1 accented) before the song actually starts. The HUD shows `● COUNT-IN n/N` and the visuals window shows the current beat-in-bar number large. Default 0 = no count-in. |
-| `visualEffect` | part | Optional. Post-processing layer wrapping the entire visuals window for this part. One of `"none"` (default), `"glitch"` (beat-synced digital-corruption jitter + slice flashes; every 4th bar's downbeat fires a major tear with longer decay and ~3× slice count), `"tracking"` (continuous VCR distortion band + slight VHS desaturation; every ~6 s the picture rolls vertically with a sync seam at the wrap point), `"chroma"` (RGB channel separation; per-beat random angle, downbeat boost, part-start blowout — Spider-Verse / vintage 3D feel). Different parts can have different effects. |
-| `videoClip` | part | Optional filename in `~/BackTrack/VideoClips/` (mp4, mov, m4v, mpg, mpeg, m2v, webm, avi). When set, plays once with audio when the part starts, taking over the visuals window. The backing track keeps playing alongside. When the clip ends mid-part, the visuals window falls back to the part's normal `visuals` / `visualizer`. |
+| `visualEffect` | part | Optional. Post-processing layer wrapping the entire visuals window for this part. One of `"none"` (default), `"glitch"` (beat-synced digital-corruption jitter + slice flashes; every 4th bar's downbeat fires a major tear with longer decay and ~3× slice count), `"tracking"` (continuous VCR distortion band + slight VHS desaturation; every ~6 s the picture rolls vertically with a sync seam at the wrap point), `"chroma"` (RGB channel separation; per-beat random angle, downbeat boost, part-start blowout — Spider-Verse / vintage 3D feel). Different parts can have different effects. The audience-facing red button (`1`) can temporarily override this with a 10-second auto-reverting effect — see [Audience interaction](#audience-interaction). |
+| `videoClip` | part | Optional filename in `~/BackTrack/VideoClips/` (mp4, mov, m4v, mpg, mpeg, m2v, webm, avi). When set, plays once with audio when the part starts, taking over the visuals window. The backing track keeps playing alongside. When the clip ends mid-part, the visuals window falls back to the part's normal `visuals` / `visualizer`. While a `videoClip` is playing, both audience-facing buttons (`1` and `2`) are suppressed — the clip owns the screen. |
 | `videoClipVolume` | part | Optional integer 0–100, default 100. Audio gain for `videoClip`. Ignored when `videoClip` is unset. |
 | `pattern` | part | Drum pattern name from `patterns.json` (e.g. `"Rock basic"`, `"Four on the floor"`). |
 | `chords` | part | The chord progression of the part — one symbol per bar of the progression. |
@@ -149,12 +153,13 @@ ringing.
 
 ## Countdowns
 
-Countdowns are pre-show / interval timers — the second deck you can
-navigate alongside songs. They live in their own directory and render
-as a full-screen TV-style display: a label, a giant counting timer, a
-progress bar, and a rotating block of one-liner messages. (Eventually
-countdowns and songs will share one setlist; today they're toggled
-with `D`.)
+Countdowns are pre-show / interval timers that share the lineup with
+songs and interstitials (see [Setlists](#setlists)). They render
+full-screen as a label up top, a timer visualization in the middle
+(digital, pie, or hourglass — see `style` below), a rotating block of
+one-liner messages beneath, and a small static `press 🔴 or 🟢` line
+at the very bottom that trains the audience to use the red/green
+buttons in front of them.
 
 ```
 ~/BackTrack/Countdowns/preshow.json
@@ -183,8 +188,26 @@ with `D`.)
 | `label` | Optional. Header text above the timer. Default `"Show begins in"`. |
 | `messageInterval` | Optional. Seconds per rotating message. Default `6`. |
 | `messages` | Optional. List of one-liners that cycle below the timer. Index advances by 1 every `messageInterval` seconds. Empty list = no rotating message. |
-| `style` | Optional. How the timer renders. One of `"digital"` (default — giant `M:SS:cc` digits + thin progress bar), `"pie"` (clock-face wedge that shrinks clockwise from 12 with smaller `M:SS` digits below), `"hourglass"` (sand draining from top to bottom triangle, `M:SS` below). Label and rotating message look the same across all three. |
-| `visualEffect` | Optional. Post-processing layer wrapping the entire countdown. One of `"none"` (default), `"glitch"`, `"tracking"`, `"chroma"`. Same options exist as part-level fields on songs. Beat-synced behaviors idle gracefully when nothing's playing. |
+| `style` | Optional. How the timer renders. One of `"digital"` (default — giant `M:SS:cc` digits + thin progress bar), `"pie"` (clock-face wedge that shrinks clockwise from 12 with smaller `M:SS` digits below), `"hourglass"` (sand draining from top to bottom triangle, `M:SS` below). Label and rotating message look the same across all three. The audience-facing red button (`1`) cycles this at runtime (digital → pie → hourglass) without modifying the JSON; the override is wiped when the lineup cursor moves. |
+| `visualEffect` | Optional. Post-processing layer wrapping the entire countdown. One of `"none"` (default), `"glitch"`, `"tracking"`, `"chroma"`. Same options exist as part-level fields on songs. Beat-synced behaviors idle gracefully when nothing's playing. The audience red button doesn't touch this on countdowns — it cycles `style` instead. |
+
+### Audience interaction
+
+Every countdown shows a small `press 🔴 or 🟢` line at the bottom of
+the screen, beneath the rotating message, identical across all three
+styles. The two audience-facing buttons are wired to:
+
+- `🔴` (key `1`) — cycle the render `style` (digital / pie /
+  hourglass). Persists until the lineup cursor moves.
+- `🟢` (key `2`) — advance the rotating message immediately. Each tap
+  adds 1 to a manual offset that's layered on top of the time-based
+  message index, so a press always reveals the next entry without
+  waiting for the next interval boundary.
+
+Both overrides are scoped to the active item — moving to the next or
+previous lineup item resets the style override and the message
+offset. See [Audience interaction](#audience-interaction) below for
+the full picture (including what these keys do during songs).
 
 ### Transport
 
@@ -333,10 +356,68 @@ about navigating that pre-built structure.
 | `V` | Show / hide the visuals window. |
 | `F` | Toggle the visuals window into macOS native full-screen (title bar auto-hides, window covers the display). Opens the window first if it was closed. |
 | `\` | Toggle **tweak mode** — see below. |
+| `1` | **Audience red button.** During a song: cycle a 10-second post-effect (`glitch` → `tracking` → `chroma`) over the part's JSON `visualEffect`, with a half-second white-flash for feedback. During a countdown: cycle render style (digital / pie / hourglass). Suppressed during videoClips. See [Audience interaction](#audience-interaction). |
+| `2` | **Audience green button.** During a song: hold to replace the visuals window with a full-screen amber-on-black `TELEMETRY` panel; releases on key-up. During a countdown: tap to advance the rotating message. Suppressed during videoClips. See [Audience interaction](#audience-interaction). |
 
 Songs, countdowns, setlists, and `patterns.json` auto-reload within
 ~1 s of being saved. Sample folders only load at launch — restart
 the app to pick up new kits.
+
+## Audience interaction
+
+Two keys are intended to be triggered by audience members rather than
+the performer: `1` (red button) and `2` (green button), wired to
+physical buttons in front of the audience. Both are momentary, both
+reset when the lineup cursor moves, and both are no-ops while a
+`videoClip` is playing — the clip owns the screen and an
+audience-triggered effect would step on a deliberate musical /
+comedic moment.
+
+### During a song
+
+- **`1` — temporary post-effect.** Each press cycles to the next of
+  `glitch` / `tracking` / `chroma` (skipping `none` so every press
+  is visibly *something*). The override sits on top of the part's
+  JSON `visualEffect` for ~10 seconds, then auto-reverts to whatever
+  the JSON says — audience-triggered effects always feel like a
+  "moment", not a takeover. Rapid presses cancel-and-rearm the timer
+  so a tap-tap-tap walks through the cycle without timing out
+  mid-walk. Each press also fires a half-second white flash over the
+  entire visuals window (rendered above the post-effect layer so the
+  flash itself isn't glitched) as unambiguous "your press
+  registered" feedback.
+- **`2` — telemetry hold.** While the key is held, the visuals
+  window is replaced by a full-bleed 1:1 amber-on-black `TELEMETRY`
+  panel that ignores the song's theme. The panel renders ~20 lines
+  of live data: set / song / bar progress bars (three time scales),
+  4-dot beat indicator, current and next chord, kit + pattern,
+  decaying level meters with firing dots for kick / snare / hh /
+  pad / bass, and the active visualizer / theme / FX (with an "Xs
+  remaining" countdown when an FX override is in flight). Releases
+  on key-up; also force-released if the app loses focus while the
+  key is held. See [Telemetry panel](#telemetry-panel-audience-hold)
+  in the Visuals window section for the full layout.
+
+### During a countdown
+
+- **`1` — render-style cycle.** Cycles through `digital` / `pie` /
+  `hourglass` indefinitely; the override persists until the lineup
+  cursor moves.
+- **`2` — message advance.** Bumps a manual offset on top of the
+  time-based message index, so each tap immediately reveals the next
+  entry in the countdown's `messages` array without waiting for the
+  interval boundary.
+
+### Suppression rules
+
+- Both keys are no-ops on interstitials and when no item is current.
+- Both are suppressed during a `videoClip` on a song.
+- The `1` key during a song is also suppressed while `2` is held —
+  telemetry hold owns the screen.
+- All overrides reset when `←` / `→` moves the lineup cursor.
+- OS key-repeat is ignored on `2` (one keyDown = one transition into
+  held); app resigning active force-releases telemetry hold so
+  alt-tabbing while held doesn't strand the panel on screen.
 
 ## Tweak mode
 
@@ -423,7 +504,7 @@ readouts around.
 - **Loop badge**: when loop-current-part is on (`L` toggle), a bright `LOOP` appears in the structure header.
 - **Transport**: `● PLAYING` / `○ STOPPED`.
 - **Issues**: `MISSING SAMPLES` and `SONG ISSUES` blocks appear when files are missing or a song file fails to parse.
-- **Keybindings**.
+- **Keybindings**: a five-row grid covering every shortcut, including the audience-button row (`1` / `2`).
 
 **Right column:**
 
@@ -630,6 +711,50 @@ white in light). This is the "no signal" resting state at app
 launch, between songs, and any time you hit Space to pause.
 Regenerates at ~15 Hz to feel analog rather than digital.
 
+### Telemetry panel (audience hold)
+
+While the audience holds the green button (`2`) during a song, the
+visuals window's normal output is replaced by a full-screen
+amber-on-black `TELEMETRY` readout. It ignores the song's theme —
+amber-on-black always — and ignores the active post-effect, the
+audience flash, GIFs, and the synth layer; it's a system overlay,
+not a song layer.
+
+The panel is a single monospaced text block, rendered via
+`TimelineView` so every field updates each animation frame in sync
+with the audio. It's centered as a 1:1 square inside whatever aspect
+ratio the visuals window is running at; the non-square bezels are
+rendered black so the framing reads as CRT housing, not letterboxing.
+
+Fields, top-to-bottom:
+
+- `SET` — overall lineup progress as `[████░░░░] 33% (4/12)`.
+- `SONG` / `KEY` / `BPM` / `STATE` — invariants of the current item
+  plus playing/stopped.
+- `PROG` — song progress, computed by summing the bar-counts of
+  completed parts plus the current bar in the active part, divided
+  by the song's total bars.
+- `PART` — current part name and `(idx/total)`.
+- `BAR` — `[████░░░░] N/M` for the current bar within the active
+  part.
+- `BEAT` — four `○ ○ ● ○`-style dots, one filled at the current
+  beat (mirrors the HUD's beat dots).
+- `CHORD` — `current → next` chord display.
+- `PATTERN` / `KIT` — drum pattern + kit names.
+- Five instrument rows — `KICK` / `SNARE` / `HH` / `PAD` / `BASS`.
+  Each shows a 22-char level meter that decays linearly from full to
+  empty over a per-instrument decay window after each trigger, plus
+  a binary `◉` / `◯` "currently firing" dot. `PAD` and `BASS` rows
+  append the part's `L0`–`L3` complexity.
+- `VIZ` / `THEME` — active visualizer style and theme.
+- `FX` — active post-effect; if a song-effect override is in flight,
+  the line reads `FX glitch (override · 7s)` with the seconds
+  counting down live.
+
+The panel is suppressed during videoClips. It does not appear on
+countdowns or interstitials — both audience keys do other things in
+those contexts (see [Audience interaction](#audience-interaction)).
+
 Everything else is sized proportionally to `min(width, height)` so
 it holds up on any aspect ratio. Toggle the whole window with `V`;
 full-screen with `F`.
@@ -637,17 +762,30 @@ full-screen with `F`.
 ## Files
 
 - `App.swift` — entry point, coordinator wiring
-- `AppState.swift` — observable state (songs, transport, lineup)
-- `AudioEngine.swift` — AVAudioEngine graph, sample loading, pitched voice pools
+- `AppState.swift` — observable state (songs, transport, lineup, audience-button overrides)
+- `AudioEngine.swift` — AVAudioEngine graph, sample loading, pitched voice pools, master-mixer bed level
 - `AudioDevices.swift` — CoreAudio helpers for default output device name
 - `ChordParser.swift` — chord symbol → root pitch class + quality + 7th
 - `Clock.swift` — 16th-note timer, song playback engine
 - `ContentView.swift` — SwiftUI HUD
+- `Countdown.swift` — Countdown / CountdownStyle / CountdownTransport structs + JSON schema
+- `CountdownLoader.swift` — directory scan + validation for countdown JSON files
+- `CountdownView.swift` — full-screen countdown display (digital / pie / hourglass), label + rotating message + audience-button prompt
+- `FileWatcher.swift` — ~1 s polling reloader for songs / countdowns / setlists / patterns.json
 - `Generators.swift` — drum pattern loader, pad + bass generators
-- `KeyboardHandler.swift` — NSEvent local monitor
+- `IdleStaticView.swift` — TV static / "no signal" idle state, shown when transport is stopped with no part-level visual
+- `Interstitial.swift` — Interstitial struct + JSON schema (text / image / video kinds)
+- `InterstitialLoader.swift` — directory scan + validation for interstitial JSON files
+- `KeyboardHandler.swift` — NSEvent local monitor (keyDown + keyUp), audience-button state machine, momentary-hold safety nets
+- `LyricsVisualizers.swift` — NSViewRepresentable auto-fitting justified-text view, plus the centered single-line/word view
+- `PostEffect.swift` — PostEffect enum (none / glitch / tracking / chroma) + shared parser
+- `PostEffectsView.swift` — implementations of the glitch / tracking / chroma post-processing layers
+- `Setlist.swift` — Setlist struct + JSON schema (ordered refs to song / countdown / interstitial)
+- `SetlistLoader.swift` — directory scan + ref-resolution against songs / countdowns / interstitials
 - `Song.swift` — Song / Part structs + raw JSON schema
 - `SongLoader.swift` — directory scan + validation
-- `VisualsView.swift` — Canvas-based synth-layer visuals window, switches to the visual backend when a part has one; dispatches between the geometric and lyric motifs
-- `LyricsVisualizers.swift` — NSViewRepresentable auto-fitting justified-text view, plus the centered single-line/word view
+- `TelemetryView.swift` — full-screen amber-on-black telemetry panel rendered while the audience holds `2` during a song
+- `Tweak.swift` — TweakField enum + cycling logic for the in-app structured editor
+- `VideoClipView.swift` — AVPlayer-backed view for `videoClip` parts and video interstitials, with volume + loop awareness
 - `VisualView.swift` — NSViewRepresentable for images / GIFs (via NSImageView) and video (via AVPlayer), all with CSS-cover scaling
-- `IdleStaticView.swift` — TV static / "no signal" idle state, shown when transport is stopped with no part-level visual
+- `VisualsView.swift` — Canvas-based synth-layer visuals window, switches to the visual backend when a part has one; dispatches between the geometric and lyric motifs; routes telemetry overlay when the green button is held
