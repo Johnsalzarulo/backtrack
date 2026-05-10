@@ -277,13 +277,87 @@ Only the video's own audio plays — there's no song clock running on a
 non-song lineup item, so no drums / pad / bass. Use `volume` (or
 edit it in the JSON) to set the level.
 
+## Audience interactives
+
+The fourth lineup-item kind. Where Songs play backing tracks,
+Countdowns run timers, and Interstitials show static content,
+audience interactives are screens **the audience drives** — using the
+red and green hardware buttons in front of them. Designed as a
+"mini-app" framework: each kind owns its own screen and its own
+per-button semantics over the same two-button vocabulary, so we can
+keep adding new audience moments (votes, branches, reactions, etc.)
+without inventing a new top-level lineup type each time.
+
+Stored as JSON files under `~/BackTrack/AudienceInteractives/`,
+referenced from setlists with `kind: "audience-interactive"`. Same
+~1 s hot-reload behavior as the other inventories.
+
+```
+~/BackTrack/AudienceInteractives/start_show.json
+```
+
+### Schema
+
+```json
+{
+  "name": "Start Show",
+  "kind": "start_button"
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `name` | Display name in the HUD's audience-interactive list and the string setlists reference. |
+| `kind` | Discriminator that picks the screen + behavior. Currently `"start_button"`; future kinds add to this list. The loader is lenient on punctuation (`start_button` / `start-button` / `startbutton` all resolve to the same kind). |
+
+### Kinds
+
+#### `start_button`
+
+A "PRESS 🟢 TO START THE SHOW" gate, intended to live right after
+the pre-show countdown. The audience advances the show themselves,
+so the run-of-show feels collaborative from the very first moment.
+
+- 🟢 (`2`) — advances the lineup to the next item.
+- 🔴 (`1`) — plays a synthesized 8-bit two-tone error beep
+  (880 Hz → 440 Hz square wave, 240 ms total) through the same
+  audio device the music routes to, and flashes "WRONG BUTTON" in
+  red for ~1.5 s before returning to the prompt. The beep bypasses
+  the bed mixer so it stays audible regardless of how attenuated
+  the music is.
+- `Space` — mirrors the green button so the operator can advance
+  from the keyboard if the audience freezes up.
+- The screen is full-bleed with the same monospace + theme-aware
+  styling the countdown uses; the green dot and the red "WRONG
+  BUTTON" tint are the only deviations.
+
+### Adding a new kind
+
+The point of having a separate top-level lineup type for this is
+that a new audience moment is a localized change. To add one:
+
+1. Add a case to `AudienceInteractiveKind` (`Sources/BackTrack/AudienceInteractive.swift`).
+2. Add a branch in `AudienceInteractiveView.promptContent` for the
+   on-screen prompt (text, layout, dot colors).
+3. Add cases in `KeyboardHandler.handleAudienceInteractiveGreen`
+   and `handleAudienceInteractiveRed` for the per-button behavior.
+4. Optional: extend `KeyboardHandler.toggleTransport`'s
+   `.audienceInteractive` branch if `Space` should mirror a
+   different button than green for that kind.
+5. Any per-kind fields go on `AudienceInteractiveJSON` (the raw
+   schema) and `AudienceInteractive` (the compiled struct).
+
+The `AudienceInteractiveKind(rawValue:)` parser auto-picks up new
+cases — no separate switch list to keep in sync.
+
 ## Setlists
 
-Songs, countdowns, and interstitials are arranged into ordered
-setlists for live use. The "lineup" — what `←` and `→` actually
-navigate — is whichever setlist is currently active. With no setlist
-active, the lineup falls back to all songs, then all countdowns,
-then all interstitials.
+Songs, countdowns, interstitials, and audience interactives are
+arranged into ordered setlists for live use. The "lineup" — what
+`←` and `→` actually navigate — is whichever setlist is currently
+active. With no setlist active, the lineup falls back to all songs,
+then all countdowns, then all interstitials, then all audience
+interactives.
 
 ```
 ~/BackTrack/Setlists/01_full_show.json
@@ -295,19 +369,21 @@ then all interstitials.
 {
   "name": "Full Show",
   "items": [
-    { "kind": "countdown",    "ref": "Pre-show" },
-    { "kind": "song",         "ref": "Double Yellow Lines" },
-    { "kind": "interstitial", "ref": "Welcome" },
-    { "kind": "song",         "ref": "Get Yourself Together" },
-    { "kind": "countdown",    "ref": "Intermission" },
-    { "kind": "song",         "ref": "Listen to the Dead" }
+    { "kind": "countdown",            "ref": "Pre-show" },
+    { "kind": "audience-interactive", "ref": "Start Show" },
+    { "kind": "interstitial",         "ref": "Welcome" },
+    { "kind": "song",                 "ref": "Get Yourself Together" },
+    { "kind": "countdown",            "ref": "Intermission" },
+    { "kind": "song",                 "ref": "Listen to the Dead" }
   ]
 }
 ```
 
-`ref` matches the `name` field on the song or countdown JSON file.
-References that don't resolve surface in the HUD's issues block — the
-setlist still loads and plays everything that does resolve.
+Valid `kind` values: `"song"`, `"countdown"`, `"interstitial"`,
+`"audience-interactive"`. `ref` matches the `name` field on the
+corresponding JSON file. References that don't resolve surface in
+the HUD's issues block — the setlist still loads and plays
+everything that does resolve.
 
 ### Switching setlists
 
@@ -407,6 +483,20 @@ comedic moment.
   time-based message index, so each tap immediately reveals the next
   entry in the countdown's `messages` array without waiting for the
   interval boundary.
+
+### During an audience-interactive item
+
+[Audience interactives](#audience-interactives) are the fourth
+lineup-item kind, designed entirely around these two buttons. Each
+audience-interactive `kind` defines its own per-button semantics,
+documented in that section. For the currently shipped `start_button`
+kind:
+
+- **`1` — wrong choice.** Plays an 8-bit two-tone error beep through
+  the audio engine and shows "WRONG BUTTON" in red for ~1.5 s.
+- **`2` — advance.** Moves to the next lineup item.
+- **`Space`** — mirrors the green button so the operator can drive
+  the show from the keyboard.
 
 ### Suppression rules
 
@@ -761,31 +851,34 @@ full-screen with `F`.
 
 ## Files
 
-- `App.swift` — entry point, coordinator wiring
-- `AppState.swift` — observable state (songs, transport, lineup, audience-button overrides)
-- `AudioEngine.swift` — AVAudioEngine graph, sample loading, pitched voice pools, master-mixer bed level
+- `App.swift` — entry point, coordinator wiring (loads songs / countdowns / interstitials / audience interactives / setlists)
+- `AppState.swift` — observable state (songs, transport, lineup, audience-button overrides, wrong-button flash, telemetry hold)
+- `AudienceInteractive.swift` — AudienceInteractive struct + AudienceInteractiveKind enum + JSON schema
+- `AudienceInteractiveLoader.swift` — directory scan + validation for audience-interactive JSON files (lenient on hyphens/underscores in `kind`)
+- `AudienceInteractiveView.swift` — full-screen audience-driven screen, kind-aware prompt content, momentary "WRONG BUTTON" overlay
+- `AudioEngine.swift` — AVAudioEngine graph, sample loading, pitched voice pools, master-mixer bed level, dedicated SFX node for the wrong-button square-wave beep
 - `AudioDevices.swift` — CoreAudio helpers for default output device name
 - `ChordParser.swift` — chord symbol → root pitch class + quality + 7th
 - `Clock.swift` — 16th-note timer, song playback engine
-- `ContentView.swift` — SwiftUI HUD
+- `ContentView.swift` — SwiftUI HUD (with audience-interactive deck + header blocks)
 - `Countdown.swift` — Countdown / CountdownStyle / CountdownTransport structs + JSON schema
-- `CountdownLoader.swift` — directory scan + validation for countdown JSON files
-- `CountdownView.swift` — full-screen countdown display (digital / pie / hourglass), label + rotating message + audience-button prompt
-- `FileWatcher.swift` — ~1 s polling reloader for songs / countdowns / setlists / patterns.json
+- `CountdownLoader.swift` — directory scan + validation for countdown JSON files (rawValue-driven style parser)
+- `CountdownView.swift` — full-screen countdown display (digital / pie / hourglass), label + rotating message + colored-dot audience-button prompt
+- `FileWatcher.swift` — ~1 s polling reloader for songs / countdowns / interstitials / audience interactives / setlists / patterns.json
 - `Generators.swift` — drum pattern loader, pad + bass generators
 - `IdleStaticView.swift` — TV static / "no signal" idle state, shown when transport is stopped with no part-level visual
 - `Interstitial.swift` — Interstitial struct + JSON schema (text / image / video kinds)
-- `InterstitialLoader.swift` — directory scan + validation for interstitial JSON files
-- `KeyboardHandler.swift` — NSEvent local monitor (keyDown + keyUp), audience-button state machine, momentary-hold safety nets
+- `InterstitialLoader.swift` — directory scan + validation for interstitial JSON files (rawValue-driven kind + theme parsers; theme parser shared with SongLoader)
+- `KeyboardHandler.swift` — NSEvent local monitor (keyDown + keyUp), audience-button state machine, momentary-hold safety nets, audience-interactive routing
 - `LyricsVisualizers.swift` — NSViewRepresentable auto-fitting justified-text view, plus the centered single-line/word view
-- `PostEffect.swift` — PostEffect enum (none / glitch / tracking / chroma) + shared parser
+- `PostEffect.swift` — PostEffect enum (none / glitch / tracking / chroma) + shared rawValue-driven parser
 - `PostEffectsView.swift` — implementations of the glitch / tracking / chroma post-processing layers
-- `Setlist.swift` — Setlist struct + JSON schema (ordered refs to song / countdown / interstitial)
-- `SetlistLoader.swift` — directory scan + ref-resolution against songs / countdowns / interstitials
-- `Song.swift` — Song / Part structs + raw JSON schema
-- `SongLoader.swift` — directory scan + validation
+- `Setlist.swift` — Setlist struct + JSON schema (ordered refs to song / countdown / interstitial / audience-interactive)
+- `SetlistLoader.swift` — directory scan + ref-resolution against songs / countdowns / interstitials / audience interactives
+- `Song.swift` — Song / Part structs + raw JSON schema; VisualizerStyle (incl. `oscilloscope`) + VisualTheme enums
+- `SongLoader.swift` — directory scan + validation; rawValue-driven shared visualizer + theme parsers
 - `TelemetryView.swift` — full-screen amber-on-black telemetry panel rendered while the audience holds `2` during a song
 - `Tweak.swift` — TweakField enum + cycling logic for the in-app structured editor
 - `VideoClipView.swift` — AVPlayer-backed view for `videoClip` parts and video interstitials, with volume + loop awareness
 - `VisualView.swift` — NSViewRepresentable for images / GIFs (via NSImageView) and video (via AVPlayer), all with CSS-cover scaling
-- `VisualsView.swift` — Canvas-based synth-layer visuals window, switches to the visual backend when a part has one; dispatches between the geometric and lyric motifs; routes telemetry overlay when the green button is held
+- `VisualsView.swift` — Canvas-based synth-layer visuals window, geometric + lyric + oscilloscope motifs, audience-interactive + telemetry takeovers, audience-flash overlay
