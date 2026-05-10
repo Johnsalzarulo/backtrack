@@ -102,7 +102,7 @@ scans the directory; any malformed songs surface in the HUD's
 | `theme` | song | `"dark"` (default — black paper, white ink) or `"light"` (inverted). Only affects the synth layer of the visuals window; parts with a `visuals` file aren't themed. |
 | `visualizer` | song | Synth-layer motif. One of `"constellation"` (default), `"orbit"`, `"ink"`, `"squares"`, `"dots"`, `"lines"`, `"ripple"`, `"oscilloscope"`, `"lyrics-block"`, `"lyrics-line"`. See the Visuals window section below. |
 | `countIn` | song | Optional integer. When > 0, pressing Space plays N bars of metronome clicks (4 hi-hat hits per bar at the song's BPM, beat 1 accented) before the song actually starts. The HUD shows `● COUNT-IN n/N` and the visuals window shows the current beat-in-bar number large. Default 0 = no count-in. |
-| `visualEffect` | part | Optional. Post-processing layer wrapping the entire visuals window for this part. One of `"none"` (default), `"glitch"` (beat-synced digital-corruption jitter + slice flashes; every 4th bar's downbeat fires a major tear with longer decay and ~3× slice count), `"tracking"` (continuous VCR distortion band + slight VHS desaturation; every ~6 s the picture rolls vertically with a sync seam at the wrap point), `"chroma"` (RGB channel separation; per-beat random angle, downbeat boost, part-start blowout — Spider-Verse / vintage 3D feel). Different parts can have different effects. The audience-facing red button (`1`) can temporarily override this with a 10-second auto-reverting effect — see [Audience interaction](#audience-interaction). |
+| `visualEffect` | part | Optional. Post-processing layer wrapping the entire visuals window for this part. One of `"none"` (default), `"glitch"` (beat-synced digital-corruption jitter + slice flashes; every 4th bar's downbeat fires a major tear with longer decay and ~3× slice count), `"tracking"` (continuous VCR distortion band + slight VHS desaturation; every ~6 s the picture rolls vertically with a sync seam at the wrap point), `"chroma"` (RGB channel separation; per-beat random angle, downbeat boost, part-start blowout — Spider-Verse / vintage 3D feel). Different parts can have different effects. The audience-facing green button (`1`) can temporarily override this with a 10-second auto-reverting effect — see [Audience interaction](#audience-interaction). |
 | `videoClip` | part | Optional filename in `~/BackTrack/VideoClips/` (mp4, mov, m4v, mpg, mpeg, m2v, webm, avi). When set, plays once with audio when the part starts, taking over the visuals window. The backing track keeps playing alongside. When the clip ends mid-part, the visuals window falls back to the part's normal `visuals` / `visualizer`. While a `videoClip` is playing, both audience-facing buttons (`1` and `2`) are suppressed — the clip owns the screen. |
 | `videoClipVolume` | part | Optional integer 0–100, default 100. Audio gain for `videoClip`. Ignored when `videoClip` is unset. |
 | `pattern` | part | Drum pattern name from `patterns.json` (e.g. `"Rock basic"`, `"Four on the floor"`). |
@@ -188,8 +188,8 @@ buttons in front of them.
 | `label` | Optional. Header text above the timer. Default `"Show begins in"`. |
 | `messageInterval` | Optional. Seconds per rotating message. Default `6`. |
 | `messages` | Optional. List of one-liners that cycle below the timer. Index advances by 1 every `messageInterval` seconds. Empty list = no rotating message. |
-| `style` | Optional. How the timer renders. One of `"digital"` (default — giant `M:SS:cc` digits + thin progress bar), `"pie"` (clock-face wedge that shrinks clockwise from 12 with smaller `M:SS` digits below), `"hourglass"` (sand draining from top to bottom triangle, `M:SS` below). Label and rotating message look the same across all three. The audience-facing red button (`1`) cycles this at runtime (digital → pie → hourglass) without modifying the JSON; the override is wiped when the lineup cursor moves. |
-| `visualEffect` | Optional. Post-processing layer wrapping the entire countdown. One of `"none"` (default), `"glitch"`, `"tracking"`, `"chroma"`. Same options exist as part-level fields on songs. Beat-synced behaviors idle gracefully when nothing's playing. The audience red button doesn't touch this on countdowns — it cycles `style` instead. |
+| `style` | Optional. How the timer renders. One of `"digital"` (default — giant `M:SS:cc` digits + thin progress bar), `"pie"` (clock-face wedge that shrinks clockwise from 12 with smaller `M:SS` digits below), `"hourglass"` (sand draining from top to bottom triangle, `M:SS` below). Label and rotating message look the same across all three. The audience-facing green button (`1`) cycles this at runtime (digital → pie → hourglass) without modifying the JSON; the override is wiped when the lineup cursor moves. |
+| `visualEffect` | Optional. Post-processing layer wrapping the entire countdown. One of `"none"` (default), `"glitch"`, `"tracking"`, `"chroma"`. Same options exist as part-level fields on songs. Beat-synced behaviors idle gracefully when nothing's playing. Audience buttons don't touch this on countdowns — `1` cycles `style` and `2` advances the rotating message. |
 
 ### Audience interaction
 
@@ -197,9 +197,9 @@ Every countdown shows a small `press 🔴 or 🟢` line at the bottom of
 the screen, beneath the rotating message, identical across all three
 styles. The two audience-facing buttons are wired to:
 
-- `🔴` (key `1`) — cycle the render `style` (digital / pie /
+- `🟢` (key `1`) — cycle the render `style` (digital / pie /
   hourglass). Persists until the lineup cursor moves.
-- `🟢` (key `2`) — advance the rotating message immediately. Each tap
+- `🔴` (key `2`) — advance the rotating message immediately. Each tap
   adds 1 to a manual offset that's layered on top of the time-based
   message index, so a press always reveals the next entry without
   waiting for the next interval boundary.
@@ -318,18 +318,152 @@ A "PRESS 🟢 TO START THE SHOW" gate, intended to live right after
 the pre-show countdown. The audience advances the show themselves,
 so the run-of-show feels collaborative from the very first moment.
 
-- 🟢 (`2`) — advances the lineup to the next item.
-- 🔴 (`1`) — plays a synthesized 8-bit two-tone error beep
-  (880 Hz → 440 Hz square wave, 240 ms total) through the same
-  audio device the music routes to, and flashes "WRONG BUTTON" in
-  red for ~1.5 s before returning to the prompt. The beep bypasses
-  the bed mixer so it stays audible regardless of how attenuated
-  the music is.
+- 🟢 (`1`) — advances the lineup to the next item.
+- 🔴 (`2`) — plays a synthesized 8-bit two-tone error beep
+  (880 Hz → 440 Hz square wave, 240 ms total) routed through the
+  master mixer (so it tracks the music's bed level and never
+  dominates the room), and flashes "WRONG BUTTON" in red for
+  ~1.5 s before returning to the prompt.
 - `Space` — mirrors the green button so the operator can advance
   from the keyboard if the audience freezes up.
 - The screen is full-bleed with the same monospace + theme-aware
   styling the countdown uses; the green dot and the red "WRONG
   BUTTON" tint are the only deviations.
+
+#### `transmission`
+
+A multi-step text-message exchange between an unnamed sender and
+the audience. The screen shifts to a phosphor-green-on-black CRT
+terminal aesthetic (independent of the song theme); messages
+arrive one at a time, typing themselves in character-by-character;
+the audience picks replies from two button labels at the bottom.
+The flow plays out for ~2-5 minutes while the performer pretends
+to tune their guitar.
+
+The same `kind: "transmission"` framework hosts any number of
+narrative scripts — different files, different stories, same
+runtime. Currently shipped:
+
+- `the_breakup.json` — mid-set, between *I Don't Want To Take
+  Pills* and *Sleeping Cold*. Audience plays the side that's
+  pursuing; the other party has clearly already left. Ends with
+  the operator advancing manually after the closing message.
+- `moving_on.json` — directly after *Sleeping Cold*. Audience
+  plays the side moving on; the other party can't accept it.
+  Ends on its own clock — the bit auto-advances back into the
+  setlist after the final beat holds.
+
+**Per-exchange flow** (audience-driven exchange):
+
+1. Brief blank pause (~700 ms — "they're typing on the other end").
+2. `INCOMING` header (small, dim, top) appears.
+3. The body types itself in at ~25 chars/sec. While typing, no
+   reply prompts are visible and audience presses are ignored —
+   the audience can't skip past a message they haven't seen.
+4. Once typing finishes, two reply prompts appear stacked at the
+   bottom: 🟢 above, 🔴 below.
+5. Audience presses one. Screen briefly shows `YOU SENT: <reply>`
+   (~1 s, suppressed for silent / gate / opening choices — see
+   below), then back to step 1 with the next exchange.
+
+**Three exchange flavors** the same schema supports:
+
+- **Audience-driven** — has `green` and `red` choices. Audience
+  must press to advance. The everyday case.
+- **Self-driving (`autoAdvance`)** — declares an `autoAdvance`
+  block instead of choices. The exchange types in, holds for
+  `holdSeconds` after typing finishes, then auto-transitions to
+  its `next`. Used for `OUTGOING` messages (you're sending,
+  there's nothing to reply to) and for terminal beats that should
+  end the bit on a clock rather than waiting on the operator.
+  Mutually exclusive with `green`/`red` — the loader rejects an
+  exchange that has both.
+- **Terminal-by-operator** — has neither choices nor
+  `autoAdvance`. The body sits on screen indefinitely until the
+  operator advances with `→` / `Space`. Used by The Breakup's
+  closing "mommy issues" beat, where the silence is the point.
+
+**Special exchange shapes**
+
+- **Gate** — `header: "NEW MESSAGE RECEIVED"`, empty `incoming`,
+  one button's `next` is `"abort"`. Renders as a large centered
+  header with the two choices stacked beneath. Pressing the abort
+  side ends the bit before it starts (the audience refused the
+  invitation — perfectly valid ending). Both currently shipped
+  scripts open with one.
+- **`OUTGOING` exchange** — set `header: "OUTGOING"` to flip the
+  fiction. The body reads as a message *you* are sending in the
+  conversation. Same phosphor monochrome (no separate styling),
+  but the header word does the differentiation. Pairs naturally
+  with `autoAdvance` since "you" are sending the message; there's
+  nothing for the audience to reply to.
+- **Silent choice** — wrap a reply label in parens, e.g.
+  `"(say nothing)"`. The system detects parens-wrapped labels and
+  suppresses the `YOU SENT: …` echo for them — semantically the
+  audience didn't send anything, just declined to respond. Author
+  doesn't need a schema flag; the parens are the signal.
+
+**Schema**
+
+```json
+{
+  "name": "Moving On",
+  "kind": "transmission",
+  "exchanges": [
+    {
+      "id": "open",
+      "header": "NEW MESSAGE RECEIVED",
+      "green": { "label": "READ", "next": "e1" },
+      "red":   { "label": "DELETE", "next": "abort" }
+    },
+    {
+      "id": "e1",
+      "incoming": "how could you move on\nso fast",
+      "green": { "label": "i had to", "next": "e2" },
+      "red":   { "label": "(say nothing)", "next": "e2" }
+    },
+    {
+      "id": "e3",
+      "header": "OUTGOING",
+      "incoming": "i'm finally finding happiness\n\ni hope you can too",
+      "autoAdvance": { "holdSeconds": 7, "next": "e4" }
+    },
+    {
+      "id": "e5",
+      "incoming": "how can you do this to me",
+      "autoAdvance": { "holdSeconds": 9, "next": "abort" }
+    }
+  ]
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `id` | Required. Unique within the script. Referenced by other exchanges' `next` fields. |
+| `header` | Optional. Small dim text above the message body — `"INCOMING"` (default), `"OUTGOING"`, `"NEW MESSAGE RECEIVED"`. On gate-style exchanges (empty `incoming`) the header is rendered as a large centerpiece instead of a top label. |
+| `incoming` | Optional. Body text. `\n` line breaks render as visible breaks; blank lines between thought-fragments stay visible. Default empty (signals a gate). |
+| `green` / `red` | Optional. Reply choices on each button. Both must be present together, **or both absent**. Mutually exclusive with `autoAdvance`. Each has `label` (the visible reply text — wrap in parens for silent stage-direction style) and `next`. |
+| `autoAdvance` | Optional. `{ "holdSeconds": <number>, "next": <id-or-abort> }`. After typing finishes, the body holds for `holdSeconds`, then transitions to `next`. No audience interaction. Mutually exclusive with `green`/`red`. |
+| `next` | Either an exchange `id` (continues the script) or the literal `"abort"` (ends the bit). On a choice's `next: "abort"` the screen briefly shows `DELETED` before the lineup advances; on an `autoAdvance.next: "abort"` the lineup advances silently (the bit is ending on its own clock, not being deleted). |
+
+**Pacing constants** (in `Sources/BackTrack/AudienceInteractive.swift`):
+
+- `TransmissionPacing.charDuration` — typing reveal speed,
+  default 0.04 s per character.
+- `KeyboardHandler.transmissionEchoSeconds` — `YOU SENT: …`
+  duration, default 1.0 s.
+- `KeyboardHandler.transmissionPreIncomingSeconds` — blank
+  between echo and next incoming, default 0.7 s.
+- `KeyboardHandler.transmissionDeletedFlashSeconds` — DELETED
+  flash on a manual abort press, default 0.8 s.
+
+**Operator escape hatch**: `←` / `→` / `Space` all advance the
+lineup mid-transmission, regardless of phase. Useful if it stalls
+live or the audience freezes up.
+
+**Self-care**: there's no runtime "skip tonight" toggle — if a
+transmission doesn't fit a particular show, just remove it from
+that night's setlist. The pieces are opt-in per show.
 
 ### Adding a new kind
 
@@ -337,15 +471,20 @@ The point of having a separate top-level lineup type for this is
 that a new audience moment is a localized change. To add one:
 
 1. Add a case to `AudienceInteractiveKind` (`Sources/BackTrack/AudienceInteractive.swift`).
-2. Add a branch in `AudienceInteractiveView.promptContent` for the
-   on-screen prompt (text, layout, dot colors).
+2. Add a render branch in `AudienceInteractiveView.body` for the
+   on-screen content (some kinds will have multiple phases — see
+   `transmissionView` for an example).
 3. Add cases in `KeyboardHandler.handleAudienceInteractiveGreen`
    and `handleAudienceInteractiveRed` for the per-button behavior.
 4. Optional: extend `KeyboardHandler.toggleTransport`'s
    `.audienceInteractive` branch if `Space` should mirror a
    different button than green for that kind.
 5. Any per-kind fields go on `AudienceInteractiveJSON` (the raw
-   schema) and `AudienceInteractive` (the compiled struct).
+   schema) and `AudienceInteractive` (the compiled struct), and
+   the loader's `compile` switch should produce them.
+6. For multi-step kinds: add a phase enum + `@Published`
+   field on `AppState`, and reset it in
+   `KeyboardHandler.selectLineupItem`'s teardown block.
 
 The `AudienceInteractiveKind(rawValue:)` parser auto-picks up new
 cases — no separate switch list to keep in sync.
@@ -432,8 +571,8 @@ about navigating that pre-built structure.
 | `V` | Show / hide the visuals window. |
 | `F` | Toggle the visuals window into macOS native full-screen (title bar auto-hides, window covers the display). Opens the window first if it was closed. |
 | `\` | Toggle **tweak mode** — see below. |
-| `1` | **Audience red button.** During a song: cycle a 10-second post-effect (`glitch` → `tracking` → `chroma`) over the part's JSON `visualEffect`, with a half-second white-flash for feedback. During a countdown: cycle render style (digital / pie / hourglass). Suppressed during videoClips. See [Audience interaction](#audience-interaction). |
-| `2` | **Audience green button.** During a song: hold to replace the visuals window with a full-screen amber-on-black `TELEMETRY` panel; releases on key-up. During a countdown: tap to advance the rotating message. Suppressed during videoClips. See [Audience interaction](#audience-interaction). |
+| `1` | **Audience green button.** During a song: cycle a 10-second post-effect (`glitch` → `tracking` → `chroma`) over the part's JSON `visualEffect`, with a half-second white-flash for feedback. During a countdown: cycle render style (digital / pie / hourglass). On a `start_button` audience-interactive: advance the show. Suppressed during videoClips. See [Audience interaction](#audience-interaction). |
+| `2` | **Audience red button.** During a song: tap to toggle a full-screen amber-on-black `TELEMETRY` panel that takes over the visuals window; auto-hides after 5 s, or tap again to dismiss early. During a countdown: tap to advance the rotating message. On a `start_button` audience-interactive: error beep + "WRONG BUTTON" flash. Suppressed during videoClips. See [Audience interaction](#audience-interaction). |
 
 Songs, countdowns, setlists, and `patterns.json` auto-reload within
 ~1 s of being saved. Sample folders only load at launch — restart
@@ -442,12 +581,19 @@ the app to pick up new kits.
 ## Audience interaction
 
 Two keys are intended to be triggered by audience members rather than
-the performer: `1` (red button) and `2` (green button), wired to
-physical buttons in front of the audience. Both are momentary, both
-reset when the lineup cursor moves, and both are no-ops while a
+the performer: `1` (green button) and `2` (red button), wired to
+physical buttons in front of the audience. Both are no-ops while a
 `videoClip` is playing — the clip owns the screen and an
 audience-triggered effect would step on a deliberate musical /
-comedic moment.
+comedic moment. Most overrides also reset when the lineup cursor
+moves to a new item.
+
+> **Wiring note.** On this rig, the **green** physical button is
+> wired to send key `1`, and the **red** physical button sends key
+> `2`. The handlers are named after the *button color the audience
+> sees*, so `handleAudienceInteractiveGreen` runs from key `1` —
+> not key `2` — by design. Don't "fix" this without checking the
+> hardware first.
 
 ### During a song
 
@@ -462,17 +608,19 @@ comedic moment.
   entire visuals window (rendered above the post-effect layer so the
   flash itself isn't glitched) as unambiguous "your press
   registered" feedback.
-- **`2` — telemetry hold.** While the key is held, the visuals
-  window is replaced by a full-bleed 1:1 amber-on-black `TELEMETRY`
-  panel that ignores the song's theme. The panel renders ~20 lines
-  of live data: set / song / bar progress bars (three time scales),
-  4-dot beat indicator, current and next chord, kit + pattern,
-  decaying level meters with firing dots for kick / snare / hh /
-  pad / bass, and the active visualizer / theme / FX (with an "Xs
-  remaining" countdown when an FX override is in flight). Releases
-  on key-up; also force-released if the app loses focus while the
-  key is held. See [Telemetry panel](#telemetry-panel-audience-hold)
-  in the Visuals window section for the full layout.
+- **`2` — telemetry toggle.** Each tap flips the visuals window
+  between the song's normal output and a full-bleed 1:1 amber-on-
+  black `TELEMETRY` panel that ignores the song's theme. The panel
+  renders ~20 lines of live data: set / song / bar progress bars
+  (three time scales), 4-dot beat indicator, current and next chord,
+  kit + pattern, decaying level meters with firing dots for kick /
+  snare / hh / pad / bass, and the active visualizer / theme / FX
+  (with an "Xs remaining" countdown when an FX override is in
+  flight). The panel auto-hides after 5 seconds, or a second tap
+  dismisses it early. Tap-toggle (rather than press-hold) because
+  the audience hardware buttons only signal on press. See
+  [Telemetry panel](#telemetry-panel-audience-toggle) in the Visuals
+  window section for the full layout.
 
 ### During a countdown
 
@@ -492,22 +640,28 @@ audience-interactive `kind` defines its own per-button semantics,
 documented in that section. For the currently shipped `start_button`
 kind:
 
-- **`1` — wrong choice.** Plays an 8-bit two-tone error beep through
-  the audio engine and shows "WRONG BUTTON" in red for ~1.5 s.
-- **`2` — advance.** Moves to the next lineup item.
-- **`Space`** — mirrors the green button so the operator can drive
-  the show from the keyboard.
+- **`1` — advance** (the green button on this rig). Moves to the
+  next lineup item.
+- **`2` — wrong choice** (the red button). Plays an 8-bit two-tone
+  error beep through the audio engine and shows "WRONG BUTTON" in
+  red for ~1.5 s.
+- **`Space`** — mirrors the advance action (key `1`) so the operator
+  can drive the show from the keyboard if the audience freezes up.
 
 ### Suppression rules
 
-- Both keys are no-ops on interstitials and when no item is current.
+- Both keys are silently consumed when they have no work to do (on
+  interstitials, when no item is current, in tweak mode, mid-
+  videoClip). They never propagate to AppKit, so a press that does
+  nothing also does nothing — no macOS alert beep on stage.
 - Both are suppressed during a `videoClip` on a song.
-- The `1` key during a song is also suppressed while `2` is held —
-  telemetry hold owns the screen.
-- All overrides reset when `←` / `→` moves the lineup cursor.
-- OS key-repeat is ignored on `2` (one keyDown = one transition into
-  held); app resigning active force-releases telemetry hold so
-  alt-tabbing while held doesn't strand the panel on screen.
+- The `1` key during a song (effect cycle) is also suppressed while
+  the telemetry panel is up — the takeover owns the screen.
+- All overrides reset when `←` / `→` moves the lineup cursor — the
+  telemetry panel hides, any pending auto-hide is cancelled, and the
+  audience-effect override is cleared.
+- OS key-repeat is ignored on `2` so a stuck key can't toggle the
+  telemetry panel on/off rapidly.
 
 ## Tweak mode
 
@@ -801,14 +955,15 @@ white in light). This is the "no signal" resting state at app
 launch, between songs, and any time you hit Space to pause.
 Regenerates at ~15 Hz to feel analog rather than digital.
 
-### Telemetry panel (audience hold)
+### Telemetry panel (audience toggle)
 
-While the audience holds the green button (`2`) during a song, the
+When the audience taps the red button (`2`) during a song, the
 visuals window's normal output is replaced by a full-screen
-amber-on-black `TELEMETRY` readout. It ignores the song's theme —
-amber-on-black always — and ignores the active post-effect, the
-audience flash, GIFs, and the synth layer; it's a system overlay,
-not a song layer.
+amber-on-black `TELEMETRY` readout for ~5 seconds, after which it
+auto-hides; tapping again before the timer dismisses early. The
+panel ignores the song's theme — amber-on-black always — and
+ignores the active post-effect, the audience flash, GIFs, and the
+synth layer; it's a system overlay, not a song layer.
 
 The panel is a single monospaced text block, rendered via
 `TimelineView` so every field updates each animation frame in sync
@@ -852,10 +1007,10 @@ full-screen with `F`.
 ## Files
 
 - `App.swift` — entry point, coordinator wiring (loads songs / countdowns / interstitials / audience interactives / setlists)
-- `AppState.swift` — observable state (songs, transport, lineup, audience-button overrides, wrong-button flash, telemetry hold)
-- `AudienceInteractive.swift` — AudienceInteractive struct + AudienceInteractiveKind enum + JSON schema
-- `AudienceInteractiveLoader.swift` — directory scan + validation for audience-interactive JSON files (lenient on hyphens/underscores in `kind`)
-- `AudienceInteractiveView.swift` — full-screen audience-driven screen, kind-aware prompt content, momentary "WRONG BUTTON" overlay
+- `AppState.swift` — observable state (songs, transport, lineup, audience-button overrides, wrong-button flash, telemetry visibility)
+- `AudienceInteractive.swift` — AudienceInteractive struct + AudienceInteractiveKind enum + transmission script types (TransmissionScript / Exchange / Choice / AutoAdvance / Next / Phase) + JSON schemas + shared TransmissionPacing constants (typing reveal speed, etc.)
+- `AudienceInteractiveLoader.swift` — directory scan + validation for audience-interactive JSON files (lenient on hyphens/underscores in `kind`); compiles + validates transmission `exchanges` (unique ids, both-or-neither choices, autoAdvance↔choices mutual exclusion, every `next` resolves)
+- `AudienceInteractiveView.swift` — full-screen audience-driven screen; per-kind branches: start_button (themed prompt + WRONG BUTTON overlay), transmission (phosphor-green CRT terminal — gate centerpiece, character-by-character typing with layout-stable underlay, stacked reply prompts gated on typing-complete, DELETED flash on manual abort)
 - `AudioEngine.swift` — AVAudioEngine graph, sample loading, pitched voice pools, master-mixer bed level, dedicated SFX node for the wrong-button square-wave beep
 - `AudioDevices.swift` — CoreAudio helpers for default output device name
 - `ChordParser.swift` — chord symbol → root pitch class + quality + 7th
@@ -869,7 +1024,7 @@ full-screen with `F`.
 - `IdleStaticView.swift` — TV static / "no signal" idle state, shown when transport is stopped with no part-level visual
 - `Interstitial.swift` — Interstitial struct + JSON schema (text / image / video kinds)
 - `InterstitialLoader.swift` — directory scan + validation for interstitial JSON files (rawValue-driven kind + theme parsers; theme parser shared with SongLoader)
-- `KeyboardHandler.swift` — NSEvent local monitor (keyDown + keyUp), audience-button state machine, momentary-hold safety nets, audience-interactive routing
+- `KeyboardHandler.swift` — NSEvent local monitor (keyDown only; audience presses unconditionally consumed to suppress the macOS alert beep), tap-toggle telemetry timer, song-effect cycle timer, transmission state machine + auto-transition timers, audience-interactive routing per kind
 - `LyricsVisualizers.swift` — NSViewRepresentable auto-fitting justified-text view, plus the centered single-line/word view
 - `PostEffect.swift` — PostEffect enum (none / glitch / tracking / chroma) + shared rawValue-driven parser
 - `PostEffectsView.swift` — implementations of the glitch / tracking / chroma post-processing layers
@@ -877,7 +1032,7 @@ full-screen with `F`.
 - `SetlistLoader.swift` — directory scan + ref-resolution against songs / countdowns / interstitials / audience interactives
 - `Song.swift` — Song / Part structs + raw JSON schema; VisualizerStyle (incl. `oscilloscope`) + VisualTheme enums
 - `SongLoader.swift` — directory scan + validation; rawValue-driven shared visualizer + theme parsers
-- `TelemetryView.swift` — full-screen amber-on-black telemetry panel rendered while the audience holds `2` during a song
+- `TelemetryView.swift` — full-screen amber-on-black telemetry panel toggled by audience taps on `2` during a song (auto-hides after 5 s)
 - `Tweak.swift` — TweakField enum + cycling logic for the in-app structured editor
 - `VideoClipView.swift` — AVPlayer-backed view for `videoClip` parts and video interstitials, with volume + loop awareness
 - `VisualView.swift` — NSViewRepresentable for images / GIFs (via NSImageView) and video (via AVPlayer), all with CSS-cover scaling

@@ -86,7 +86,150 @@ enum AudienceInteractiveLoader {
                 "kind '\(raw.kind)' — expected one of: \(known)"
             )
         }
-        return AudienceInteractive(sourceURL: sourceURL, name: raw.name, kind: kind)
+
+        // Per-kind compilation of the optional payload.
+        let transmission: TransmissionScript?
+        switch kind {
+        case .startButton:
+            transmission = nil
+        case .transmission:
+            transmission = try compileTransmission(raw.exchanges)
+        }
+
+        return AudienceInteractive(
+            sourceURL: sourceURL,
+            name: raw.name,
+            kind: kind,
+            transmission: transmission
+        )
+    }
+
+    // Validates the exchanges array for a transmission audience-
+    // interactive. Rules:
+    //   - At least one exchange.
+    //   - Unique ids.
+    //   - Choices are both-or-neither (no half-terminal exchanges).
+    //   - Every choice's `next` resolves to either "abort" or an
+    //     existing exchange id.
+    private static func compileTransmission(_ raw: [TransmissionExchangeJSON]?) throws -> TransmissionScript {
+        guard let raw = raw, !raw.isEmpty else {
+            throw AudienceInteractiveValidationError(
+                "transmission must declare at least one item in 'exchanges'"
+            )
+        }
+        // First pass: validate id uniqueness (also gives us the set of
+        // valid id targets for the second pass).
+        var seenIds: Set<String> = []
+        for ex in raw {
+            let trimmed = ex.id.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                throw AudienceInteractiveValidationError(
+                    "transmission exchange has empty 'id'"
+                )
+            }
+            guard !seenIds.contains(trimmed) else {
+                throw AudienceInteractiveValidationError(
+                    "transmission has duplicate exchange id '\(trimmed)'"
+                )
+            }
+            seenIds.insert(trimmed)
+        }
+        // Second pass: compile each exchange and resolve `next`.
+        var exchanges: [TransmissionExchange] = []
+        for ex in raw {
+            let green = try compileTransmissionChoice(ex.green, exchangeId: ex.id, button: "green", validIds: seenIds)
+            let red   = try compileTransmissionChoice(ex.red,   exchangeId: ex.id, button: "red",   validIds: seenIds)
+            let auto  = try compileTransmissionAutoAdvance(ex.autoAdvance, exchangeId: ex.id, validIds: seenIds)
+            // Both-or-neither rule: a partial-choice exchange is
+            // ambiguous — would the missing button be a no-op or
+            // abort? Force the author to be explicit.
+            if (green == nil) != (red == nil) {
+                throw AudienceInteractiveValidationError(
+                    "transmission exchange '\(ex.id)' must have BOTH 'green' and 'red' choices, or NEITHER (terminal exchange)"
+                )
+            }
+            // Mutual exclusivity: choices and autoAdvance can't both
+            // run an exchange. Either the audience advances it
+            // (green/red) or the timer does (autoAdvance). Allowing
+            // both would create ambiguous timing semantics.
+            if auto != nil && (green != nil || red != nil) {
+                throw AudienceInteractiveValidationError(
+                    "transmission exchange '\(ex.id)' has both autoAdvance and reply choices — pick one"
+                )
+            }
+            exchanges.append(TransmissionExchange(
+                id: ex.id,
+                header: ex.header ?? "INCOMING",
+                incoming: ex.incoming ?? "",
+                green: green,
+                red: red,
+                autoAdvance: auto
+            ))
+        }
+        return TransmissionScript(exchanges: exchanges)
+    }
+
+    private static func compileTransmissionAutoAdvance(
+        _ raw: TransmissionAutoAdvanceJSON?,
+        exchangeId: String,
+        validIds: Set<String>
+    ) throws -> TransmissionAutoAdvance? {
+        guard let raw = raw else { return nil }
+        guard raw.holdSeconds > 0 else {
+            throw AudienceInteractiveValidationError(
+                "transmission exchange '\(exchangeId)' autoAdvance.holdSeconds must be > 0 (got \(raw.holdSeconds))"
+            )
+        }
+        let normalized = raw.next.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            throw AudienceInteractiveValidationError(
+                "transmission exchange '\(exchangeId)' autoAdvance.next is empty"
+            )
+        }
+        let next: TransmissionNext
+        if normalized == "abort" {
+            next = .abort
+        } else if validIds.contains(normalized) {
+            next = .exchange(id: normalized)
+        } else {
+            throw AudienceInteractiveValidationError(
+                "transmission exchange '\(exchangeId)' autoAdvance.next '\(raw.next)' doesn't reference any exchange id (or 'abort')"
+            )
+        }
+        return TransmissionAutoAdvance(holdSeconds: raw.holdSeconds, next: next)
+    }
+
+    private static func compileTransmissionChoice(
+        _ raw: TransmissionChoiceJSON?,
+        exchangeId: String,
+        button: String,
+        validIds: Set<String>
+    ) throws -> TransmissionChoice? {
+        guard let raw = raw else { return nil }
+        guard !raw.label.isEmpty else {
+            throw AudienceInteractiveValidationError(
+                "transmission exchange '\(exchangeId)' \(button) choice has empty 'label'"
+            )
+        }
+        let normalized = raw.next
+            .lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            throw AudienceInteractiveValidationError(
+                "transmission exchange '\(exchangeId)' \(button) choice has empty 'next'"
+            )
+        }
+        let next: TransmissionNext
+        if normalized == "abort" {
+            next = .abort
+        } else if validIds.contains(normalized) {
+            next = .exchange(id: normalized)
+        } else {
+            throw AudienceInteractiveValidationError(
+                "transmission exchange '\(exchangeId)' \(button) choice 'next: \(raw.next)' doesn't reference any exchange id (or the literal 'abort')"
+            )
+        }
+        return TransmissionChoice(label: raw.label, next: next)
     }
 }
 

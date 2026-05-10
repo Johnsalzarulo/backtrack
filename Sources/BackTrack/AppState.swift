@@ -144,12 +144,14 @@ final class AppState: ObservableObject {
     // into KeyboardHandler's DispatchWorkItem.
     @Published var songEffectExpiresAt: Date = .distantPast
 
-    // True while the audience-facing green button ("2") is held down
-    // during a song. Drives the full-screen telemetry panel takeover.
-    // Distinct from a tap (used for advancing countdown messages):
-    // here we care about the entire press duration. Cleared on key-up,
-    // window resign, lineup move, or videoClip onset.
-    @Published var telemetryHeldDown: Bool = false
+    // True while the telemetry panel is visible during a song. Toggled
+    // by audience-facing "2" presses — first press shows, second press
+    // hides early, and a timer in KeyboardHandler auto-hides after a
+    // few seconds in case the audience forgets. (Was previously a
+    // hold-to-show flag, but the hardware buttons in the rig only fire
+    // on press, not release, so a tap-toggle is the only thing that
+    // actually works.) Cleared on lineup move or videoClip onset.
+    @Published var telemetryVisible: Bool = false
 
     // Wall-clock timestamp of the last audience "wrong button" press
     // on an AudienceInteractive item. AudienceInteractiveView reads
@@ -157,6 +159,14 @@ final class AppState: ObservableObject {
     // before reverting to the per-kind prompt. .distantPast = no
     // error currently displayed.
     @Published var wrongButtonAt: Date = .distantPast
+
+    // Multi-step state for the active "transmission" audience-
+    // interactive (e.g. The Breakup). .idle when none is running;
+    // otherwise tracks which exchange is on screen and which
+    // momentary phase (replyEcho, preIncomingBlank, deletedFlash)
+    // the bit is in. Driven by KeyboardHandler-managed timers — the
+    // view just renders whatever phase is current.
+    @Published var transmissionPhase: TransmissionPhase = .idle
 
     // MARK: - Per-song state (only meaningful when currentSong != nil)
 

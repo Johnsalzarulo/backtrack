@@ -16,7 +16,6 @@ final class KeyboardHandler {
     let audio: AudioEngineController
 
     private var monitor: Any?
-    private var resignObserver: NSObjectProtocol?
 
     // Pending auto-advance for an interstitial that has a `duration`
     // set. Cancelled whenever the lineup cursor moves (so navigating
@@ -38,6 +37,43 @@ final class KeyboardHandler {
     // press-press-press still cycles each step visibly.
     private static let songEffectHoldSeconds: TimeInterval = 10
 
+    // Pending auto-hide for the telemetry panel (the "2" key during a
+    // song). Each tap toggles the panel; if turning ON we arm this
+    // timer to hide it again after a few seconds in case the audience
+    // forgets to tap a second time. Cancelled on a manual toggle-off
+    // and on lineup moves.
+    private var telemetryAutoHide: DispatchWorkItem?
+
+    // How long the telemetry panel stays visible after a tap before
+    // auto-hiding back to the song's normal visuals.
+    private static let telemetryHoldSeconds: TimeInterval = 5
+
+    // Pending transition for the active "transmission" audience-
+    // interactive (e.g. The Breakup). The transmission walks through
+    // a sequence of phases — incoming → replyEcho → preIncomingBlank
+    // → next incoming, or → deletedFlash → lineup advance. Each
+    // transition fires from the previous one's work item; this field
+    // holds the currently-pending one so we can cancel cleanly when
+    // the lineup cursor moves.
+    private var transmissionTimer: DispatchWorkItem?
+
+    // How long "YOU SENT: <reply>" stays on screen after an audience
+    // press, before the brief blank that precedes the next incoming.
+    private static let transmissionEchoSeconds: TimeInterval = 1.0
+    // How long the screen sits blank between the reply echo and the
+    // next incoming — sells the "they're typing on the other end"
+    // pause without dragging.
+    private static let transmissionPreIncomingSeconds: TimeInterval = 0.7
+    // How long "DELETED" flashes before the lineup auto-advances on
+    // an "abort" path (e.g. DELETE on the opening gate).
+    private static let transmissionDeletedFlashSeconds: TimeInterval = 0.8
+
+    // Used to dispatch button presses on a transmission item without
+    // the call-site needing to know the "1=green, 2=red" mapping.
+    private enum TransmissionButton {
+        case green, red
+    }
+
     init(state: AppState, clock: Clock, audio: AudioEngineController) {
         self.state = state
         self.clock = clock
@@ -52,59 +88,36 @@ final class KeyboardHandler {
 
     func install() {
         guard monitor == nil else { return }
-        // Listen for both keyDown AND keyUp so the green-button
-        // ("2") momentary-hold telemetry can release on key release.
-        // Every other shortcut is keyDown-only and ignores keyUp via
-        // the early return in handleUp.
-        monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
+        // KeyDown-only — every shortcut fires on press. The telemetry
+        // panel used to listen for keyUp too (hold-to-show), but the
+        // hardware audience buttons in the rig only signal on press,
+        // so the model is now tap-to-toggle with a timer-driven
+        // auto-hide. No keyUp interest, no focus-loss observer.
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self = self else { return event }
-            switch event.type {
-            case .keyDown:
-                return self.handle(event) ? nil : event
-            case .keyUp:
-                return self.handleUp(event) ? nil : event
-            default:
-                return event
+            let handled = self.handle(event)
+            // Audience hardware buttons ("1" / "2") are always consumed
+            // even if no handler had work to do in the current context
+            // (interstitial, idle, tweak mode). Propagating them lets
+            // AppKit play the system alert beep on every audience press
+            // during a video — wrong for a stage rig where the laptop
+            // speakers are wired to FOH. Per-key handlers are still in
+            // charge of *what* happens; the wrapper just makes sure
+            // *nothing else* does.
+            let chars = event.charactersIgnoringModifiers?.lowercased() ?? ""
+            if chars == "1" || chars == "2" {
+                return nil
             }
+            return handled ? nil : event
         }
-        // Safety net: if the app loses focus while a momentary key
-        // (the green button "2") is held, we'll never see the
-        // matching keyUp because local monitors only fire while the
-        // app is frontmost. Force-release on resign so the telemetry
-        // panel doesn't get stuck on screen.
-        resignObserver = NotificationCenter.default.addObserver(
-            forName: NSApplication.didResignActiveNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            // Force-release any momentary state on focus loss.
-            // Currently just the telemetry panel; if we add more
-            // held-key features they should also reset here.
-            guard let self = self else { return }
-            if self.state.telemetryHeldDown {
-                self.state.telemetryHeldDown = false
-            }
-        }
+        // Seed any per-item state for whatever lineup item the cursor
+        // happens to be on at app launch (typically index 0). Covers
+        // the rare case where the very first item is a transmission.
+        seedTransmissionIfNeeded()
     }
 
     deinit {
         if let monitor = monitor { NSEvent.removeMonitor(monitor) }
-        if let token = resignObserver {
-            NotificationCenter.default.removeObserver(token)
-        }
-    }
-
-    // Handles .keyUp events. Almost every shortcut is fire-on-keyDown
-    // and ignores release; the one exception is the green-button
-    // momentary-hold ("2"), which uses release to dismiss the
-    // telemetry panel. Returns true when consumed.
-    private func handleUp(_ event: NSEvent) -> Bool {
-        let chars = event.charactersIgnoringModifiers?.lowercased() ?? ""
-        if chars == "2", state.telemetryHeldDown {
-            state.telemetryHeldDown = false
-            return true
-        }
-        return false
     }
 
     private func handle(_ event: NSEvent) -> Bool {
@@ -112,13 +125,13 @@ final class KeyboardHandler {
 
         if event.modifierFlags.contains(.command) { return false }
 
-        // OS key-repeat fires keyDown over and over while a key is
-        // held. For momentary-hold features (telemetry panel) we want
-        // exactly one transition into the held state — ignore repeats
-        // for "2" specifically. Other shortcuts pass through to the
-        // normal switch (a held arrow can validly walk the lineup).
+        // OS key-repeat fires keyDown over and over while a physical
+        // key is held. The audience button cluster shouldn't generate
+        // these (it pulses on press), but stage rigs sometimes share
+        // keyboards with operators — ignore repeats on "2" so a stuck
+        // key can't toggle the panel on/off rapidly.
         if event.isARepeat && chars == "2" {
-            return state.telemetryHeldDown
+            return true
         }
 
         if state.tweakMode {
@@ -191,10 +204,10 @@ final class KeyboardHandler {
                 // window — the clip IS the song's intentional moment
                 // (e.g. Core of the Onion's intro), so layering an
                 // audience-triggered effect on top would step on the
-                // joke. Same suppression while the audience is holding
-                // the green button — that interaction owns the screen.
+                // joke. Same suppression while the telemetry panel is
+                // up — that takeover owns the screen.
                 if state.activeVideoClip != nil { return true }
-                if state.telemetryHeldDown { return true }
+                if state.telemetryVisible { return true }
                 cycleSongEffect()
                 return true
             }
@@ -203,16 +216,24 @@ final class KeyboardHandler {
                 return true
             }
             if state.currentAudienceInteractive != nil {
-                handleAudienceInteractiveRed()
+                // The on-screen prompt asks the audience to press
+                // green; the "1" key is wired to the green button on
+                // this rig, so this is the "advance the show" path.
+                // The naming of handleAudienceInteractive*Green/Red*
+                // refers to the button color the audience sees, not
+                // the underlying keycode.
+                handleAudienceInteractiveGreen()
                 return true
             }
             return false
         case "2":
             // Audience-facing green button. Behavior depends on what's
             // currently on stage:
-            //   - song:                hold-to-show telemetry panel
-            //                          (momentary). Suppressed during
-            //                          videoClips.
+            //   - song:                tap to toggle the telemetry
+            //                          panel; if turning ON we arm a
+            //                          5-second auto-hide so it
+            //                          dismisses if no one taps again.
+            //                          Suppressed during videoClips.
             //   - countdown:           tap to advance the rotating
             //                          message.
             //   - audience-interactive: kind-specific. start_button
@@ -221,7 +242,7 @@ final class KeyboardHandler {
             //   - anything else:       no-op.
             if state.currentSong != nil {
                 if state.activeVideoClip != nil { return true }
-                state.telemetryHeldDown = true
+                toggleTelemetry()
                 return true
             }
             if state.currentCountdown != nil {
@@ -229,7 +250,11 @@ final class KeyboardHandler {
                 return true
             }
             if state.currentAudienceInteractive != nil {
-                handleAudienceInteractiveGreen()
+                // "2" is wired to the red button on this rig — error
+                // path for start_button. See note on the "1" branch
+                // above: the handler names track audience-button
+                // *colors*, not keycodes.
+                handleAudienceInteractiveRed()
                 return true
             }
             return false
@@ -408,13 +433,16 @@ final class KeyboardHandler {
             // (Video pause/resume could go here later if useful.)
             break
         case .audienceInteractive(let a)?:
-            // Space mirrors whichever button is the "advance" action
-            // for this kind, so the operator can also drive the show
-            // forward from the keyboard. For start_button, that's
-            // green (advance). New kinds may differ — extend here as
-            // they're added.
+            // Space mirrors the "advance the show" action for this
+            // kind so the operator can also drive forward from the
+            // keyboard. For start_button this is green (next item);
+            // for transmission this is the operator escape — Space
+            // bails out of the bit at any phase, which is what you
+            // want if it stalls live.
             switch a.kind {
             case .startButton:
+                nextLineupItem()
+            case .transmission:
                 nextLineupItem()
             }
         case nil:
@@ -451,11 +479,73 @@ final class KeyboardHandler {
         // item starts at its JSON-defined defaults.
         state.countdownStyleOverride = nil
         state.countdownMessageOffset = 0
-        state.telemetryHeldDown = false
+        clearTelemetry()
         state.wrongButtonAt = .distantPast
         clearSongEffectOverride()
+        clearTransmission()
 
         scheduleInterstitialAutoAdvanceIfNeeded()
+        seedTransmissionIfNeeded()
+    }
+
+    // If the new current item is a transmission audience-interactive,
+    // initialize its phase to the first exchange so the audience sees
+    // an INCOMING message the moment the cursor lands. No-op on every
+    // other item kind (and on transmissions whose script is empty,
+    // which the loader rejects anyway).
+    private func seedTransmissionIfNeeded() {
+        guard let interactive = state.currentAudienceInteractive,
+              case .transmission = interactive.kind,
+              let script = interactive.transmission,
+              let firstId = script.firstExchangeId else { return }
+        enterTransmissionIncoming(exchangeId: firstId)
+    }
+
+    // Single entry point for putting the phase into .incoming. Sets
+    // the start time and — if the new exchange has an autoAdvance
+    // block — schedules the timer that fires after typing + hold.
+    // Used by initial seeding, the post-blank transition, and the
+    // gate-skip path. Never call `state.transmissionPhase = .incoming`
+    // directly outside this function.
+    private func enterTransmissionIncoming(exchangeId: String) {
+        let now = Date()
+        state.transmissionPhase = .incoming(exchangeId: exchangeId, startedAt: now)
+        // Look up the exchange to see if it self-advances.
+        guard let interactive = state.currentAudienceInteractive,
+              let script = interactive.transmission,
+              let exchange = script.exchange(id: exchangeId),
+              let auto = exchange.autoAdvance else { return }
+        // Timer = typing duration + hold seconds. The audience never
+        // sees the message snap to a still state before the hold —
+        // typing finishes, the message holds, then we transition.
+        let typingDuration = TimeInterval(exchange.incoming.count) * TransmissionPacing.charDuration
+        let totalDelay = typingDuration + auto.holdSeconds
+        transmissionTimer?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.performTransmissionAutoAdvance(to: auto.next)
+        }
+        transmissionTimer = work
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + totalDelay,
+            execute: work
+        )
+    }
+
+    // Auto-advance is structurally similar to a normal press
+    // transition but skips the reply echo (there's no reply to
+    // echo) and uses a silent abort path (no DELETED flash —
+    // auto-advancing to abort means the bit ended naturally, not
+    // that anyone deleted anything).
+    private func performTransmissionAutoAdvance(to next: TransmissionNext) {
+        transmissionTimer?.cancel()
+        transmissionTimer = nil
+        switch next {
+        case .abort:
+            state.transmissionPhase = .idle
+            nextLineupItem()
+        case .exchange(let nextId):
+            advanceToNextIncoming(nextId: nextId)
+        }
     }
 
     // Text/image interstitials with a `duration` field auto-advance
@@ -602,10 +692,48 @@ final class KeyboardHandler {
         state.songEffectExpiresAt = .distantPast
     }
 
+    // Tap-toggle for the telemetry panel during a song. First tap
+    // shows the panel + arms an auto-hide work item; second tap
+    // (within the auto-hide window) cancels and hides immediately.
+    // Replaces the previous keyDown/keyUp hold-to-show model so the
+    // press-only audience hardware can drive it.
+    private func toggleTelemetry() {
+        if state.telemetryVisible {
+            // Already showing — tap again means dismiss now.
+            clearTelemetry()
+            return
+        }
+        state.telemetryVisible = true
+        // Arm the auto-hide so the panel can't get stuck on screen
+        // if no one taps a second time. The work item also nils
+        // itself out so toggling again later starts from a clean
+        // slate.
+        telemetryAutoHide?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.state.telemetryVisible = false
+            self?.telemetryAutoHide = nil
+        }
+        telemetryAutoHide = work
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.telemetryHoldSeconds,
+            execute: work
+        )
+    }
+
+    // Hide the telemetry panel and cancel any pending auto-hide.
+    // Used by manual tap-to-dismiss and by lineup-cursor moves so a
+    // pending timer doesn't fire on a different item.
+    private func clearTelemetry() {
+        telemetryAutoHide?.cancel()
+        telemetryAutoHide = nil
+        state.telemetryVisible = false
+    }
+
     // MARK: - Audience interactive routing
 
     // Green button on an audience-interactive item. Behavior depends
-    // on the kind — for start_button green = "advance the show".
+    // on the kind — for start_button green = "advance the show". For
+    // transmission, green is the left choice in the current exchange.
     private func handleAudienceInteractiveGreen() {
         guard let a = state.currentAudienceInteractive else { return }
         switch a.kind {
@@ -614,13 +742,14 @@ final class KeyboardHandler {
             // whatever comes next. Same code path as the right-arrow
             // key, so the behavior is identical operator-side.
             nextLineupItem()
+        case .transmission:
+            handleTransmissionPress(button: .green)
         }
     }
 
     // Red button on an audience-interactive item. start_button treats
-    // red as the wrong choice — 8-bit error beep through the audio
-    // engine plus a 1.5 s "WRONG BUTTON" overlay (driven by
-    // state.wrongButtonAt that the view reads via TimelineView).
+    // red as the wrong choice (error beep + overlay); transmission
+    // treats red as the right choice in the current exchange.
     private func handleAudienceInteractiveRed() {
         guard let a = state.currentAudienceInteractive else { return }
         switch a.kind {
@@ -631,7 +760,118 @@ final class KeyboardHandler {
             // do the wrong thing here).
             audio.playWrongButtonBeep()
             state.wrongButtonAt = Date()
+        case .transmission:
+            handleTransmissionPress(button: .red)
         }
+    }
+
+    // MARK: - Transmission state machine
+
+    // Audience press during a transmission. Only the .incoming phase
+    // is interactive — every other phase is mid-transition, playing
+    // out on a timer, and presses during it are no-ops. Terminal
+    // exchanges (no choices) also no-op so a tap on the final
+    // "mommy issues" message doesn't accidentally do anything. And
+    // presses during the typing reveal are also dropped — the
+    // audience shouldn't be able to skip past a message they haven't
+    // had a chance to read.
+    private func handleTransmissionPress(button: TransmissionButton) {
+        guard case .incoming(let exchangeId, let startedAt) = state.transmissionPhase,
+              let interactive = state.currentAudienceInteractive,
+              let script = interactive.transmission,
+              let exchange = script.exchange(id: exchangeId) else { return }
+        if exchange.isTerminal { return }
+        // Lockout while the message is still typing in. Empty-body
+        // exchanges (the opening gate) clear this immediately because
+        // there's nothing to type.
+        let elapsed = Date().timeIntervalSince(startedAt)
+        let charsRevealed = Int(elapsed / TransmissionPacing.charDuration)
+        if charsRevealed < exchange.incoming.count { return }
+        let choice: TransmissionChoice?
+        switch button {
+        case .green: choice = exchange.green
+        case .red:   choice = exchange.red
+        }
+        guard let choice = choice else { return }
+        applyTransmissionChoice(choice, fromExchange: exchange)
+    }
+
+    // Drives the multi-step transition that follows an audience press:
+    //   - On "abort": brief DELETED flash → lineup advance.
+    //   - On a real exchange target: "YOU SENT: <text>" echo (1.0 s)
+    //     → blank (0.7 s) → next .incoming. Each step's work item is
+    //     cancelled if the lineup cursor moves before it fires.
+    //
+    // The echo is suppressed when the press happens on an exchange
+    // with no incoming body (the opening "NEW MESSAGE RECEIVED" gate)
+    // — there's nothing semantically to "reply" to, so showing
+    // "YOU SENT: READ" reads as a bug. Skip straight to the blank
+    // beat → next incoming.
+    private func applyTransmissionChoice(_ choice: TransmissionChoice, fromExchange: TransmissionExchange) {
+        transmissionTimer?.cancel()
+        switch choice.next {
+        case .abort:
+            // No reply echo for the DELETE path — semantically it's a
+            // dismissal, not a sent message.
+            state.transmissionPhase = .deletedFlash
+            let advance = DispatchWorkItem { [weak self] in
+                guard let self = self else { return }
+                self.state.transmissionPhase = .idle
+                self.transmissionTimer = nil
+                self.nextLineupItem()
+            }
+            transmissionTimer = advance
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + Self.transmissionDeletedFlashSeconds,
+                execute: advance
+            )
+        case .exchange(let nextId):
+            if fromExchange.incoming.isEmpty || choice.isSilent {
+                // Two cases skip the reply echo:
+                //   - Gate-style exchange (no body to reply to, e.g.
+                //     the opening "NEW MESSAGE RECEIVED" + READ/DELETE).
+                //   - Silent stage-direction choice ("(say nothing)")
+                //     — the audience didn't actually send anything.
+                advanceToNextIncoming(nextId: nextId)
+            } else {
+                // Normal exchange: echo → blank → next incoming.
+                state.transmissionPhase = .replyEcho(text: choice.label, nextExchangeId: nextId)
+                let toBlank = DispatchWorkItem { [weak self] in
+                    self?.advanceToNextIncoming(nextId: nextId)
+                }
+                transmissionTimer = toBlank
+                DispatchQueue.main.asyncAfter(
+                    deadline: .now() + Self.transmissionEchoSeconds,
+                    execute: toBlank
+                )
+            }
+        }
+    }
+
+    // Pushes the phase from wherever-it-is into the
+    // .preIncomingBlank → .incoming(nextId) sequence. Shared between
+    // the normal echo path, the gate-skip path, the silent-choice
+    // path, and post-autoAdvance transitions.
+    private func advanceToNextIncoming(nextId: String) {
+        state.transmissionPhase = .preIncomingBlank(nextExchangeId: nextId)
+        let toIncoming = DispatchWorkItem { [weak self] in
+            self?.enterTransmissionIncoming(exchangeId: nextId)
+        }
+        transmissionTimer = toIncoming
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.transmissionPreIncomingSeconds,
+            execute: toIncoming
+        )
+    }
+
+    // Cancels any pending transmission transition and resets the
+    // phase to idle. Called from selectLineupItem so a transmission
+    // that was mid-bit gets fully torn down before the next item
+    // starts. Idempotent.
+    private func clearTransmission() {
+        transmissionTimer?.cancel()
+        transmissionTimer = nil
+        state.transmissionPhase = .idle
     }
 
     // Put the visuals window into (or out of) macOS native full-screen.

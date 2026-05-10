@@ -64,11 +64,13 @@ final class AudioEngineController: ObservableObject {
     private var hhBuffer: AVAudioPCMBuffer?
 
     // SFX player — one-shot synthesized sounds for audience-interactive
-    // feedback (currently just the "wrong button" beep). Connected
-    // DIRECTLY to mainMixerNode, bypassing the bed-level master mixer,
-    // so the beep plays at full volume regardless of how attenuated
-    // the music bed is. Lives outside the music graph by design: SFX
-    // shouldn't share the same -6 dB bed treatment as the song.
+    // feedback (currently just the "wrong button" beep). Routed THROUGH
+    // the master mixer (not directly to mainMixerNode), so the same
+    // bed-level attenuation that governs the music applies here too.
+    // Originally bypassed the bed for "always-loud" feedback, but
+    // square-wave SFX at full amplitude was perceptually much louder
+    // than the music — bad on stage. SFX now sits at the same volume
+    // ceiling as everything else.
     private let sfxPlayer = AVAudioPlayerNode()
     private var wrongButtonBuffer: AVAudioPCMBuffer?
 
@@ -199,10 +201,13 @@ final class AudioEngineController: ObservableObject {
         }
         bassFadeGen = Array(repeating: 0, count: bassVoices.count)
 
-        // SFX player — bypasses masterMixer entirely so the wrong-button
-        // beep is heard at full volume regardless of the bed attenuation.
+        // SFX player — feeds the master mixer alongside the music so
+        // its volume tracks the same bed-level attenuation. Square-wave
+        // SFX with master bypass was painfully loud relative to the
+        // drums on stage; sharing the bed treatment puts the beep
+        // perceptually in the same loudness band as a drum hit.
         engine.attach(sfxPlayer)
-        engine.connect(sfxPlayer, to: engine.mainMixerNode, format: Self.canonicalFormat)
+        engine.connect(sfxPlayer, to: masterMixer, format: Self.canonicalFormat)
         wrongButtonBuffer = makeWrongButtonBuffer()
 
         // Tap master for the OUT activity dot.
@@ -214,9 +219,14 @@ final class AudioEngineController: ObservableObject {
     // Generates an 8-bit-style descending two-tone square-wave error
     // beep, in memory at engine startup. ~880 Hz → 440 Hz, 120 ms each
     // (240 ms total), no envelope — sharp on, sharp off — for that
-    // classic IBM PC speaker / NES sound effect feel. Hard 0.85 peak
-    // amplitude so it's clearly louder than any individual drum hit
-    // through the bed mixer.
+    // classic IBM PC speaker / NES sound effect feel.
+    //
+    // Amplitude is held below the drum-sample headroom because square
+    // waves contain all odd harmonics at full amplitude and are
+    // perceived as much louder than equivalent-peak transient samples.
+    // Combined with masterMixer's -6 dB bed treatment, this lands the
+    // beep in the same loudness band as a drum hit at the back of the
+    // room.
     private func makeWrongButtonBuffer() -> AVAudioPCMBuffer? {
         let format = Self.canonicalFormat
         let sampleRate = Float(format.sampleRate)
@@ -225,7 +235,7 @@ final class AudioEngineController: ObservableObject {
         let note1Duration: Float = 0.12
         let note2Duration: Float = 0.12
         let totalDuration = note1Duration + note2Duration
-        let amplitude: Float = 0.85
+        let amplitude: Float = 0.55
 
         let frameCount = AVAudioFrameCount(sampleRate * totalDuration)
         guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else {

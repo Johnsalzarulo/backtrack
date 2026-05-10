@@ -57,14 +57,15 @@ struct VisualsView: View {
 
     var body: some View {
         let baseContent = ZStack {
-            if state.telemetryHeldDown
+            if state.telemetryVisible
                 && state.currentSong != nil
                 && state.activeVideoClip == nil {
-                // Audience is holding the green button during a song
-                // (and not during a videoClip moment, where the clip
-                // owns the visuals). Telemetry takes the entire
-                // window — no synth, no GIF, no post-effect, no
-                // audience flash. Releases when the key comes up.
+                // Audience tapped the green button during a song (and
+                // not during a videoClip moment, where the clip owns
+                // the visuals). Telemetry takes the entire window —
+                // no synth, no GIF, no post-effect, no audience flash
+                // — for the duration of the auto-hide timer or until
+                // the audience taps again to dismiss early.
                 TelemetryView()
             } else if let countdown = state.currentCountdown {
                 // Current lineup item is a countdown — its dedicated
@@ -90,7 +91,6 @@ struct VisualsView: View {
                 // the countdown uses.
                 AudienceInteractiveView(
                     interactive: interactive,
-                    wrongButtonAt: state.wrongButtonAt,
                     ink: ink,
                     paper: paper
                 )
@@ -148,9 +148,9 @@ struct VisualsView: View {
         // Wrap with the active post-processing effect (glitch / lofi
         // / crt / none). `.none` is a pass-through, so we don't pay
         // any TimelineView cost when no effect is selected. While
-        // telemetry is held the panel must read clean — force .none
+        // telemetry is up the panel must read clean — force .none
         // so an in-flight effect override doesn't tear the readout.
-        let activeEffect: PostEffect = state.telemetryHeldDown
+        let activeEffect: PostEffect = state.telemetryVisible
             ? .none
             : state.effectiveVisualEffect
         let postEffected = baseContent.postEffect(activeEffect, state: state)
@@ -158,12 +158,12 @@ struct VisualsView: View {
         // Audience-feedback flash. Sits ABOVE the post-effect layer so
         // the white pop itself isn't itself glitched/chroma'd — it
         // reads as a clean "your press registered" beat regardless of
-        // which effect was just triggered. Suppressed during telemetry
-        // hold so an in-flight flash from a "1" press a moment ago
-        // doesn't wash out the panel as it appears.
+        // which effect was just triggered. Suppressed while telemetry
+        // is on screen so an in-flight flash from a "1" press a moment
+        // ago doesn't wash out the panel as it appears.
         let content = ZStack {
             postEffected
-            if !state.telemetryHeldDown {
+            if !state.telemetryVisible {
                 audienceFlashOverlay
             }
         }
