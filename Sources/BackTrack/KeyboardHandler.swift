@@ -825,6 +825,11 @@ final class KeyboardHandler {
         case .red:   choice = exchange.red
         }
         guard let choice = choice else { return }
+        // Press-time doot — interaction acknowledgment. Moved here
+        // from the arrival path so the doot doesn't step on the TTS
+        // reading the incoming message. Plays for every valid press
+        // including silent choices and DELETE.
+        audio.playMessageReceivedDoot()
         applyTransmissionChoice(choice, fromExchange: exchange)
     }
 
@@ -871,6 +876,10 @@ final class KeyboardHandler {
             } else {
                 // Normal exchange: echo → blank → next incoming.
                 state.transmissionPhase = .replyEcho(text: choice.label, nextExchangeId: nextId)
+                // Speak the reply in the male voice (the player's
+                // voice). speakReply has a small preUtteranceDelay
+                // so it doesn't get smeared by the press-time doot.
+                audio.speakReply(choice.label)
                 let toBlank = DispatchWorkItem { [weak self] in
                     self?.advanceToNextIncoming(nextId: nextId)
                 }

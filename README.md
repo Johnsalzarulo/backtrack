@@ -411,39 +411,58 @@ runtime. Currently shipped:
   then the bit ends. Used as The Breakup's closer — "YOUR
   RELATIONSHIP IS OVER / You cannot replay."
 
-**Sound effects** — three short synthesized 8-bit SFX, all routed
+**Sound effects** — short synthesized 8-bit SFX, all routed
 through the master mixer (so they track the music's bed level
 instead of overpowering it):
 
 | Sound | When it fires | Description |
 |---|---|---|
-| `doot` | Default for INCOMING exchanges with a non-empty body | Two ascending square-wave tones (A5 → E6, ~190 ms) — SMS-arrival shape |
+| `doot` (arrival) | Default for gate exchanges (empty body) | Two ascending square-wave tones (A5 → E6, ~190 ms) — announces the opening message |
+| `doot` (press) | Every audience button press during a transmission, including silent choices and DELETE | Same sound — interaction acknowledgment |
 | `death` | Any exchange that declares `arrivalSound: "death"` | Seven-note descending arpeggio (G5 down to A3, ~600 ms) — pac-man closure |
-| Wrong-button beep | Audience hits the abort side of a `start_button` audience-interactive | Two-tone descending square wave (A5 → A4) — already documented under `start_button` above |
+| Wrong-button beep | Audience hits the abort side of a `start_button` audience-interactive | Two-tone descending square wave (A5 → A4) |
+
+The press-time doot is the audience-interaction sound — it fires
+on every valid press during a transmission (after the typing
+lockout clears). It's distinct from the arrival doot, which only
+plays on gate-style exchanges where there's no body / no TTS to
+carry the audio.
 
 The default arrival-sound rules are:
 
-- Body empty (gate) → silence
-- Header isn't `INCOMING` (e.g. `OUTGOING`, custom) → silence
-- Otherwise → `doot`
+- Body empty (gate) → `doot` (the arrival chirp announces the
+  opening message)
+- Anything with a non-empty body (INCOMING, OUTGOING, GAME OVER,
+  custom) → silence by default. The TTS reading the body is the
+  audio signal; an arrival chirp would step on its first words.
+  Override with `arrivalSound` if you want a specific sound — e.g.
+  GAME OVER beats set `"death"`.
 
 Override per-exchange with the optional `arrivalSound` field
 (`"doot"` / `"death"` / `"none"`).
 
-**Text-to-speech** — each transmission message body is also spoken
-aloud through `AVSpeechSynthesizer`, in parallel with the typing
-animation. Direction is read off the `header`:
+**Text-to-speech** — transmission bodies and reply echoes are
+spoken aloud through `AVSpeechSynthesizer`:
 
-| Header | Voice | Default macOS identifier |
+| When | Voice | What it speaks |
 |---|---|---|
-| `INCOMING` | Female | Samantha (US English) |
-| `OUTGOING` | Male | Tom (US English), with Alex as fallback |
-| anything else (gate, `GAME OVER`, custom) | silent | — |
+| INCOMING exchange arrives | Female | The body (in parallel with the typing animation) |
+| OUTGOING exchange arrives | Male | The body (in parallel with the typing animation) |
+| Audience press lands on a non-silent reply | Male | The reply label — the `YOU SENT: <text>` echo, voiced as "you" speaking |
+| Silent choices (parens-wrapped), DELETE, gate, GAME OVER, custom headers | none | — |
 
-Voices are resolved at startup from a fallback chain of known
-Apple identifiers; if none of them are installed the
-language-default voice for `en-US` is used. If even that fails the
-exchange is silent — no crash, no wrong-voice substitution.
+Voice resolution is two-stage. First try a curated list of known
+Apple voice identifiers (enhanced + compact variants of Samantha
+/ Aaron / Tom / Alex, in that order). If none of those are
+installed, enumerate `AVSpeechSynthesisVoice.speechVoices()` and
+pick the first installed en-US voice matching the desired gender.
+Last resort: the language-default voice. If even that fails the
+TTS path silently no-ops rather than substituting the wrong
+character voice.
+
+For the reply echo specifically, the male voice gets a 200 ms
+`preUtteranceDelay` so the press-time doot finishes before
+speech starts — otherwise the doot smears the first syllable.
 
 Speech is interrupted (`stopSpeaking(at: .immediate)`) on three
 events:

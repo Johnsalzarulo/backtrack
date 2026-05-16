@@ -170,34 +170,67 @@ final class AudioEngineController: ObservableObject {
     weak var state: AppState?
 
     init() {
-        // Resolve TTS voices once at startup. Try the canonical
-        // Apple voice identifiers first (Samantha is the default
-        // female en-US voice on every macOS, Alex / Tom are the
-        // standard male options). Fall back through alternates and
-        // finally to whatever the system gives us for en-US so
-        // older or stripped-down installs don't lose speech.
-        self.incomingVoice = Self.firstAvailableVoice(identifiers: [
-            "com.apple.voice.compact.en-US.Samantha",
-            "com.apple.voice.enhanced.en-US.Samantha",
-            "com.apple.speech.synthesis.voice.samantha",
-        ]) ?? AVSpeechSynthesisVoice(language: "en-US")
-        self.outgoingVoice = Self.firstAvailableVoice(identifiers: [
-            "com.apple.voice.compact.en-US.Tom",
-            "com.apple.voice.enhanced.en-US.Tom",
-            "com.apple.speech.synthesis.voice.Alex",
-            "com.apple.voice.compact.en-US.Aaron",
-        ]) ?? AVSpeechSynthesisVoice(language: "en-US")
+        // Resolve TTS voices once at startup. Two-stage strategy:
+        //
+        //   1. Try a curated list of known Apple voice identifiers for
+        //      each gender. These are the highest-quality voices we
+        //      know about; if installed they get picked first.
+        //   2. Fall back to enumerating AVSpeechSynthesisVoice.speechVoices()
+        //      and picking the first one matching the requested gender
+        //      + en-US. Survives any macOS install where the curated
+        //      identifiers aren't present (e.g. Tom was removed in
+        //      recent macOS versions; Aaron is the new default).
+        //
+        // Last resort: language-default for en-US. If even that fails
+        // (genuinely broken AVFoundation install) the speak path
+        // silently no-ops rather than crash.
+        self.incomingVoice = Self.resolveVoice(
+            preferredIdentifiers: [
+                "com.apple.voice.enhanced.en-US.Samantha",
+                "com.apple.voice.compact.en-US.Samantha",
+                "com.apple.voice.compact.en-US.Allison",
+                "com.apple.voice.compact.en-US.Ava",
+            ],
+            gender: .female,
+            language: "en-US"
+        )
+        self.outgoingVoice = Self.resolveVoice(
+            preferredIdentifiers: [
+                "com.apple.voice.enhanced.en-US.Aaron",
+                "com.apple.voice.compact.en-US.Aaron",
+                "com.apple.voice.compact.en-US.Tom",
+                "com.apple.voice.enhanced.en-US.Tom",
+                "com.apple.speech.synthesis.voice.Alex",
+                "com.apple.voice.compact.en-US.Fred",
+            ],
+            gender: .male,
+            language: "en-US"
+        )
         setupGraph()
         startEngine()
     }
 
-    private static func firstAvailableVoice(identifiers: [String]) -> AVSpeechSynthesisVoice? {
-        for id in identifiers {
+    // Returns the first available voice from the preferred list, or
+    // failing that the first installed voice matching the gender +
+    // language hint, or failing that the language default. nil only
+    // if AVFoundation can't produce any voice at all.
+    private static func resolveVoice(
+        preferredIdentifiers: [String],
+        gender: AVSpeechSynthesisVoiceGender,
+        language: String
+    ) -> AVSpeechSynthesisVoice? {
+        for id in preferredIdentifiers {
             if let voice = AVSpeechSynthesisVoice(identifier: id) {
                 return voice
             }
         }
-        return nil
+        let voices = AVSpeechSynthesisVoice.speechVoices()
+        if let match = voices.first(where: {
+            $0.gender == gender && $0.language.hasPrefix(language)
+        }) {
+            return match
+        }
+        return AVSpeechSynthesisVoice(language: language)
     }
 
     // MARK: - Graph setup
@@ -286,7 +319,7 @@ final class AudioEngineController: ObservableObject {
         let note1Duration: Float = 0.12
         let note2Duration: Float = 0.12
         let totalDuration = note1Duration + note2Duration
-        let amplitude: Float = 0.55
+        let amplitude: Float = 0.30
 
         let frameCount = AVAudioFrameCount(sampleRate * totalDuration)
         guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else {
@@ -374,6 +407,15 @@ final class AudioEngineController: ObservableObject {
         speak(text: text, voice: outgoingVoice, pitchMultiplier: 0.92)
     }
 
+    // Speak a YOU SENT reply echo in the male voice (the player's
+    // voice). Same voice as outgoing messages but with a small
+    // pre-utterance delay so the press-time doot finishes before
+    // the speech starts — otherwise the doot smears the first
+    // syllable.
+    func speakReply(_ text: String) {
+        speak(text: text, voice: outgoingVoice, pitchMultiplier: 0.92, preDelay: 0.2)
+    }
+
     // Stop any in-flight speech immediately. Called when the
     // lineup cursor moves or the audience presses a button mid-
     // utterance — the voice shouldn't keep talking past the
@@ -388,7 +430,7 @@ final class AudioEngineController: ObservableObject {
     // identifier-lookup chain could fail on an unusually stripped
     // system — when it does, we silently skip the utterance
     // rather than fall back to the wrong character voice.
-    private func speak(text: String, voice: AVSpeechSynthesisVoice?, pitchMultiplier: Float) {
+    private func speak(text: String, voice: AVSpeechSynthesisVoice?, pitchMultiplier: Float, preDelay: TimeInterval = 0) {
         guard let voice = voice else { return }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -402,6 +444,7 @@ final class AudioEngineController: ObservableObject {
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 0.9
         utterance.pitchMultiplier = pitchMultiplier
         utterance.volume = 1.0
+        utterance.preUtteranceDelay = preDelay
         speech.speak(utterance)
     }
 
@@ -418,7 +461,7 @@ final class AudioEngineController: ObservableObject {
         let toneDuration: Float = 0.08
         let gapDuration: Float = 0.03
         let totalDuration = toneDuration * 2 + gapDuration
-        let amplitude: Float = 0.55
+        let amplitude: Float = 0.30
 
         let frameCount = AVAudioFrameCount(sampleRate * totalDuration)
         guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else { return nil }
@@ -461,7 +504,7 @@ final class AudioEngineController: ObservableObject {
     private func makeTransmissionEndBuffer() -> AVAudioPCMBuffer? {
         let format = Self.canonicalFormat
         let sampleRate = Float(format.sampleRate)
-        let amplitude: Float = 0.55
+        let amplitude: Float = 0.30
 
         // (freq, duration) pairs, descending. Pitches roughly chromatic
         // from G5 down past A3.

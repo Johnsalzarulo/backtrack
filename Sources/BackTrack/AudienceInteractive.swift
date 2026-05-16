@@ -121,15 +121,23 @@ struct TransmissionExchange: Equatable {
     }
 
     // Sound to play when the audience first sees this exchange.
-    // Authors can override with the JSON `arrivalSound` field; the
-    // default is "doot for a real incoming message, silence for
-    // everything else." OUTGOING messages (where "you" are texting)
-    // and gate-style exchanges (no body) skip by default — there's
-    // nothing to *receive*, so no notification chirp.
+    // Authors can override with the JSON `arrivalSound` field;
+    // otherwise:
+    //
+    //   - Gate (empty body) → doot. The gate has no body and no TTS,
+    //     so the chirp IS the arrival signal — without it the
+    //     opening screen lands silently.
+    //   - Anything with a non-empty body → none. The TTS reading the
+    //     body is the audio signal; an additional doot would step on
+    //     the first few words.
+    //
+    // The press-time doot fires on every audience press during a
+    // transmission (handled separately in KeyboardHandler) — that's
+    // the "interaction acknowledgment" sound, distinct from this
+    // arrival sound.
     var effectiveArrivalSound: TransmissionArrivalSound {
         if let explicit = arrivalSound { return explicit }
-        if incoming.isEmpty { return .none }
-        if header.uppercased() == "INCOMING" { return .doot }
+        if incoming.isEmpty { return .doot }
         return .none
     }
 }
