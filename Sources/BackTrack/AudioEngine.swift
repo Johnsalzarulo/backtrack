@@ -64,15 +64,22 @@ final class AudioEngineController: ObservableObject {
     private var hhBuffer: AVAudioPCMBuffer?
 
     // SFX player — one-shot synthesized sounds for audience-interactive
-    // feedback (currently just the "wrong button" beep). Routed THROUGH
-    // the master mixer (not directly to mainMixerNode), so the same
-    // bed-level attenuation that governs the music applies here too.
-    // Originally bypassed the bed for "always-loud" feedback, but
-    // square-wave SFX at full amplitude was perceptually much louder
-    // than the music — bad on stage. SFX now sits at the same volume
-    // ceiling as everything else.
+    // feedback. Routed THROUGH the master mixer (not directly to
+    // mainMixerNode), so the same bed-level attenuation that governs
+    // the music applies here too. Originally bypassed the bed for
+    // "always-loud" feedback, but square-wave SFX at full amplitude
+    // was perceptually much louder than the music — bad on stage. SFX
+    // now sits at the same volume ceiling as everything else.
+    //
+    // All buffers are synthesized once at engine startup and re-played
+    // on demand. Triggering any of them stops whatever the SFX node
+    // was already playing — only one SFX at a time. That's fine for
+    // the transmission use case (rapid presses or back-to-back
+    // messages each restart from the top cleanly).
     private let sfxPlayer = AVAudioPlayerNode()
     private var wrongButtonBuffer: AVAudioPCMBuffer?
+    private var messageReceivedBuffer: AVAudioPCMBuffer?
+    private var transmissionEndBuffer: AVAudioPCMBuffer?
 
     // Canonical format all buffers are normalized to, so no player
     // connection ever needs reconfiguration on kit/sound cycle.
@@ -209,6 +216,8 @@ final class AudioEngineController: ObservableObject {
         engine.attach(sfxPlayer)
         engine.connect(sfxPlayer, to: masterMixer, format: Self.canonicalFormat)
         wrongButtonBuffer = makeWrongButtonBuffer()
+        messageReceivedBuffer = makeMessageReceivedBuffer()
+        transmissionEndBuffer = makeTransmissionEndBuffer()
 
         // Tap master for the OUT activity dot.
         masterMixer.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
@@ -276,12 +285,133 @@ final class AudioEngineController: ObservableObject {
     // start_button audience-interactive item. Cancels any in-flight
     // beep so rapid presses each restart from the top cleanly.
     func playWrongButtonBeep() {
-        guard let buffer = wrongButtonBuffer else { return }
+        playSfx(wrongButtonBuffer)
+    }
+
+    // "Doot doot" message-received notification. Fires when a new
+    // INCOMING text message arrives in a transmission. Two ascending
+    // square-wave tones with a short gap — classic 8-bit notification
+    // shape (think SMS arrival on a feature phone, but more arcade).
+    func playMessageReceivedDoot() {
+        playSfx(messageReceivedBuffer)
+    }
+
+    // Pac-man-style descending death arpeggio. Fires when a
+    // transmission lands on a "GAME OVER" beat — the bit's
+    // emotional period. Sharper and longer than the wrong-button
+    // beep so it reads as a distinct dramatic moment, not just
+    // another error sound.
+    func playTransmissionEndSound() {
+        playSfx(transmissionEndBuffer)
+    }
+
+    // Shared trigger logic for all SFX. Stop-and-restart semantics
+    // mean rapid back-to-back presses play the latest sound from
+    // the top instead of layering.
+    private func playSfx(_ buffer: AVAudioPCMBuffer?) {
+        guard let buffer = buffer else { return }
         sfxPlayer.stop()
         sfxPlayer.scheduleBuffer(buffer, at: nil, options: [], completionHandler: nil)
         if !sfxPlayer.isPlaying {
             sfxPlayer.play()
         }
+    }
+
+    // "Doot doot" — two ascending square-wave tones with a short
+    // silence in between. 880 Hz → 1320 Hz (A5 → E6, a fifth up)
+    // for a clear "rising notification" shape. Amplitude matches
+    // the wrong-button beep so both SFX sit in the same loudness
+    // band after the master-mixer bed treatment.
+    private func makeMessageReceivedBuffer() -> AVAudioPCMBuffer? {
+        let format = Self.canonicalFormat
+        let sampleRate = Float(format.sampleRate)
+        let tone1Freq: Float = 880
+        let tone2Freq: Float = 1320
+        let toneDuration: Float = 0.08
+        let gapDuration: Float = 0.03
+        let totalDuration = toneDuration * 2 + gapDuration
+        let amplitude: Float = 0.55
+
+        let frameCount = AVAudioFrameCount(sampleRate * totalDuration)
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else { return nil }
+        buffer.frameLength = frameCount
+        guard let channels = buffer.floatChannelData else { return nil }
+        let left = channels[0]
+        let right = channels[1]
+
+        let tone1End = Int(sampleRate * toneDuration)
+        let tone2Start = tone1End + Int(sampleRate * gapDuration)
+
+        var phase1: Float = 0
+        var phase2: Float = 0
+        let phaseInc1 = tone1Freq / sampleRate
+        let phaseInc2 = tone2Freq / sampleRate
+
+        for i in 0..<Int(frameCount) {
+            var sample: Float = 0
+            if i < tone1End {
+                sample = (phase1 < 0.5 ? amplitude : -amplitude)
+                phase1 += phaseInc1
+                if phase1 >= 1.0 { phase1 -= 1.0 }
+            } else if i >= tone2Start {
+                sample = (phase2 < 0.5 ? amplitude : -amplitude)
+                phase2 += phaseInc2
+                if phase2 >= 1.0 { phase2 -= 1.0 }
+            }
+            // Gap frames: sample stays at 0 (silence).
+            left[i] = sample
+            right[i] = sample
+        }
+        return buffer
+    }
+
+    // Pac-man-style death sound — a chromatic-ish descending arpeggio
+    // of square waves. Seven notes stepping downward, getting slightly
+    // longer per note so the last one (the "dead" pitch) hangs. ~600
+    // ms total. Reads as "game over" to anyone who's ever played a
+    // coin-op arcade game.
+    private func makeTransmissionEndBuffer() -> AVAudioPCMBuffer? {
+        let format = Self.canonicalFormat
+        let sampleRate = Float(format.sampleRate)
+        let amplitude: Float = 0.55
+
+        // (freq, duration) pairs, descending. Pitches roughly chromatic
+        // from G5 down past A3.
+        let notes: [(freq: Float, duration: Float)] = [
+            (784, 0.07),    // G5
+            (698, 0.07),    // F5
+            (622, 0.07),    // D♯5
+            (523, 0.07),    // C5
+            (440, 0.09),    // A4
+            (349, 0.09),    // F4
+            (220, 0.14)     // A3 — held last
+        ]
+        let totalDuration = notes.reduce(Float(0)) { $0 + $1.duration }
+        let frameCount = AVAudioFrameCount(sampleRate * totalDuration)
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else { return nil }
+        buffer.frameLength = frameCount
+        guard let channels = buffer.floatChannelData else { return nil }
+        let left = channels[0]
+        let right = channels[1]
+
+        var frameIndex = 0
+        for note in notes {
+            let noteFrames = Int(sampleRate * note.duration)
+            // Reset phase per note so each step starts at zero crossing
+            // — keeps the boundaries crisp.
+            var phase: Float = 0
+            let phaseInc = note.freq / sampleRate
+            for _ in 0..<noteFrames {
+                guard frameIndex < Int(frameCount) else { break }
+                let sample: Float = (phase < 0.5 ? amplitude : -amplitude)
+                phase += phaseInc
+                if phase >= 1.0 { phase -= 1.0 }
+                left[frameIndex] = sample
+                right[frameIndex] = sample
+                frameIndex += 1
+            }
+        }
+        return buffer
     }
 
     private func startEngine() {

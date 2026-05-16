@@ -402,6 +402,33 @@ runtime. Currently shipped:
   suppresses the `YOU SENT: …` echo for them — semantically the
   audience didn't send anything, just declined to respond. Author
   doesn't need a schema flag; the parens are the signal.
+- **GAME OVER beat** — set `header: "GAME OVER"` (or whatever
+  closing label you want), wrap the dramatic copy in the `incoming`
+  body, and add `arrivalSound: "death"` + `autoAdvance` with a
+  longish hold + `next: "abort"`. The phosphor screen plays the
+  pac-man-style descending arpeggio when the exchange begins, the
+  body types in, the screen holds for the lineup-advance timer,
+  then the bit ends. Used as The Breakup's closer — "YOUR
+  RELATIONSHIP IS OVER / You cannot replay."
+
+**Sound effects** — three short synthesized 8-bit SFX, all routed
+through the master mixer (so they track the music's bed level
+instead of overpowering it):
+
+| Sound | When it fires | Description |
+|---|---|---|
+| `doot` | Default for INCOMING exchanges with a non-empty body | Two ascending square-wave tones (A5 → E6, ~190 ms) — SMS-arrival shape |
+| `death` | Any exchange that declares `arrivalSound: "death"` | Seven-note descending arpeggio (G5 down to A3, ~600 ms) — pac-man closure |
+| Wrong-button beep | Audience hits the abort side of a `start_button` audience-interactive | Two-tone descending square wave (A5 → A4) — already documented under `start_button` above |
+
+The default arrival-sound rules are:
+
+- Body empty (gate) → silence
+- Header isn't `INCOMING` (e.g. `OUTGOING`, custom) → silence
+- Otherwise → `doot`
+
+Override per-exchange with the optional `arrivalSound` field
+(`"doot"` / `"death"` / `"none"`).
 
 **Schema**
 
@@ -432,6 +459,13 @@ runtime. Currently shipped:
       "id": "e5",
       "incoming": "how can you do this to me",
       "autoAdvance": { "holdSeconds": 9, "next": "abort" }
+    },
+    {
+      "id": "gameover",
+      "header": "GAME OVER",
+      "incoming": "YOUR RELATIONSHIP IS OVER\n\nYou cannot replay",
+      "arrivalSound": "death",
+      "autoAdvance": { "holdSeconds": 9, "next": "abort" }
     }
   ]
 }
@@ -444,6 +478,7 @@ runtime. Currently shipped:
 | `incoming` | Optional. Body text. `\n` line breaks render as visible breaks; blank lines between thought-fragments stay visible. Default empty (signals a gate). |
 | `green` / `red` | Optional. Reply choices on each button. Both must be present together, **or both absent**. Mutually exclusive with `autoAdvance`. Each has `label` (the visible reply text — wrap in parens for silent stage-direction style) and `next`. |
 | `autoAdvance` | Optional. `{ "holdSeconds": <number>, "next": <id-or-abort> }`. After typing finishes, the body holds for `holdSeconds`, then transitions to `next`. No audience interaction. Mutually exclusive with `green`/`red`. |
+| `arrivalSound` | Optional. `"doot"` / `"death"` / `"none"`. Overrides the default arrival SFX for this exchange. Default rules: `doot` for plain `INCOMING` messages with a body, `none` for everything else. |
 | `next` | Either an exchange `id` (continues the script) or the literal `"abort"` (ends the bit). On a choice's `next: "abort"` the screen briefly shows `DELETED` before the lineup advances; on an `autoAdvance.next: "abort"` the lineup advances silently (the bit is ending on its own clock, not being deleted). |
 
 **Pacing constants** (in `Sources/BackTrack/AudienceInteractive.swift`):
@@ -1011,7 +1046,7 @@ full-screen with `F`.
 - `AudienceInteractive.swift` — AudienceInteractive struct + AudienceInteractiveKind enum + transmission script types (TransmissionScript / Exchange / Choice / AutoAdvance / Next / Phase) + JSON schemas + shared TransmissionPacing constants (typing reveal speed, etc.)
 - `AudienceInteractiveLoader.swift` — directory scan + validation for audience-interactive JSON files (lenient on hyphens/underscores in `kind`); compiles + validates transmission `exchanges` (unique ids, both-or-neither choices, autoAdvance↔choices mutual exclusion, every `next` resolves)
 - `AudienceInteractiveView.swift` — full-screen audience-driven screen; per-kind branches: start_button (themed prompt + WRONG BUTTON overlay), transmission (phosphor-green CRT terminal — gate centerpiece, character-by-character typing with layout-stable underlay, stacked reply prompts gated on typing-complete, DELETED flash on manual abort)
-- `AudioEngine.swift` — AVAudioEngine graph, sample loading, pitched voice pools, master-mixer bed level, dedicated SFX node for the wrong-button square-wave beep
+- `AudioEngine.swift` — AVAudioEngine graph, sample loading, pitched voice pools, master-mixer bed level, dedicated SFX node feeding the master mixer (wrong-button beep, transmission "doot doot" message-received chirp, pac-man-style "death" arpeggio for GAME OVER beats — all synthesized once at startup)
 - `AudioDevices.swift` — CoreAudio helpers for default output device name
 - `ChordParser.swift` — chord symbol → root pitch class + quality + 7th
 - `Clock.swift` — 16th-note timer, song playback engine

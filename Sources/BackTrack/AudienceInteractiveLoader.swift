@@ -140,6 +140,7 @@ enum AudienceInteractiveLoader {
             let green = try compileTransmissionChoice(ex.green, exchangeId: ex.id, button: "green", validIds: seenIds)
             let red   = try compileTransmissionChoice(ex.red,   exchangeId: ex.id, button: "red",   validIds: seenIds)
             let auto  = try compileTransmissionAutoAdvance(ex.autoAdvance, exchangeId: ex.id, validIds: seenIds)
+            let arrival = try compileTransmissionArrivalSound(ex.arrivalSound, exchangeId: ex.id)
             // Both-or-neither rule: a partial-choice exchange is
             // ambiguous — would the missing button be a no-op or
             // abort? Force the author to be explicit.
@@ -163,10 +164,29 @@ enum AudienceInteractiveLoader {
                 incoming: ex.incoming ?? "",
                 green: green,
                 red: red,
-                autoAdvance: auto
+                autoAdvance: auto,
+                arrivalSound: arrival
             ))
         }
         return TransmissionScript(exchanges: exchanges)
+    }
+
+    // Optional `arrivalSound` parser. Drives off the enum's
+    // rawValue so adding a new SFX case to TransmissionArrivalSound
+    // auto-picks it up — no parallel switch to drift.
+    private static func compileTransmissionArrivalSound(
+        _ raw: String?,
+        exchangeId: String
+    ) throws -> TransmissionArrivalSound? {
+        guard let raw = raw, !raw.isEmpty else { return nil }
+        let normalized = raw.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        if let value = TransmissionArrivalSound(rawValue: normalized) {
+            return value
+        }
+        let known = TransmissionArrivalSound.allCases.map(\.rawValue).joined(separator: ", ")
+        throw AudienceInteractiveValidationError(
+            "transmission exchange '\(exchangeId)' arrivalSound '\(raw)' — expected one of: \(known)"
+        )
     }
 
     private static func compileTransmissionAutoAdvance(

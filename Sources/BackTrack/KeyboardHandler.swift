@@ -510,11 +510,24 @@ final class KeyboardHandler {
     private func enterTransmissionIncoming(exchangeId: String) {
         let now = Date()
         state.transmissionPhase = .incoming(exchangeId: exchangeId, startedAt: now)
-        // Look up the exchange to see if it self-advances.
+        // Look up the exchange so we can both play the arrival sound
+        // and schedule any auto-advance.
         guard let interactive = state.currentAudienceInteractive,
               let script = interactive.transmission,
-              let exchange = script.exchange(id: exchangeId),
-              let auto = exchange.autoAdvance else { return }
+              let exchange = script.exchange(id: exchangeId) else { return }
+        // Arrival SFX — "doot doot" for incoming messages, the
+        // death arpeggio for GAME OVER beats, nothing for OUTGOING
+        // or gates. See TransmissionExchange.effectiveArrivalSound
+        // for the default rules + per-exchange override.
+        switch exchange.effectiveArrivalSound {
+        case .doot:
+            audio.playMessageReceivedDoot()
+        case .death:
+            audio.playTransmissionEndSound()
+        case .none:
+            break
+        }
+        guard let auto = exchange.autoAdvance else { return }
         // Timer = typing duration + hold seconds. The audience never
         // sees the message snap to a still state before the hold —
         // typing finishes, the message holds, then we transition.

@@ -36,6 +36,12 @@ struct TransmissionExchangeJSON: Codable {
     // green/red — an exchange is either audience-driven or
     // timer-driven, never both.
     let autoAdvance: TransmissionAutoAdvanceJSON?
+    // Optional sound to play when this exchange begins. Defaults
+    // to "doot" (the SMS-style notification) for normal INCOMING
+    // messages and "none" for everything else (OUTGOING, gates).
+    // The "death" value plays the longer pac-man-style descending
+    // arpeggio — meant for GAME OVER / closure beats.
+    let arrivalSound: String?
 }
 
 struct TransmissionChoiceJSON: Codable {
@@ -100,6 +106,10 @@ struct TransmissionExchange: Equatable {
     // messages ("you" texted them, no reply expected) and for
     // terminal beats that should end the bit on their own clock.
     let autoAdvance: TransmissionAutoAdvance?
+    // Sound played at the moment this exchange's typing begins.
+    // Explicit when set; otherwise we infer from the header +
+    // incoming (see `effectiveArrivalSound`).
+    let arrivalSound: TransmissionArrivalSound?
 
     // An exchange with no choices and no autoAdvance terminates
     // the bit — the screen holds its `incoming` text until the
@@ -109,6 +119,31 @@ struct TransmissionExchange: Equatable {
     var isTerminal: Bool {
         green == nil && red == nil && autoAdvance == nil
     }
+
+    // Sound to play when the audience first sees this exchange.
+    // Authors can override with the JSON `arrivalSound` field; the
+    // default is "doot for a real incoming message, silence for
+    // everything else." OUTGOING messages (where "you" are texting)
+    // and gate-style exchanges (no body) skip by default — there's
+    // nothing to *receive*, so no notification chirp.
+    var effectiveArrivalSound: TransmissionArrivalSound {
+        if let explicit = arrivalSound { return explicit }
+        if incoming.isEmpty { return .none }
+        if header.uppercased() == "INCOMING" { return .doot }
+        return .none
+    }
+}
+
+// Which SFX (if any) plays when a transmission exchange begins.
+//   .doot — two-tone SMS-style "doot doot" (default for INCOMING
+//           messages with a body)
+//   .death — pac-man-style descending arpeggio (for GAME OVER /
+//            closure beats)
+//   .none — silence (default for OUTGOING, gates, custom headers)
+enum TransmissionArrivalSound: String, Equatable, CaseIterable {
+    case doot
+    case death
+    case none
 }
 
 struct TransmissionChoice: Equatable {
