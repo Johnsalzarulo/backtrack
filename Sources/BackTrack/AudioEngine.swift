@@ -184,12 +184,25 @@ final class AudioEngineController: ObservableObject {
         // Last resort: language-default for en-US. If even that fails
         // (genuinely broken AVFoundation install) the speak path
         // silently no-ops rather than crash.
+        // Avoid Samantha as the default — she's the Siri voice and
+        // sounds too recognizable in a narrative context. Prefer
+        // Ava / Allison (premium / compact alternatives that the
+        // user can install via System Settings → Accessibility →
+        // Spoken Content → System Voice → Manage Voices if not
+        // present). Falls back to whatever female en-US voice is
+        // installed if those identifiers don't resolve. Samantha
+        // is at the very bottom — if she's the only female voice
+        // installed she'll still load, but she's not preferred.
         self.incomingVoice = Self.resolveVoice(
             preferredIdentifiers: [
+                "com.apple.voice.enhanced.en-US.Ava",
+                "com.apple.voice.compact.en-US.Ava",
+                "com.apple.voice.enhanced.en-US.Allison",
+                "com.apple.voice.compact.en-US.Allison",
+                "com.apple.voice.premium.en-US.Zoe",
+                "com.apple.voice.compact.en-US.Susan",
                 "com.apple.voice.enhanced.en-US.Samantha",
                 "com.apple.voice.compact.en-US.Samantha",
-                "com.apple.voice.compact.en-US.Allison",
-                "com.apple.voice.compact.en-US.Ava",
             ],
             gender: .female,
             language: "en-US"
@@ -396,15 +409,22 @@ final class AudioEngineController: ObservableObject {
     // voice. Plays in parallel with the on-screen typing animation
     // — they're decoupled presentation layers; whichever finishes
     // first finishes first.
+    //
+    // Volume is attenuated below the male voice because the female
+    // voices Apple ships (especially Samantha) ride hotter than the
+    // male voices at the same `volume: 1.0`. Empirically, 0.7
+    // balances the two; if a particular voice install reads
+    // different live, tune here.
     func speakIncoming(_ text: String) {
-        speak(text: text, voice: incomingVoice, pitchMultiplier: 1.08)
+        speak(text: text, voice: incomingVoice, pitchMultiplier: 1.08, volume: 0.7)
     }
 
     // Speak an OUTGOING transmission message body in the male voice.
     // Slight pitch lower than default to widen the distance from
-    // the incoming voice.
+    // the incoming voice. Full volume — the female voice gets
+    // attenuated to meet it.
     func speakOutgoing(_ text: String) {
-        speak(text: text, voice: outgoingVoice, pitchMultiplier: 0.92)
+        speak(text: text, voice: outgoingVoice, pitchMultiplier: 0.92, volume: 1.0)
     }
 
     // Speak a YOU SENT reply echo in the male voice (the player's
@@ -413,7 +433,7 @@ final class AudioEngineController: ObservableObject {
     // the speech starts — otherwise the doot smears the first
     // syllable.
     func speakReply(_ text: String) {
-        speak(text: text, voice: outgoingVoice, pitchMultiplier: 0.92, preDelay: 0.2)
+        speak(text: text, voice: outgoingVoice, pitchMultiplier: 0.92, preDelay: 0.2, volume: 1.0)
     }
 
     // Stop any in-flight speech immediately. Called when the
@@ -430,7 +450,7 @@ final class AudioEngineController: ObservableObject {
     // identifier-lookup chain could fail on an unusually stripped
     // system — when it does, we silently skip the utterance
     // rather than fall back to the wrong character voice.
-    private func speak(text: String, voice: AVSpeechSynthesisVoice?, pitchMultiplier: Float, preDelay: TimeInterval = 0) {
+    private func speak(text: String, voice: AVSpeechSynthesisVoice?, pitchMultiplier: Float, preDelay: TimeInterval = 0, volume: Float = 1.0) {
         guard let voice = voice else { return }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -443,7 +463,7 @@ final class AudioEngineController: ObservableObject {
         // "this is a moment."
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 0.9
         utterance.pitchMultiplier = pitchMultiplier
-        utterance.volume = 1.0
+        utterance.volume = volume
         utterance.preUtteranceDelay = preDelay
         speech.speak(utterance)
     }

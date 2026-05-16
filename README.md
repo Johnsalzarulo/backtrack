@@ -452,17 +452,41 @@ spoken aloud through `AVSpeechSynthesizer`:
 | Silent choices (parens-wrapped), DELETE, gate, GAME OVER, custom headers | none | — |
 
 Voice resolution is two-stage. First try a curated list of known
-Apple voice identifiers (enhanced + compact variants of Samantha
-/ Aaron / Tom / Alex, in that order). If none of those are
-installed, enumerate `AVSpeechSynthesisVoice.speechVoices()` and
-pick the first installed en-US voice matching the desired gender.
-Last resort: the language-default voice. If even that fails the
-TTS path silently no-ops rather than substituting the wrong
-character voice.
+Apple voice identifiers — Ava / Allison / Susan are prioritized
+for the female slot specifically to avoid Samantha (the Siri
+voice, too recognizable in a narrative context). Male slot
+prioritizes Aaron / Tom / Alex / Fred. If none of the preferred
+identifiers resolve, enumerate `AVSpeechSynthesisVoice.speechVoices()`
+and pick the first installed voice matching the desired gender +
+en-US. Last resort: the language-default voice. If even that
+fails the TTS path silently no-ops rather than substituting the
+wrong character voice.
+
+Apple's premium / enhanced voices (Ava, enhanced Allison, etc.)
+require a download via **System Settings → Accessibility →
+Spoken Content → System Voice → Manage Voices**. If only the
+default voices are installed the lookup falls through to whatever
+female voice is present, which on most modern macOS installs is
+Samantha — install Ava if you want Samantha avoided.
 
 For the reply echo specifically, the male voice gets a 200 ms
 `preUtteranceDelay` so the press-time doot finishes before
 speech starts — otherwise the doot smears the first syllable.
+
+**Voice volume balance.** The female voice is attenuated to 0.7
+(vs. the male voice's 1.0) because Apple's female voices ride
+hotter than the male voices at the same `utterance.volume`. Tune
+via `speakIncoming` in `AudioEngine.swift` if the balance reads
+different live.
+
+**Echo duration scales with reply length.** The `YOU SENT: <reply>`
+phase used to be a fixed 1.0 s; it's now `max(1.5 s, estimated
+TTS speaking time + 0.6 s padding)` so short replies hit the
+floor and long replies stay on screen until Tom finishes reading
+them. Three constants in `KeyboardHandler.swift` govern this:
+`transmissionEchoSeconds` (the floor),
+`transmissionTtsPerChar` (estimated seconds-per-character at the
+current speech rate), and the trailing buffer hard-coded as 0.4 s.
 
 Speech is interrupted (`stopSpeaking(at: .immediate)`) on three
 events:

@@ -57,9 +57,34 @@ final class KeyboardHandler {
     // the lineup cursor moves.
     private var transmissionTimer: DispatchWorkItem?
 
-    // How long "YOU SENT: <reply>" stays on screen after an audience
-    // press, before the brief blank that precedes the next incoming.
-    private static let transmissionEchoSeconds: TimeInterval = 1.0
+    // Minimum time "YOU SENT: <reply>" stays on screen after an
+    // audience press. Short replies hit this floor; longer replies
+    // grow the echo phase to match the estimated TTS speaking
+    // duration so Tom's voice isn't cut mid-sentence — see
+    // `estimatedReplyEchoDuration(for:)`.
+    private static let transmissionEchoSeconds: TimeInterval = 1.5
+
+    // Estimated seconds-per-character for the male reply voice at
+    // its current rate (0.9 × default). Tuned empirically against
+    // the shipped scripts — short replies finish comfortably, long
+    // replies have room to land before the phase advances. Bump if
+    // a slower system voice gets cut, drop if pacing drags.
+    private static let transmissionTtsPerChar: TimeInterval = 0.085
+
+    // Pre-delay built into speakReply (matches AudioEngine's value)
+    // — the speech doesn't actually start until this fraction of a
+    // second after the press, so we add it to the echo duration.
+    private static let transmissionReplyPreDelay: TimeInterval = 0.2
+
+    // Echo-phase duration for a given reply text. Returns the max of
+    // the floor and the estimated speech duration plus trailing
+    // padding, so the audience sees the YOU SENT card stay up while
+    // Tom is reading it.
+    private static func estimatedReplyEchoDuration(for text: String) -> TimeInterval {
+        let speaking = TimeInterval(text.count) * transmissionTtsPerChar
+        let estimated = transmissionReplyPreDelay + speaking + 0.4  // 0.4s trailing buffer
+        return max(transmissionEchoSeconds, estimated)
+    }
     // How long the screen sits blank between the reply echo and the
     // next incoming — sells the "they're typing on the other end"
     // pause without dragging.
@@ -884,8 +909,14 @@ final class KeyboardHandler {
                     self?.advanceToNextIncoming(nextId: nextId)
                 }
                 transmissionTimer = toBlank
+                // Echo duration scales with reply length so Tom's
+                // voice has time to finish reading even on the
+                // long replies ("we have so much life ahead",
+                // "i'm sorry you feel that way", etc.) without
+                // dragging on the short ones.
+                let echoDuration = Self.estimatedReplyEchoDuration(for: choice.label)
                 DispatchQueue.main.asyncAfter(
-                    deadline: .now() + Self.transmissionEchoSeconds,
+                    deadline: .now() + echoDuration,
                     execute: toBlank
                 )
             }
