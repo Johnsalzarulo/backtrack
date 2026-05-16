@@ -147,6 +147,10 @@ enum VisualTheme: String, CaseIterable {
 //                   wired to the song's drum + bass + pad voices.
 //   lyrics-block  — all lyrics as one justified paragraph, filling screen
 //   lyrics-line   — current lyric line, one at a time
+//   audience-drums — Guitar-Hero-style two-lane scrolling chart driven by
+//                    the part's drum pattern. Activates audience-drummer
+//                    mode: clock-driven kick/snare are muted and keys
+//                    1/2 fire kick/snare samples directly.
 enum VisualizerStyle: String {
     case constellation
     case orbit
@@ -158,13 +162,17 @@ enum VisualizerStyle: String {
     case oscilloscope
     case lyricsBlock = "lyrics-block"
     case lyricsLine = "lyrics-line"
+    case audienceDrums = "audience-drums"
 
     // Cycle order for the `M` key. Most distinctive motifs first so
     // cycling hits the signature styles before the simpler ones.
+    // `audienceDrums` lives at the end — it's a behavioral mode, not
+    // just a renderer, so casual cycling shouldn't land on it.
     static let allCases: [VisualizerStyle] = [
         .constellation, .orbit, .ink,
         .squares, .dots, .lines, .ripple, .oscilloscope,
-        .lyricsBlock, .lyricsLine
+        .lyricsBlock, .lyricsLine,
+        .audienceDrums
     ]
 }
 

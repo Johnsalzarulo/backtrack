@@ -74,6 +74,15 @@ enum Generators {
         Set(patterns.keys)
     }
 
+    // Tick positions (0..15) where the pattern has a kick or snare hit.
+    // Sorted ascending. Used by the audience-drums visualizer to lay out
+    // the falling-note chart for the part. Ghost hits count — if you
+    // chart it, you can play it. Unknown patterns return empty arrays.
+    static func patternHitTicks(pattern name: String) -> (kick: [Int], snare: [Int]) {
+        guard let p = patterns[name] else { return (kick: [], snare: []) }
+        return (kick: p.kick.keys.sorted(), snare: p.snare.keys.sorted())
+    }
+
     private static func compileAll(_ defs: [PatternDefinition]) -> [String: CompiledPattern] {
         var result: [String: CompiledPattern] = [:]
         for def in defs { result[def.name] = compile(def) }

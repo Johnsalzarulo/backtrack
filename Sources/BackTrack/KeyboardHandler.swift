@@ -233,6 +233,13 @@ final class KeyboardHandler {
                 // up — that takeover owns the screen.
                 if state.activeVideoClip != nil { return true }
                 if state.telemetryVisible { return true }
+                // Audience-drums mode: the part has handed the kick to
+                // an audience member. Fire the sample directly instead
+                // of cycling the post-effect.
+                if state.effectiveVisualizer == .audienceDrums {
+                    audio.trigger(NoteEvent(voice: .kick, velocity: 1.0))
+                    return true
+                }
                 cycleSongEffect()
                 return true
             }
@@ -267,6 +274,12 @@ final class KeyboardHandler {
             //   - anything else:       no-op.
             if state.currentSong != nil {
                 if state.activeVideoClip != nil { return true }
+                // Audience-drums mode: red button = snare. Fire the
+                // sample directly instead of toggling telemetry.
+                if state.effectiveVisualizer == .audienceDrums {
+                    audio.trigger(NoteEvent(voice: .snare, velocity: 1.0))
+                    return true
+                }
                 toggleTelemetry()
                 return true
             }
