@@ -527,6 +527,21 @@ final class KeyboardHandler {
         case .none:
             break
         }
+        // TTS reads the message body in parallel with the typing
+        // animation — female voice for INCOMING, male for OUTGOING.
+        // Gate / GAME OVER / custom-header exchanges skip TTS (the
+        // SFX carries them dramatically; the words would just feel
+        // redundant).
+        if !exchange.incoming.isEmpty {
+            switch exchange.header.uppercased() {
+            case "INCOMING":
+                audio.speakIncoming(exchange.incoming)
+            case "OUTGOING":
+                audio.speakOutgoing(exchange.incoming)
+            default:
+                break
+            }
+        }
         guard let auto = exchange.autoAdvance else { return }
         // Timer = typing duration + hold seconds. The audience never
         // sees the message snap to a still state before the hold —
@@ -552,6 +567,10 @@ final class KeyboardHandler {
     private func performTransmissionAutoAdvance(to next: TransmissionNext) {
         transmissionTimer?.cancel()
         transmissionTimer = nil
+        // Silence any in-flight speech before the next phase begins,
+        // so the previous message's voice doesn't trail into the
+        // next exchange or out into the next setlist item.
+        audio.stopSpeaking()
         switch next {
         case .abort:
             state.transmissionPhase = .idle
@@ -822,6 +841,9 @@ final class KeyboardHandler {
     // beat → next incoming.
     private func applyTransmissionChoice(_ choice: TransmissionChoice, fromExchange: TransmissionExchange) {
         transmissionTimer?.cancel()
+        // Audience interrupted the voice — silence the TTS so it
+        // doesn't continue talking past the moment they've moved on.
+        audio.stopSpeaking()
         switch choice.next {
         case .abort:
             // No reply echo for the DELETE path — semantically it's a
@@ -880,11 +902,13 @@ final class KeyboardHandler {
     // Cancels any pending transmission transition and resets the
     // phase to idle. Called from selectLineupItem so a transmission
     // that was mid-bit gets fully torn down before the next item
-    // starts. Idempotent.
+    // starts. Also stops any in-flight TTS so the voice doesn't
+    // keep reading after the cursor has moved on. Idempotent.
     private func clearTransmission() {
         transmissionTimer?.cancel()
         transmissionTimer = nil
         state.transmissionPhase = .idle
+        audio.stopSpeaking()
     }
 
     // Put the visuals window into (or out of) macOS native full-screen.

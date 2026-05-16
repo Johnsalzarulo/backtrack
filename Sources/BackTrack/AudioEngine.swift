@@ -81,6 +81,22 @@ final class AudioEngineController: ObservableObject {
     private var messageReceivedBuffer: AVAudioPCMBuffer?
     private var transmissionEndBuffer: AVAudioPCMBuffer?
 
+    // Text-to-speech for transmission message bodies — reads
+    // INCOMING in a female voice, OUTGOING in a male voice, both
+    // through the system default audio output (which on a stage
+    // rig is the same FOH path the music goes to). Plays in
+    // parallel with the typing animation; an audience press or
+    // lineup move stops whatever's mid-utterance.
+    //
+    // Output routing note: unlike the SFX/music graph above,
+    // AVSpeechSynthesizer plays directly through Core Audio's
+    // default output — it doesn't pass through our master mixer,
+    // so the bed-level attenuation doesn't apply. Use the system
+    // volume or AVSpeechUtterance.volume to tune.
+    private let speech = AVSpeechSynthesizer()
+    private let incomingVoice: AVSpeechSynthesisVoice?
+    private let outgoingVoice: AVSpeechSynthesisVoice?
+
     // Canonical format all buffers are normalized to, so no player
     // connection ever needs reconfiguration on kit/sound cycle.
     //
@@ -154,8 +170,34 @@ final class AudioEngineController: ObservableObject {
     weak var state: AppState?
 
     init() {
+        // Resolve TTS voices once at startup. Try the canonical
+        // Apple voice identifiers first (Samantha is the default
+        // female en-US voice on every macOS, Alex / Tom are the
+        // standard male options). Fall back through alternates and
+        // finally to whatever the system gives us for en-US so
+        // older or stripped-down installs don't lose speech.
+        self.incomingVoice = Self.firstAvailableVoice(identifiers: [
+            "com.apple.voice.compact.en-US.Samantha",
+            "com.apple.voice.enhanced.en-US.Samantha",
+            "com.apple.speech.synthesis.voice.samantha",
+        ]) ?? AVSpeechSynthesisVoice(language: "en-US")
+        self.outgoingVoice = Self.firstAvailableVoice(identifiers: [
+            "com.apple.voice.compact.en-US.Tom",
+            "com.apple.voice.enhanced.en-US.Tom",
+            "com.apple.speech.synthesis.voice.Alex",
+            "com.apple.voice.compact.en-US.Aaron",
+        ]) ?? AVSpeechSynthesisVoice(language: "en-US")
         setupGraph()
         startEngine()
+    }
+
+    private static func firstAvailableVoice(identifiers: [String]) -> AVSpeechSynthesisVoice? {
+        for id in identifiers {
+            if let voice = AVSpeechSynthesisVoice(identifier: id) {
+                return voice
+            }
+        }
+        return nil
     }
 
     // MARK: - Graph setup
@@ -315,6 +357,52 @@ final class AudioEngineController: ObservableObject {
         if !sfxPlayer.isPlaying {
             sfxPlayer.play()
         }
+    }
+
+    // Speak an INCOMING transmission message body in the female
+    // voice. Plays in parallel with the on-screen typing animation
+    // — they're decoupled presentation layers; whichever finishes
+    // first finishes first.
+    func speakIncoming(_ text: String) {
+        speak(text: text, voice: incomingVoice, pitchMultiplier: 1.08)
+    }
+
+    // Speak an OUTGOING transmission message body in the male voice.
+    // Slight pitch lower than default to widen the distance from
+    // the incoming voice.
+    func speakOutgoing(_ text: String) {
+        speak(text: text, voice: outgoingVoice, pitchMultiplier: 0.92)
+    }
+
+    // Stop any in-flight speech immediately. Called when the
+    // lineup cursor moves or the audience presses a button mid-
+    // utterance — the voice shouldn't keep talking past the
+    // moment the bit has moved on.
+    func stopSpeaking() {
+        if speech.isSpeaking || speech.isPaused {
+            speech.stopSpeaking(at: .immediate)
+        }
+    }
+
+    // Shared internal speak path. Voice is optional because the
+    // identifier-lookup chain could fail on an unusually stripped
+    // system — when it does, we silently skip the utterance
+    // rather than fall back to the wrong character voice.
+    private func speak(text: String, voice: AVSpeechSynthesisVoice?, pitchMultiplier: Float) {
+        guard let voice = voice else { return }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        stopSpeaking()
+        let utterance = AVSpeechUtterance(string: trimmed)
+        utterance.voice = voice
+        // Slightly under the system default so the speech feels
+        // deliberate and the audience can follow. 0.9× of the
+        // default rate is the sweet spot between "natural" and
+        // "this is a moment."
+        utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 0.9
+        utterance.pitchMultiplier = pitchMultiplier
+        utterance.volume = 1.0
+        speech.speak(utterance)
     }
 
     // "Doot doot" — two ascending square-wave tones with a short

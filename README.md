@@ -430,6 +430,35 @@ The default arrival-sound rules are:
 Override per-exchange with the optional `arrivalSound` field
 (`"doot"` / `"death"` / `"none"`).
 
+**Text-to-speech** — each transmission message body is also spoken
+aloud through `AVSpeechSynthesizer`, in parallel with the typing
+animation. Direction is read off the `header`:
+
+| Header | Voice | Default macOS identifier |
+|---|---|---|
+| `INCOMING` | Female | Samantha (US English) |
+| `OUTGOING` | Male | Tom (US English), with Alex as fallback |
+| anything else (gate, `GAME OVER`, custom) | silent | — |
+
+Voices are resolved at startup from a fallback chain of known
+Apple identifiers; if none of them are installed the
+language-default voice for `en-US` is used. If even that fails the
+exchange is silent — no crash, no wrong-voice substitution.
+
+Speech is interrupted (`stopSpeaking(at: .immediate)`) on three
+events:
+
+- Audience press — they've moved past the message, voice goes
+  with them
+- Auto-advance fires — the next exchange's voice is about to
+  start
+- Lineup cursor moves — the bit is over
+
+TTS routes through the system default audio output (not the
+master mixer), so on a typical stage rig it travels the same
+FOH path as the music — but the bed-level attenuation doesn't
+apply. Tune via system volume or `AVSpeechUtterance.volume`.
+
 **Schema**
 
 ```json
@@ -1046,7 +1075,7 @@ full-screen with `F`.
 - `AudienceInteractive.swift` — AudienceInteractive struct + AudienceInteractiveKind enum + transmission script types (TransmissionScript / Exchange / Choice / AutoAdvance / Next / Phase) + JSON schemas + shared TransmissionPacing constants (typing reveal speed, etc.)
 - `AudienceInteractiveLoader.swift` — directory scan + validation for audience-interactive JSON files (lenient on hyphens/underscores in `kind`); compiles + validates transmission `exchanges` (unique ids, both-or-neither choices, autoAdvance↔choices mutual exclusion, every `next` resolves)
 - `AudienceInteractiveView.swift` — full-screen audience-driven screen; per-kind branches: start_button (themed prompt + WRONG BUTTON overlay), transmission (phosphor-green CRT terminal — gate centerpiece, character-by-character typing with layout-stable underlay, stacked reply prompts gated on typing-complete, DELETED flash on manual abort)
-- `AudioEngine.swift` — AVAudioEngine graph, sample loading, pitched voice pools, master-mixer bed level, dedicated SFX node feeding the master mixer (wrong-button beep, transmission "doot doot" message-received chirp, pac-man-style "death" arpeggio for GAME OVER beats — all synthesized once at startup)
+- `AudioEngine.swift` — AVAudioEngine graph, sample loading, pitched voice pools, master-mixer bed level, dedicated SFX node feeding the master mixer (wrong-button beep, transmission "doot doot" message-received chirp, pac-man-style "death" arpeggio for GAME OVER beats — all synthesized once at startup), and an AVSpeechSynthesizer for transmission TTS (female INCOMING / male OUTGOING, resolved at startup from a fallback chain of known voice identifiers)
 - `AudioDevices.swift` — CoreAudio helpers for default output device name
 - `ChordParser.swift` — chord symbol → root pitch class + quality + 7th
 - `Clock.swift` — 16th-note timer, song playback engine
