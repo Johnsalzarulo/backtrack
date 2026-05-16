@@ -165,7 +165,8 @@ enum AudienceInteractiveLoader {
                 green: green,
                 red: red,
                 autoAdvance: auto,
-                arrivalSound: arrival
+                arrivalSound: arrival,
+                bottomPrompt: ex.bottomPrompt?.isEmpty == true ? nil : ex.bottomPrompt
             ))
         }
         return TransmissionScript(exchanges: exchanges)

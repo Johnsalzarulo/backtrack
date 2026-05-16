@@ -42,6 +42,16 @@ struct TransmissionExchangeJSON: Codable {
     // The "death" value plays the longer pac-man-style descending
     // arpeggio — meant for GAME OVER / closure beats.
     let arrivalSound: String?
+    // Optional small text at the bottom of the exchange, where
+    // reply prompts normally render. Used for non-interactive
+    // exchanges (autoAdvance + no choices) to display things like
+    // "Mash 🔴 and 🟢 to beg" while the audience can't actually
+    // do anything to escape. Presses on such an exchange fire the
+    // doot for feedback but don't advance.
+    //
+    // 🔴 / 🟢 in the string render as colored ⬤ dots (matching
+    // the rest of the transmission UI).
+    let bottomPrompt: String?
 }
 
 struct TransmissionChoiceJSON: Codable {
@@ -110,6 +120,14 @@ struct TransmissionExchange: Equatable {
     // Explicit when set; otherwise we infer from the header +
     // incoming (see `effectiveArrivalSound`).
     let arrivalSound: TransmissionArrivalSound?
+    // Optional bottom-of-screen prompt for non-interactive
+    // exchanges. Renders where reply choices would go. 🔴 / 🟢
+    // emoji in the string substitute to colored ⬤ dots at render
+    // time. When set, audience button presses on this exchange
+    // produce the doot (interaction feedback) but don't advance
+    // — perfect for "press to no avail" beats like "Mash 🔴 and
+    // 🟢 to beg" during a doomed message hold.
+    let bottomPrompt: String?
 
     // An exchange with no choices and no autoAdvance terminates
     // the bit — the screen holds its `incoming` text until the

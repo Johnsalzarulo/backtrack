@@ -849,13 +849,20 @@ final class KeyboardHandler {
         case .green: choice = exchange.green
         case .red:   choice = exchange.red
         }
-        guard let choice = choice else { return }
-        // Press-time doot — interaction acknowledgment. Moved here
-        // from the arrival path so the doot doesn't step on the TTS
-        // reading the incoming message. Plays for every valid press
-        // including silent choices and DELETE.
-        audio.playMessageReceivedDoot()
-        applyTransmissionChoice(choice, fromExchange: exchange)
+        if let choice = choice {
+            // Normal press path — play the doot, transition phases.
+            audio.playMessageReceivedDoot()
+            applyTransmissionChoice(choice, fromExchange: exchange)
+        } else if exchange.bottomPrompt != nil {
+            // "Begging" press — exchange has a bottom prompt but no
+            // reply choices (e.g. "Mash 🔴 and 🟢 to beg" during the
+            // pre-GAME-OVER beat). Play the doot for feedback so the
+            // audience hears something happening, but don't advance.
+            // The exchange's own autoAdvance timer ends the moment.
+            audio.playMessageReceivedDoot()
+        }
+        // Other case: no choices and no bottomPrompt — silently drop
+        // (true terminal sit-forever exchanges).
     }
 
     // Drives the multi-step transition that follows an audience press:

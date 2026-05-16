@@ -184,28 +184,40 @@ final class AudioEngineController: ObservableObject {
         // Last resort: language-default for en-US. If even that fails
         // (genuinely broken AVFoundation install) the speak path
         // silently no-ops rather than crash.
-        // Avoid Samantha as the default — she's the Siri voice and
-        // sounds too recognizable in a narrative context. Prefer
-        // Ava / Allison (premium / compact alternatives that the
-        // user can install via System Settings → Accessibility →
-        // Spoken Content → System Voice → Manage Voices if not
-        // present). Falls back to whatever female en-US voice is
-        // installed if those identifiers don't resolve. Samantha
-        // is at the very bottom — if she's the only female voice
-        // installed she'll still load, but she's not preferred.
+        // Avoid Samantha at all costs — she's the macOS Siri voice
+        // and sounds too recognizable in a narrative context. Try
+        // many alternatives across English locales before falling
+        // back to her. Any international English accent (AU / GB /
+        // IE / ZA) reads as "definitely not Siri" — preferable to
+        // the alternative even if the accent is unexpected. Legacy
+        // synthetic-sounding voices (Victoria, Vicki) actually fit
+        // the CRT/phosphor aesthetic better than smooth modern
+        // voices anyway.
         self.incomingVoice = Self.resolveVoice(
             preferredIdentifiers: [
+                // Premium / enhanced (best quality if user has installed)
                 "com.apple.voice.enhanced.en-US.Ava",
                 "com.apple.voice.compact.en-US.Ava",
                 "com.apple.voice.enhanced.en-US.Allison",
                 "com.apple.voice.compact.en-US.Allison",
                 "com.apple.voice.premium.en-US.Zoe",
                 "com.apple.voice.compact.en-US.Susan",
+                // International English — commonly pre-installed on macOS
+                "com.apple.voice.compact.en-AU.Karen",
+                "com.apple.voice.compact.en-IE.Moira",
+                "com.apple.voice.compact.en-GB.Kate",
+                "com.apple.voice.compact.en-GB.Serena",
+                "com.apple.voice.compact.en-ZA.Tessa",
+                // Legacy synthetic voices — fit CRT aesthetic
+                "com.apple.speech.synthesis.voice.Victoria",
+                "com.apple.speech.synthesis.voice.Vicki",
+                // Absolute last resort — Samantha (Siri)
                 "com.apple.voice.enhanced.en-US.Samantha",
                 "com.apple.voice.compact.en-US.Samantha",
             ],
             gender: .female,
-            language: "en-US"
+            language: "en-US",
+            excludingIdentifierSubstring: "samantha"
         )
         self.outgoingVoice = Self.resolveVoice(
             preferredIdentifiers: [
@@ -227,10 +239,17 @@ final class AudioEngineController: ObservableObject {
     // failing that the first installed voice matching the gender +
     // language hint, or failing that the language default. nil only
     // if AVFoundation can't produce any voice at all.
+    //
+    // `excludingIdentifierSubstring` lets the female-voice resolver
+    // skip Samantha during the enumeration fallback — if she's the
+    // only female en-US voice installed we eventually fall to her
+    // anyway via the language default, but for systems with even
+    // one alternative voice she's avoided entirely.
     private static func resolveVoice(
         preferredIdentifiers: [String],
         gender: AVSpeechSynthesisVoiceGender,
-        language: String
+        language: String,
+        excludingIdentifierSubstring: String? = nil
     ) -> AVSpeechSynthesisVoice? {
         for id in preferredIdentifiers {
             if let voice = AVSpeechSynthesisVoice(identifier: id) {
@@ -238,9 +257,30 @@ final class AudioEngineController: ObservableObject {
             }
         }
         let voices = AVSpeechSynthesisVoice.speechVoices()
-        if let match = voices.first(where: {
-            $0.gender == gender && $0.language.hasPrefix(language)
+        // Enumeration pass: try any English-locale match (not just
+        // the requested language) for the requested gender, skipping
+        // the excluded identifier if specified. Lets an Aussie /
+        // Irish voice fill in for an en-US slot when no en-US
+        // alternative to the excluded voice is installed.
+        let englishMatches = voices.filter {
+            $0.gender == gender && $0.language.hasPrefix("en")
+        }
+        if let exclude = excludingIdentifierSubstring?.lowercased() {
+            if let match = englishMatches.first(where: {
+                !$0.identifier.lowercased().contains(exclude)
+            }) {
+                return match
+            }
+            // No non-excluded match — fall through to the standard
+            // path below (which may end up returning the excluded
+            // voice, but at least we tried).
+        }
+        if let match = englishMatches.first(where: {
+            $0.language.hasPrefix(language)
         }) {
+            return match
+        }
+        if let match = englishMatches.first {
             return match
         }
         return AVSpeechSynthesisVoice(language: language)
@@ -516,26 +556,44 @@ final class AudioEngineController: ObservableObject {
         return buffer
     }
 
-    // Pac-man-style death sound — a chromatic-ish descending arpeggio
-    // of square waves. Seven notes stepping downward, getting slightly
-    // longer per note so the last one (the "dead" pitch) hangs. ~600
-    // ms total. Reads as "game over" to anyone who's ever played a
-    // coin-op arcade game.
+    // Pac-man-style death sound — multi-stage descending arpeggio
+    // of square waves designed to read as a properly hammy "GAME
+    // OVER." Three phases:
+    //   1. Quick descending cascade (5 notes, ~90ms each) — "the
+    //      system is failing"
+    //   2. Slower wobble down (5 notes, ~120ms each) — the death
+    //      rattle / character dying
+    //   3. Final long-held note (~600ms) — funereal hang
+    //
+    // Total ~2.6 sec. Long enough to land the joke, short enough
+    // that the visual "YOUR RELATIONSHIP IS OVER" still has 6+
+    // seconds of holding time on the GAME OVER exchange.
     private func makeTransmissionEndBuffer() -> AVAudioPCMBuffer? {
         let format = Self.canonicalFormat
         let sampleRate = Float(format.sampleRate)
         let amplitude: Float = 0.30
 
-        // (freq, duration) pairs, descending. Pitches roughly chromatic
-        // from G5 down past A3.
+        // (freq, duration) pairs, descending. Pitches in Hz; phase
+        // resets per note for crisp note boundaries.
         let notes: [(freq: Float, duration: Float)] = [
-            (784, 0.07),    // G5
-            (698, 0.07),    // F5
-            (622, 0.07),    // D♯5
-            (523, 0.07),    // C5
-            (440, 0.09),    // A4
-            (349, 0.09),    // F4
-            (220, 0.14)     // A3 — held last
+            // Phase 1 — fast cascade down
+            (784, 0.09),    // G5
+            (740, 0.09),    // F♯5
+            (698, 0.09),    // F5
+            (659, 0.09),    // E5
+            (622, 0.09),    // D♯5
+            (587, 0.10),    // D5
+            (523, 0.10),    // C5
+            // Phase 2 — wobble down, slower (death rattle)
+            (494, 0.12),    // B4
+            (440, 0.12),    // A4
+            (392, 0.14),    // G4
+            (349, 0.14),    // F4
+            (294, 0.18),    // D4
+            // Phase 3 — final dramatic hold
+            (220, 0.30),    // A3
+            (175, 0.40),    // F3
+            (130, 0.60),    // C3 — final long funereal hang
         ]
         let totalDuration = notes.reduce(Float(0)) { $0 + $1.duration }
         let frameCount = AVAudioFrameCount(sampleRate * totalDuration)

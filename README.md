@@ -551,6 +551,7 @@ apply. Tune via system volume or `AVSpeechUtterance.volume`.
 | `green` / `red` | Optional. Reply choices on each button. Both must be present together, **or both absent**. Mutually exclusive with `autoAdvance`. Each has `label` (the visible reply text — wrap in parens for silent stage-direction style) and `next`. |
 | `autoAdvance` | Optional. `{ "holdSeconds": <number>, "next": <id-or-abort> }`. After typing finishes, the body holds for `holdSeconds`, then transitions to `next`. No audience interaction. Mutually exclusive with `green`/`red`. |
 | `arrivalSound` | Optional. `"doot"` / `"death"` / `"none"`. Overrides the default arrival SFX for this exchange. Default rules: `doot` for plain `INCOMING` messages with a body, `none` for everything else. |
+| `bottomPrompt` | Optional. Small text at the bottom of the exchange — renders where reply choices normally sit. Useful for non-interactive exchanges that still want audience presses to do something visible (the press fires the doot for feedback but doesn't advance — perfect for "Mash 🔴 and 🟢 to beg" hold beats). `🔴` / `🟢` emoji in the string automatically render as colored ⬤ dots. |
 | `next` | Either an exchange `id` (continues the script) or the literal `"abort"` (ends the bit). On a choice's `next: "abort"` the screen briefly shows `DELETED` before the lineup advances; on an `autoAdvance.next: "abort"` the lineup advances silently (the bit is ending on its own clock, not being deleted). |
 
 **Pacing constants** (in `Sources/BackTrack/AudienceInteractive.swift`):

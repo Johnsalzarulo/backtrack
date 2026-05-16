@@ -217,24 +217,77 @@ struct AudienceInteractiveView: View {
 
             Spacer(minLength: 0)
 
-            // Choices — only when not terminal AND typing has
-            // completed. Stacked vertically (🟢 above 🔴) so each
-            // line is a full-width independent reading target. Extra
-            // bottom padding on top of the 7% overscan keeps the
-            // lower line off the bezel curve at the projector edge.
-            if !exchange.isTerminal && typingComplete {
-                VStack(alignment: .center, spacing: optionFont * 0.65) {
-                    if let green = exchange.green {
-                        choiceLabel(dotColor: .green, label: green.label, font: optionFont)
+            // Bottom area — gated on typing-complete. Three cases:
+            //   1. Has reply choices → stacked 🟢/🔴 prompts.
+            //   2. No choices but has bottomPrompt → render that
+            //      (e.g. "Mash 🔴 and 🟢 to beg" — audience can
+            //      press for feedback but nothing advances).
+            //   3. Neither → nothing renders at the bottom.
+            if typingComplete {
+                if exchange.green != nil || exchange.red != nil {
+                    // Stacked vertically (🟢 above 🔴) so each line
+                    // is a full-width independent reading target.
+                    // Extra bottom padding on top of the 7% overscan
+                    // keeps the lower line off the bezel curve.
+                    VStack(alignment: .center, spacing: optionFont * 0.65) {
+                        if let green = exchange.green {
+                            choiceLabel(dotColor: .green, label: green.label, font: optionFont)
+                        }
+                        if let red = exchange.red {
+                            choiceLabel(dotColor: .red, label: red.label, font: optionFont)
+                        }
                     }
-                    if let red = exchange.red {
-                        choiceLabel(dotColor: .red, label: red.label, font: optionFont)
-                    }
+                    .padding(.bottom, safe * 0.05)
+                    .frame(maxWidth: .infinity)
+                } else if let prompt = exchange.bottomPrompt {
+                    bottomPromptLine(prompt, font: optionFont)
+                        .padding(.bottom, safe * 0.05)
+                        .frame(maxWidth: .infinity)
                 }
-                .padding(.bottom, safe * 0.05)
-                .frame(maxWidth: .infinity)
             }
         }
+    }
+
+    // Renders a `bottomPrompt` string with 🔴 / 🟢 emoji
+    // substituted to colored ⬤ glyphs, matching the rest of the
+    // transmission UI. Single dim line, centered, monospace.
+    private func bottomPromptLine(_ raw: String, font: CGFloat) -> some View {
+        styledPromptText(raw)
+            .font(.system(size: font, weight: .light, design: .monospaced))
+            .foregroundColor(phosphorInk.opacity(0.75))
+            .multilineTextAlignment(.center)
+            .lineLimit(2)
+            .minimumScaleFactor(0.5)
+    }
+
+    // Tokenizes the input by character, swapping 🔴 / 🟢 for
+    // colored ⬤ runs. Returns a single composed Text so the host
+    // can apply font / line-limit / scaling uniformly.
+    private func styledPromptText(_ raw: String) -> Text {
+        var result = Text("")
+        var buffer = ""
+        for char in raw {
+            let s = String(char)
+            if s == "🔴" {
+                if !buffer.isEmpty {
+                    result = result + Text(buffer)
+                    buffer = ""
+                }
+                result = result + Text("⬤").foregroundColor(.red)
+            } else if s == "🟢" {
+                if !buffer.isEmpty {
+                    result = result + Text(buffer)
+                    buffer = ""
+                }
+                result = result + Text("⬤").foregroundColor(.green)
+            } else {
+                buffer.append(s)
+            }
+        }
+        if !buffer.isEmpty {
+            result = result + Text(buffer)
+        }
+        return result
     }
 
     private func choiceLabel(dotColor: Color, label: String, font: CGFloat) -> some View {
