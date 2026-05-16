@@ -128,14 +128,20 @@ struct VisualsView: View {
                 // playing even when transport is stopped, matching the
                 // loop behavior of the source media.
                 VisualView(url: url)
-            } else if !state.isPlaying {
+            } else if !state.isPlaying && visualizer != .audienceDrums {
                 // No part-level visual and transport is stopped — the
                 // synth layer would be empty, so show TV static as the
                 // idle / "no signal" state instead. Also covers app
                 // launch, between songs, and any pause.
+                //
+                // Exception: audience-drums shows its chart even when
+                // stopped, so the audience can see the buttons map to
+                // kick/snare lanes and play with them before the song
+                // starts (mic-check feel, no "where are the buttons?"
+                // beat at the top of the song).
                 IdleStaticView(ink: ink, paper: paper)
             } else {
-                // Playing the synth layer.
+                // Playing the synth layer — or audience-drums idle.
                 GeometryReader { geo in
                     let inset = min(geo.size.width, geo.size.height) * overscanMargin
                     synthContent
@@ -293,7 +299,7 @@ struct VisualsView: View {
     @ViewBuilder
     private var synthContent: some View {
         switch visualizer {
-        case .constellation, .orbit, .ink, .squares, .dots, .lines, .ripple, .oscilloscope:
+        case .constellation, .orbit, .ink, .squares, .dots, .lines, .ripple, .oscilloscope, .audienceDrums:
             TimelineView(.animation) { context in
                 Canvas { ctx, size in
                     render(ctx: ctx, size: size, now: context.date)
@@ -387,6 +393,8 @@ struct VisualsView: View {
             renderRipple(ctx: ctx, center: center, minDim: minDim, time: time, now: now)
         case .oscilloscope:
             renderOscilloscope(ctx: ctx, size: size, minDim: minDim, time: time, now: now)
+        case .audienceDrums:
+            renderAudienceDrums(ctx: ctx, size: size, minDim: minDim, now: now)
         case .lyricsBlock, .lyricsLine:
             // Lyric motifs don't use Canvas — handled by synthContent
             // at the SwiftUI view level. render() never sees them in
@@ -1023,6 +1031,161 @@ struct VisualsView: View {
                 ctx.fill(blob, with: .color(ink))
             }
         }
+    }
+
+    // MARK: - Style: audience-drums
+
+    // Guitar-Hero-style two-lane scrolling chart driven by the active
+    // part's drum pattern. Kick events fall in the left/green lane,
+    // snare events in the right/red lane — derived from the pattern
+    // grid via `Generators.patternHitTicks`. Notes start at the top
+    // `fallSeconds` before their event time and arrive at the hit zone
+    // exactly on the beat the audio would have fired (the clock is
+    // muted for kick/snare in this mode — the audience IS the drummer).
+    //
+    // Press feedback comes for free: when the audience hits a button,
+    // it triggers the actual sample via the audio engine, which stamps
+    // `kickLastTrigger`/`snareLastTrigger`, which we read here to
+    // brighten the hit zone for ~0.18s. No scoring, no miss state — a
+    // note that scrolls past the hit zone with no press just disappears.
+    private func renderAudienceDrums(ctx: GraphicsContext, size: CGSize, minDim: CGFloat, now: Date) {
+        // Black background regardless of song theme — reads as a
+        // distinct "game mode" framing.
+        ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black))
+
+        let laneWidth = size.width * 0.32
+        let leftCenter = size.width * 0.32
+        let rightCenter = size.width * 0.68
+        let hitY = size.height * 0.82
+        let topY: CGFloat = 0
+
+        let kickColor = Color.green
+        let snareColor = Color.red
+
+        // Lane backgrounds: faint full-height tint so the track reads
+        // as a track even before any notes have spawned.
+        let kickLane = CGRect(
+            x: leftCenter - laneWidth / 2, y: 0,
+            width: laneWidth, height: size.height
+        )
+        let snareLane = CGRect(
+            x: rightCenter - laneWidth / 2, y: 0,
+            width: laneWidth, height: size.height
+        )
+        ctx.fill(Path(kickLane), with: .color(kickColor.opacity(0.08)))
+        ctx.fill(Path(snareLane), with: .color(snareColor.opacity(0.08)))
+        ctx.stroke(Path(kickLane), with: .color(kickColor.opacity(0.4)), lineWidth: 2)
+        ctx.stroke(Path(snareLane), with: .color(snareColor.opacity(0.4)), lineWidth: 2)
+
+        // Hit zone — thick bar across each lane. Brightens when the
+        // voice fired recently (audience press OR a stray clock event,
+        // though clock kick/snare are muted in this mode).
+        let kickFiring = isFiring(last: state.kickLastTrigger, now: now, hold: 0.18)
+        let snareFiring = isFiring(last: state.snareLastTrigger, now: now, hold: 0.18)
+        let hitH = minDim * 0.025
+        let kickHitRect = CGRect(
+            x: leftCenter - laneWidth / 2, y: hitY - hitH / 2,
+            width: laneWidth, height: hitH
+        )
+        let snareHitRect = CGRect(
+            x: rightCenter - laneWidth / 2, y: hitY - hitH / 2,
+            width: laneWidth, height: hitH
+        )
+        ctx.fill(Path(kickHitRect), with: .color(kickFiring ? kickColor : kickColor.opacity(0.5)))
+        ctx.fill(Path(snareHitRect), with: .color(snareFiring ? snareColor : snareColor.opacity(0.5)))
+
+        // Press flash — when the audience hits, the whole lane brightens
+        // for the hold window so it's unambiguous the press landed.
+        if kickFiring {
+            ctx.fill(Path(kickLane), with: .color(kickColor.opacity(0.25)))
+        }
+        if snareFiring {
+            ctx.fill(Path(snareLane), with: .color(snareColor.opacity(0.25)))
+        }
+
+        // Falling notes — only while the song proper is playing
+        // (not during count-in, not when stopped).
+        if state.isPlaying,
+           state.countInBeat == nil,
+           let song = state.currentSong,
+           let part = state.currentPart {
+            let beatDuration = 60.0 / song.bpm
+            let tickDuration = beatDuration / 4.0
+            let fallSeconds: Double = 2.0
+            let fallTicks = fallSeconds / tickDuration
+
+            // Sub-beat fraction since the last quarter-note boundary,
+            // clamped to [0, 1]. lastBeatTime defaults to .distantPast
+            // before the first beat fires, which collapses to subBeat=1
+            // — harmless transient before tick 0.
+            let dt = now.timeIntervalSince(state.lastBeatTime) / beatDuration
+            let subBeat = max(0.0, min(1.0, dt))
+            let fractionalTickInBar = Double(state.currentBeat) * 4.0 + subBeat * 4.0
+            let absoluteTickNow = Double(state.currentBar) * 16.0 + fractionalTickInBar
+
+            let hits = Generators.patternHitTicks(pattern: part.pattern)
+
+            // How many bars to scan: just enough to cover the fall window.
+            // At BPM 118, fallTicks ≈ 16 — one full bar. +1 covers the
+            // edge case of being near the start of a bar.
+            let lookaheadBars = Int(ceil(fallTicks / 16.0)) + 1
+            let endBar = min(part.bars - 1, state.currentBar + lookaheadBars)
+            guard state.currentBar <= endBar else { return }
+
+            let noteW = laneWidth * 0.7
+            let noteH = minDim * 0.045
+
+            for bar in state.currentBar...endBar {
+                for t in hits.kick {
+                    drawFallingNote(
+                        ctx: ctx, eventTick: Double(bar * 16 + t),
+                        now: absoluteTickNow, fallTicks: fallTicks,
+                        topY: topY, hitY: hitY,
+                        laneCenter: leftCenter, noteW: noteW, noteH: noteH,
+                        color: kickColor
+                    )
+                }
+                for t in hits.snare {
+                    drawFallingNote(
+                        ctx: ctx, eventTick: Double(bar * 16 + t),
+                        now: absoluteTickNow, fallTicks: fallTicks,
+                        topY: topY, hitY: hitY,
+                        laneCenter: rightCenter, noteW: noteW, noteH: noteH,
+                        color: snareColor
+                    )
+                }
+            }
+        }
+
+        // Top labels — name what each button does. Pulsing on press is
+        // implicit via the lane flash above; the labels stay readable.
+        let labelFont = Font.system(size: minDim * 0.055, weight: .heavy, design: .monospaced)
+        let kickLabel = Text("🟢 KICK").font(labelFont).foregroundColor(.green)
+        ctx.draw(kickLabel, at: CGPoint(x: leftCenter, y: size.height * 0.07))
+        let snareLabel = Text("🔴 SNARE").font(labelFont).foregroundColor(.red)
+        ctx.draw(snareLabel, at: CGPoint(x: rightCenter, y: size.height * 0.07))
+    }
+
+    // Draws one falling note if it's currently in the visible window.
+    // `progress` runs from 1.0 (just spawned at top) to 0.0 (exactly at
+    // the hit zone). We let it drift slightly negative so a note doesn't
+    // pop out of existence the instant it crosses the hit line — gives
+    // the audience a sliver of visual grace.
+    private func drawFallingNote(
+        ctx: GraphicsContext,
+        eventTick: Double, now: Double, fallTicks: Double,
+        topY: CGFloat, hitY: CGFloat,
+        laneCenter: CGFloat, noteW: CGFloat, noteH: CGFloat,
+        color: Color
+    ) {
+        let progress = (eventTick - now) / fallTicks
+        guard progress <= 1.0, progress >= -0.1 else { return }
+        let y = topY + (hitY - topY) * CGFloat(1.0 - progress)
+        let rect = CGRect(
+            x: laneCenter - noteW / 2, y: y - noteH / 2,
+            width: noteW, height: noteH
+        )
+        ctx.fill(Path(roundedRect: rect, cornerRadius: noteH * 0.3), with: .color(color))
     }
 
     // MARK: - Shape helpers

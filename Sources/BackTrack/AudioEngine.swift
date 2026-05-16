@@ -53,12 +53,22 @@ final class AudioEngineController: ObservableObject {
     private let padMixer = AVAudioMixerNode()
     private let bassMixer = AVAudioMixerNode()
 
-    // Drum players — one per drum, interrupts on re-trigger (the hard drum
-    // attack masks the cut). Connected at canonical drum format so a kit
-    // swap is a pure buffer-pointer swap.
-    private let kickPlayer = AVAudioPlayerNode()
-    private let snarePlayer = AVAudioPlayerNode()
-    private let hhPlayer = AVAudioPlayerNode()
+    // Drum voice pools — N voices per drum, rotated round-robin on every
+    // trigger. A single AVAudioPlayerNode with `.interrupts` was fine for
+    // clock-driven drums (the clock never re-triggers a drum faster than
+    // its sample length) but the audience-drummer bit can hammer the
+    // kick/snare buttons at 16th-note speed, where each new hit clipped
+    // the previous one's body and read as a "soft" hit live. With a pool,
+    // consecutive hits ring through on independent voices and stack
+    // naturally. Connected at canonical drum format so a kit swap is a
+    // pure buffer-pointer swap.
+    private static let drumPoolSize = 4
+    private var kickPlayers: [AVAudioPlayerNode] = []
+    private var snarePlayers: [AVAudioPlayerNode] = []
+    private var hhPlayers: [AVAudioPlayerNode] = []
+    private var kickPlayerIndex = 0
+    private var snarePlayerIndex = 0
+    private var hhPlayerIndex = 0
     private var kickBuffer: AVAudioPCMBuffer?
     private var snareBuffer: AVAudioPCMBuffer?
     private var hhBuffer: AVAudioPCMBuffer?
@@ -307,12 +317,22 @@ final class AudioEngineController: ObservableObject {
             engine.connect(sub, to: masterMixer, format: nil)
         }
 
-        engine.attach(kickPlayer)
-        engine.connect(kickPlayer, to: kickMixer, format: Self.canonicalFormat)
-        engine.attach(snarePlayer)
-        engine.connect(snarePlayer, to: snareMixer, format: Self.canonicalFormat)
-        engine.attach(hhPlayer)
-        engine.connect(hhPlayer, to: hhMixer, format: Self.canonicalFormat)
+        for _ in 0..<Self.drumPoolSize {
+            let kick = AVAudioPlayerNode()
+            engine.attach(kick)
+            engine.connect(kick, to: kickMixer, format: Self.canonicalFormat)
+            kickPlayers.append(kick)
+
+            let snare = AVAudioPlayerNode()
+            engine.attach(snare)
+            engine.connect(snare, to: snareMixer, format: Self.canonicalFormat)
+            snarePlayers.append(snare)
+
+            let hh = AVAudioPlayerNode()
+            engine.attach(hh)
+            engine.connect(hh, to: hhMixer, format: Self.canonicalFormat)
+            hhPlayers.append(hh)
+        }
 
         for _ in 0..<8 {
             let player = AVAudioPlayerNode()
@@ -921,9 +941,18 @@ final class AudioEngineController: ObservableObject {
     func trigger(_ event: NoteEvent) {
         // Audio first — independent of main-thread load.
         switch event.voice {
-        case .kick:   play(buffer: kickBuffer, on: kickPlayer, volume: event.velocity)
-        case .snare:  play(buffer: snareBuffer, on: snarePlayer, volume: event.velocity)
-        case .hihat:  play(buffer: hhBuffer, on: hhPlayer, volume: event.velocity)
+        case .kick:
+            let i = kickPlayerIndex
+            kickPlayerIndex = (i + 1) % Self.drumPoolSize
+            play(buffer: kickBuffer, on: kickPlayers[i], volume: event.velocity)
+        case .snare:
+            let i = snarePlayerIndex
+            snarePlayerIndex = (i + 1) % Self.drumPoolSize
+            play(buffer: snareBuffer, on: snarePlayers[i], volume: event.velocity)
+        case .hihat:
+            let i = hhPlayerIndex
+            hhPlayerIndex = (i + 1) % Self.drumPoolSize
+            play(buffer: hhBuffer, on: hhPlayers[i], volume: event.velocity)
         case .pad(let pc):  playPad(pitchClass: pc, volume: event.velocity)
         case .bass(let pc): playBass(pitchClass: pc, volume: event.velocity)
         }
@@ -952,7 +981,12 @@ final class AudioEngineController: ObservableObject {
         guard let buffer = buffer,
               buffer.format.isEqual(Self.canonicalFormat) else { return }
         player.volume = volume
-        player.scheduleBuffer(buffer, at: nil, options: .interrupts, completionHandler: nil)
+        // No `.interrupts` — this player is one slot in a round-robin
+        // pool, and the rotation already guarantees consecutive hits
+        // land on different voices. Letting each scheduled buffer ring
+        // through to its natural decay is what gives rapid audience
+        // presses their full body instead of clipping each previous hit.
+        player.scheduleBuffer(buffer, at: nil, options: [], completionHandler: nil)
         if !player.isPlaying { player.play() }
     }
 

@@ -100,7 +100,7 @@ scans the directory; any malformed songs surface in the HUD's
 | `parts` | song | Dictionary of part definitions, referenced by name. |
 | `structure` | song | Array of part names, in play order. The same name can appear multiple times. |
 | `theme` | song | `"dark"` (default — black paper, white ink) or `"light"` (inverted). Only affects the synth layer of the visuals window; parts with a `visuals` file aren't themed. |
-| `visualizer` | song | Synth-layer motif. One of `"constellation"` (default), `"orbit"`, `"ink"`, `"squares"`, `"dots"`, `"lines"`, `"ripple"`, `"oscilloscope"`, `"lyrics-block"`, `"lyrics-line"`. See the Visuals window section below. |
+| `visualizer` | song | Synth-layer motif. One of `"constellation"` (default), `"orbit"`, `"ink"`, `"squares"`, `"dots"`, `"lines"`, `"ripple"`, `"oscilloscope"`, `"lyrics-block"`, `"lyrics-line"`, `"audience-drums"`. The last is a behavioral mode, not just a renderer — see [Audience-drumming mode](#audience-drumming-mode) below. See the Visuals window section for the rest. |
 | `countIn` | song | Optional integer. When > 0, pressing Space plays N bars of metronome clicks (4 hi-hat hits per bar at the song's BPM, beat 1 accented) before the song actually starts. The HUD shows `● COUNT-IN n/N` and the visuals window shows the current beat-in-bar number large. Default 0 = no count-in. |
 | `visualEffect` | part | Optional. Post-processing layer wrapping the entire visuals window for this part. One of `"none"` (default), `"glitch"` (beat-synced digital-corruption jitter + slice flashes; every 4th bar's downbeat fires a major tear with longer decay and ~3× slice count), `"tracking"` (continuous VCR distortion band + slight VHS desaturation; every ~6 s the picture rolls vertically with a sync seam at the wrap point), `"chroma"` (RGB channel separation; per-beat random angle, downbeat boost, part-start blowout — Spider-Verse / vintage 3D feel). Different parts can have different effects. The audience-facing green button (`1`) can temporarily override this with a 10-second auto-reverting effect — see [Audience interaction](#audience-interaction). |
 | `videoClip` | part | Optional filename in `~/BackTrack/VideoClips/` (mp4, mov, m4v, mpg, mpeg, m2v, webm, avi). When set, plays once with audio when the part starts, taking over the visuals window. The backing track keeps playing alongside. When the clip ends mid-part, the visuals window falls back to the part's normal `visuals` / `visualizer`. While a `videoClip` is playing, both audience-facing buttons (`1` and `2`) are suppressed — the clip owns the screen. |
@@ -346,12 +346,9 @@ runtime. Currently shipped:
 
 - `the_breakup.json` — mid-set, between *I Don't Want To Take
   Pills* and *Sleeping Cold*. Audience plays the side that's
-  pursuing; the other party has clearly already left. Ends with
-  the operator advancing manually after the closing message.
-- `moving_on.json` — directly after *Sleeping Cold*. Audience
-  plays the side moving on; the other party can't accept it.
-  Ends on its own clock — the bit auto-advances back into the
-  setlist after the final beat holds.
+  pursuing; the other party has clearly already left. Ends on
+  a GAME OVER beat that auto-advances back into the setlist
+  after the final beat holds.
 
 **Per-exchange flow** (audience-driven exchange):
 
@@ -679,8 +676,8 @@ about navigating that pre-built structure.
 | `V` | Show / hide the visuals window. |
 | `F` | Toggle the visuals window into macOS native full-screen (title bar auto-hides, window covers the display). Opens the window first if it was closed. |
 | `\` | Toggle **tweak mode** — see below. |
-| `1` | **Audience green button.** During a song: cycle a 10-second post-effect (`glitch` → `tracking` → `chroma`) over the part's JSON `visualEffect`, with a half-second white-flash for feedback. During a countdown: cycle render style (digital / pie / hourglass). On a `start_button` audience-interactive: advance the show. Suppressed during videoClips. See [Audience interaction](#audience-interaction). |
-| `2` | **Audience red button.** During a song: tap to toggle a full-screen amber-on-black `TELEMETRY` panel that takes over the visuals window; auto-hides after 5 s, or tap again to dismiss early. During a countdown: tap to advance the rotating message. On a `start_button` audience-interactive: error beep + "WRONG BUTTON" flash. Suppressed during videoClips. See [Audience interaction](#audience-interaction). |
+| `1` | **Audience green button.** During a song: cycle a 10-second post-effect (`glitch` → `tracking` → `chroma`) over the part's JSON `visualEffect`, with a half-second white-flash for feedback — *unless* the part is in [audience-drumming mode](#audience-drumming-mode), in which case it fires the `kick` sample. During a countdown: cycle render style (digital / pie / hourglass). On a `start_button` audience-interactive: advance the show. Suppressed during videoClips. See [Audience interaction](#audience-interaction). |
+| `2` | **Audience red button.** During a song: tap to toggle a full-screen amber-on-black `TELEMETRY` panel that takes over the visuals window; auto-hides after 5 s, or tap again to dismiss early — *unless* the part is in [audience-drumming mode](#audience-drumming-mode), in which case it fires the `snare` sample. During a countdown: tap to advance the rotating message. On a `start_button` audience-interactive: error beep + "WRONG BUTTON" flash. Suppressed during videoClips. See [Audience interaction](#audience-interaction). |
 
 Songs, countdowns, setlists, and `patterns.json` auto-reload within
 ~1 s of being saved. Sample folders only load at launch — restart
@@ -729,6 +726,14 @@ moves to a new item.
   the audience hardware buttons only signal on press. See
   [Telemetry panel](#telemetry-panel-audience-toggle) in the Visuals
   window section for the full layout.
+
+**Exception — audience-drumming mode.** Parts whose effective
+`visualizer` is `audience-drums` reroute both keys: `1` fires the
+`kick` sample, `2` fires the `snare` sample. The FX cycle and the
+telemetry toggle are suppressed for those parts — the audience IS
+the drummer, and stepping on that with a glitch effect or a
+telemetry takeover would break the bit. See [Audience-drumming
+mode](#audience-drumming-mode).
 
 ### During a countdown
 
@@ -1062,6 +1067,54 @@ static (theme-aware — white flecks on black in dark mode, black on
 white in light). This is the "no signal" resting state at app
 launch, between songs, and any time you hit Space to pause.
 Regenerates at ~15 Hz to feel analog rather than digital.
+Exception: parts using the `audience-drums` visualizer show the
+empty chart even when stopped (see below).
+
+### Audience-drumming mode
+
+A behavioral mode on the visualizer slot, not just a renderer.
+Setting `"visualizer": "audience-drums"` on a song or part flips
+the visuals window into a two-lane Guitar-Hero-style scrolling
+chart **and** rewires the audio + audience-button behavior so an
+audience member becomes the band's drummer for the duration:
+
+- **Visuals window** renders two lanes (🟢 kick, 🔴 snare). Notes
+  derived live from the part's `pattern` fall toward a hit zone
+  near the bottom over a ~2 s window. A note arrives at the hit
+  zone exactly when the clock would have fired the kick/snare
+  audio.
+- **Clock-driven kick + snare are muted** for parts in this mode.
+  Hi-hat keeps firing from the pattern so the player has a
+  metronomic pulse to lock to. Pad + bass + chord harmony all
+  continue normally.
+- **Keys `1` and `2` reroute** — instead of cycling the post-effect
+  (`1`) or toggling the telemetry panel (`2`), they fire the
+  `kick` and `snare` samples directly via the audio engine.
+  Velocity is hard-coded to `1.0` (full hit) — keyboard events
+  carry no pressure data, so every press is an equally loud and
+  confident drum hit. The samples ring through their natural
+  decay on a 4-voice round-robin pool, so rapid hammering layers
+  cleanly instead of clipping each successive hit.
+- **Chart visible when stopped.** Audience-drums bypasses the
+  TV-static idle state — the empty lanes + hit zone show as soon
+  as the lineup cursor lands on the song, so the audience can
+  mic-check the buttons before count-in. No "where are the
+  buttons?" beat at the top.
+- **No scoring, no grading, no miss state.** A note that scrolls
+  past the hit zone with no press just disappears. The kindest
+  version of the bit: sympathy stays with the audience member.
+
+Press feedback: each press flashes the hit zone + tints the lane
+for ~180 ms (driven by the same `kickLastTrigger` /
+`snareLastTrigger` timestamps the other visualizers use for pulse
+animation). The audio sample firing is the actual confirmation —
+if it sounds like a drum, the press registered.
+
+Per-part granularity is the natural unit: you can mix
+audience-drumming parts with normal lyric/synth parts in the
+same song so the bit lives as a *moment*, not a song-long
+endurance test. Or set it song-level for an entire piece, as
+*All The Love* does.
 
 ### Telemetry panel (audience toggle)
 

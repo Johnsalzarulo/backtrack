@@ -350,7 +350,7 @@ final class Clock: ObservableObject {
             audio.stopAllPadAndBass()
         }
 
-        for e in Generators.drums(pattern: part.pattern, tick: 0) { audio.trigger(e) }
+        fireDrums(part: part, tick: 0)
         for e in Generators.pad(level: part.padLevel, chord: chord, tick: 0, chordChanged: changed) {
             audio.trigger(e)
         }
@@ -362,10 +362,33 @@ final class Clock: ObservableObject {
         // new bar is reflected here. The slight staleness window is
         // safe because tick 1+ within a bar can't span a boundary.
         guard let chord = part.chord(atBar: state.currentBar) else { return }
-        for e in Generators.drums(pattern: part.pattern, tick: tick) { audio.trigger(e) }
+        fireDrums(part: part, tick: tick)
         for e in Generators.pad(level: part.padLevel, chord: chord, tick: tick, chordChanged: false) {
             audio.trigger(e)
         }
         for e in Generators.bass(level: part.bassLevel, chord: chord, tick: tick) { audio.trigger(e) }
+    }
+
+    // Fires the pattern's drum events for this tick, except when the part
+    // is in audience-drums mode — then kick + snare are dropped (the
+    // audience is the drummer; their button presses provide them).
+    // Hi-hat keeps running so the player has a metronomic pulse to hold to.
+    private func fireDrums(part: Part, tick: Int) {
+        let audienceDrums = effectiveVisualizer(for: part) == .audienceDrums
+        for e in Generators.drums(pattern: part.pattern, tick: tick) {
+            if audienceDrums {
+                if case .kick = e.voice { continue }
+                if case .snare = e.voice { continue }
+            }
+            audio.trigger(e)
+        }
+    }
+
+    // Resolves the visualizer for a part, falling back to the song-level
+    // value when the part doesn't override. Mirrors AppState.effectiveVisualizer
+    // but takes the part explicitly so transitions (where state hasn't
+    // flushed yet) resolve correctly.
+    private func effectiveVisualizer(for part: Part) -> VisualizerStyle {
+        part.visualizer ?? state.currentSong?.visualizer ?? .constellation
     }
 }
