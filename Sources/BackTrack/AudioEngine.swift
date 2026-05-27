@@ -1053,6 +1053,18 @@ final class AudioEngineController: ObservableObject {
         }
     }
 
+    // Stop all drum voice pools and drop their pending schedule queues.
+    // Used on transport stop / lineup advance — without this, a dense
+    // pattern (e.g. 16th-note hats) keeps several buffers queued per
+    // pool slot, so they audibly tick on past the moment the clock
+    // cancels its timer. Not called on part-change: drum one-shots are
+    // expected to ring through their natural decay across part lines.
+    func stopAllDrums() {
+        for player in kickPlayers + snarePlayers + hhPlayers {
+            player.stop()
+        }
+    }
+
     // Stop all pad + bass voices with a short fade. Used on part-change so
     // sustained drone chords don't bleed into the new chord.
     func stopAllPadAndBass() {

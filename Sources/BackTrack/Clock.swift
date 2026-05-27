@@ -103,6 +103,7 @@ final class Clock: ObservableObject {
         // will fall back to the synth / static idle view.
         state.activeVideoClip = nil
         audio.stopAllPadAndBass()
+        audio.stopAllDrums()
     }
 
     // Resolve a part's videoClip (if any) into state so the visuals
