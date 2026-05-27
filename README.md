@@ -161,6 +161,11 @@ one-liner messages beneath, and a small static `press 🔴 or 🟢` line
 at the very bottom that trains the audience to use the red/green
 buttons in front of them.
 
+A countdown can optionally carry a **looping musical motif** — a chord
+progression plus drum / pad / bass voices that play on a loop while the
+timer is running (see [Motif](#motif) below). Countdowns without motif
+fields stay silent, exactly as before.
+
 ```
 ~/BackTrack/Countdowns/preshow.json
 ```
@@ -189,7 +194,49 @@ buttons in front of them.
 | `messageInterval` | Optional. Seconds per rotating message. Default `6`. |
 | `messages` | Optional. List of one-liners that cycle below the timer. Index advances by 1 every `messageInterval` seconds. Empty list = no rotating message. |
 | `style` | Optional. How the timer renders. One of `"digital"` (default — giant `M:SS:cc` digits + thin progress bar), `"pie"` (clock-face wedge that shrinks clockwise from 12 with smaller `M:SS` digits below), `"hourglass"` (sand draining from top to bottom triangle, `M:SS` below). Label and rotating message look the same across all three. The audience-facing green button (`1`) cycles this at runtime (digital → pie → hourglass) without modifying the JSON; the override is wiped when the lineup cursor moves. |
-| `visualEffect` | Optional. Post-processing layer wrapping the entire countdown. One of `"none"` (default), `"glitch"`, `"tracking"`, `"chroma"`. Same options exist as part-level fields on songs. Beat-synced behaviors idle gracefully when nothing's playing. Audience buttons don't touch this on countdowns — `1` cycles `style` and `2` advances the rotating message. |
+| `visualEffect` | Optional. Post-processing layer wrapping the entire countdown. One of `"none"` (default), `"glitch"`, `"tracking"`, `"chroma"`. Same options exist as part-level fields on songs. Beat-synced behaviors idle gracefully when nothing's playing (and lock to the motif's tempo when one is). Audience buttons don't touch this on countdowns — `1` cycles `style` and `2` advances the rotating message. |
+
+### Motif
+
+A countdown can play a looping musical bed while its timer runs. The
+field names deliberately mirror the [song schema](#songs) so the two
+decks share authoring muscle memory: `bpm`, `kit`, `pattern`, and
+`chords` mean exactly what they do on a song, and `pad` / `bass` are
+sound-folder names like a song's top-level `pad` / `bass`.
+
+```json
+{
+  "name": "Pre-show",
+  "duration": 600,
+  "label": "Show begins in",
+  "bpm": 84,
+  "chords": ["Am", "F", "C", "G"],
+  "pattern": "Boom-bap minimal",
+  "kit": "Vinyl",
+  "pad": "strings",
+  "padLevel": 1,
+  "bass": "soft",
+  "bassLevel": 1
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `chords` | The progression, as chord symbols (`Am`, `F`, `Cmaj7`, `G7`, …) — same notation songs use. Loops bar-for-bar for the whole countdown. Required for `pad` / `bass` to sound. |
+| `pattern` | Drum pattern name from `patterns.json` (e.g. `"Boom-bap minimal"`). Requires `kit`. Omit for no drums. |
+| `kit` | Drum kit folder under `Samples/drums/`. Required when `pattern` is set. |
+| `bpm` | Loop tempo. Optional; defaults to `90`. |
+| `pad` | Pad sound folder under `Samples/pads/`. |
+| `padLevel` | Pad intensity, `0`–`3` (same scale as a song part's `pad`: 0 off, 1 drone, 2 stabs, 3 arpeggio). Defaults to `1` when `pad` is named. |
+| `bass` | Bass sound folder under `Samples/bass/`. |
+| `bassLevel` | Bass intensity, `0`–`3` (0 off, 1 whole, 2 half, 3 pump). Defaults to `1` when `bass` is named. |
+
+A countdown is treated as having a motif when it declares `chords` or
+`pattern`. The motif starts on `Space` (start / resume) and stops on
+pause and whenever the lineup cursor leaves the item — so it's bound to
+the same transport as the visible timer. Authoring mistakes (unknown
+pattern, unparseable chord, a level without its sound name) show up in
+the HUD's countdown-issues block, just like song validation.
 
 ### Audience interaction
 
@@ -1175,10 +1222,10 @@ full-screen with `F`.
 - `AudioEngine.swift` — AVAudioEngine graph, sample loading, pitched voice pools, master-mixer bed level, dedicated SFX node feeding the master mixer (wrong-button beep, transmission "doot doot" message-received chirp, pac-man-style "death" arpeggio for GAME OVER beats — all synthesized once at startup), and an AVSpeechSynthesizer for transmission TTS (female INCOMING / male OUTGOING, resolved at startup from a fallback chain of known voice identifiers)
 - `AudioDevices.swift` — CoreAudio helpers for default output device name
 - `ChordParser.swift` — chord symbol → root pitch class + quality + 7th
-- `Clock.swift` — 16th-note timer, song playback engine
+- `Clock.swift` — 16th-note timer, song playback engine + the countdown motif loop (startMotif / stopMotif)
 - `ContentView.swift` — SwiftUI HUD (with audience-interactive deck + header blocks)
-- `Countdown.swift` — Countdown / CountdownStyle / CountdownTransport structs + JSON schema
-- `CountdownLoader.swift` — directory scan + validation for countdown JSON files (rawValue-driven style parser)
+- `Countdown.swift` — Countdown / CountdownStyle / CountdownTransport / CountdownMotif structs + JSON schema
+- `CountdownLoader.swift` — directory scan + validation for countdown JSON files (rawValue-driven style parser; motif chord/pattern/level validation)
 - `CountdownView.swift` — full-screen countdown display (digital / pie / hourglass), label + rotating message + colored-dot audience-button prompt
 - `FileWatcher.swift` — ~1 s polling reloader for songs / countdowns / interstitials / audience interactives / setlists / patterns.json
 - `Generators.swift` — drum pattern loader, pad + bass generators

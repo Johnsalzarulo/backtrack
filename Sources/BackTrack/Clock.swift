@@ -26,6 +26,18 @@ final class Clock: ObservableObject {
     private var tick: Int = 0              // 0..15 within current bar
     private var lastChordKey: String = ""  // tracks chord-change for pad drone
 
+    // Countdown motif loop. Separate from the song transport above:
+    // a countdown is never a song, so the two never run at once, but
+    // keeping a distinct timer + tick state means stopping one can't
+    // disturb the other and the motif path stays free of the song's
+    // part/structure/count-in machinery. Started/stopped from the
+    // countdown transport in KeyboardHandler.
+    private var motifTimer: DispatchSourceTimer?
+    private var motifTick: Int = 0
+    private var motifBar: Int = 0
+    private var motifChordKey: String = ""
+    private var activeMotif: CountdownMotif?
+
     // Count-in pre-roll. While `countInRemaining` > 0 the timer fires
     // metronome clicks instead of song events. Counted in 16th-note
     // ticks so it shares the song's tick grid — N bars of count-in =
@@ -104,6 +116,102 @@ final class Clock: ObservableObject {
         state.activeVideoClip = nil
         audio.stopAllPadAndBass()
         audio.stopAllDrums()
+    }
+
+    // MARK: - Countdown motif loop
+
+    // Start the looping musical bed for a countdown. Idempotent-ish:
+    // a fresh call cancels any running loop and restarts from the top
+    // of the progression (resume-from-pause restarts the loop, which
+    // is musically fine for an endlessly looping motif). Selects the
+    // motif's kit / pad / bass sounds the same way Clock.start() does
+    // for songs.
+    func startMotif(_ motif: CountdownMotif) {
+        stopMotif()
+        activeMotif = motif
+        if let kit = motif.kit { audio.selectDrumKit(named: kit) }
+        if let pad = motif.padSound { audio.selectPadSound(named: pad) }
+        if let bass = motif.bassSound { audio.selectBassSound(named: bass) }
+        motifTick = 0
+        motifBar = 0
+        motifChordKey = ""
+        scheduleMotifTimer(immediate: true)
+    }
+
+    func stopMotif() {
+        motifTimer?.cancel()
+        motifTimer = nil
+        guard activeMotif != nil else { return }
+        activeMotif = nil
+        audio.stopAllPadAndBass()
+        audio.stopAllDrums()
+        writeState { s in s.currentBeat = 0 }
+    }
+
+    private func scheduleMotifTimer(immediate: Bool) {
+        motifTimer?.cancel()
+        let bpm = activeMotif?.bpm ?? Countdown.defaultMotifBPM
+        let t = DispatchSource.makeTimerSource(queue: clockQueue)
+        let seconds = 60.0 / (bpm * 4.0)
+        let interval = DispatchTimeInterval.nanoseconds(Int(seconds * 1_000_000_000))
+        let first: DispatchTime = immediate ? .now() : .now() + interval
+        t.schedule(deadline: first, repeating: interval, leeway: .milliseconds(1))
+        t.setEventHandler { [weak self] in self?.onMotifTick() }
+        motifTimer = t
+        t.resume()
+    }
+
+    // One 16th-note tick of the countdown motif. Loops the progression
+    // forever (motifBar wraps via chord(atBar:)) — there's no structure
+    // to advance through, so this stays much simpler than onTick().
+    private func onMotifTick() {
+        guard let motif = activeMotif else { return }
+        let chord = motif.chords.isEmpty
+            ? nil
+            : motif.chords[motifBar % motif.chords.count]
+
+        // Chord-change detection drives the level-1 pad drone retrigger,
+        // mirroring fireTick0's logic for songs.
+        var chordChanged = false
+        if motifTick == 0, let chord = chord {
+            let key = "\(chord.rootPitchClass)-\(chord.quality)"
+            chordChanged = (key != motifChordKey)
+            if chordChanged && !motifChordKey.isEmpty {
+                audio.stopAllPadAndBass()
+            }
+            motifChordKey = key
+        }
+
+        if let pattern = motif.pattern {
+            for e in Generators.drums(pattern: pattern, tick: motifTick) {
+                audio.trigger(e)
+            }
+        }
+        if let chord = chord {
+            for e in Generators.pad(level: motif.padLevel, chord: chord, tick: motifTick, chordChanged: chordChanged) {
+                audio.trigger(e)
+            }
+            for e in Generators.bass(level: motif.bassLevel, chord: chord, tick: motifTick) {
+                audio.trigger(e)
+            }
+        }
+
+        // Beat indicator so countdown post-effects (glitch / tracking /
+        // chroma) can beat-sync to the motif, same as during songs.
+        let newBeat = motifTick / 4
+        if newBeat != state.currentBeat {
+            let now = Date()
+            writeState { s in
+                s.currentBeat = newBeat
+                s.lastBeatTime = now
+            }
+        }
+
+        motifTick += 1
+        if motifTick >= Generators.ticksPerBar {
+            motifTick = 0
+            motifBar += 1
+        }
     }
 
     // Resolve a part's videoClip (if any) into state so the visuals

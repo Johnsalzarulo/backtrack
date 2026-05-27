@@ -665,20 +665,31 @@ final class KeyboardHandler {
     // losing their place. Hitting an arrow key resets to .stopped via
     // selectLineupItem.
     private func toggleCountdown() {
-        guard state.currentCountdown != nil else { return }
+        guard let countdown = state.currentCountdown else { return }
         switch state.countdownTransport {
         case .stopped:
             state.countdownTransport = .running(startedAt: Date(), accumulated: 0)
+            startCountdownMotif(countdown)
         case .running(let startedAt, let accumulated):
             let elapsed = accumulated + Date().timeIntervalSince(startedAt)
             state.countdownTransport = .paused(elapsed: elapsed)
+            clock.stopMotif()
         case .paused(let elapsed):
             state.countdownTransport = .running(startedAt: Date(), accumulated: elapsed)
+            startCountdownMotif(countdown)
         }
+    }
+
+    // Kick off the countdown's looping musical bed, if it has one.
+    // Silent countdowns (no motif) just run the visual timer as before.
+    private func startCountdownMotif(_ countdown: Countdown) {
+        guard let motif = countdown.motif else { return }
+        clock.startMotif(motif)
     }
 
     private func stopCountdown() {
         state.countdownTransport = .stopped
+        clock.stopMotif()
     }
 
     // "1" key — cycle the active countdown's style through

@@ -13,6 +13,20 @@ struct CountdownJSON: Codable {
     let messages: [String]?          // rotating one-liners; may be empty
     let style: String?               // "digital" | "pie" | "hourglass"; default "digital"
     let visualEffect: String?        // post-processing effect; default "none"
+
+    // Optional looping musical motif. Field names mirror the song
+    // schema so the two decks share authoring muscle memory (see the
+    // deck-symmetry note in the README). A countdown has a motif when
+    // `chords` or `pattern` is present; otherwise it's a silent timer
+    // exactly as before.
+    let bpm: Double?                 // tempo for the loop; default 90 when motif present
+    let kit: String?                 // drum kit folder name (= song `kit`)
+    let pattern: String?             // drum pattern name (= part `pattern`)
+    let chords: [String]?            // the progression, looped (= part `chords`)
+    let pad: String?                 // pad sound folder name (= song-level `pad`)
+    let padLevel: Int?               // 0-3 pad intensity; default 1 when `pad` set
+    let bass: String?                // bass sound folder name (= song-level `bass`)
+    let bassLevel: Int?              // 0-3 bass intensity; default 1 when `bass` set
 }
 
 // Compiled, validated countdown ready to display.
@@ -25,9 +39,30 @@ struct Countdown {
     let messages: [String]
     let style: CountdownStyle
     let visualEffect: PostEffect
+    // nil = silent timer (the original behavior). Non-nil = a looping
+    // musical bed that plays while the countdown transport is running.
+    let motif: CountdownMotif?
 
     static let defaultLabel = "Show begins in"
     static let defaultMessageInterval: TimeInterval = 6
+    static let defaultMotifBPM: Double = 90
+}
+
+// A countdown's looping musical bed. Unlike a Song (which has named
+// parts and an ordered structure), a motif is flat: one chord
+// progression that loops bar-for-bar at `bpm` for the whole countdown,
+// with an optional drum pattern and optional pad/bass voices. The Clock
+// schedules it on the same 16th-note grid songs use, reusing the same
+// Generators + AudioEngine voices.
+struct CountdownMotif {
+    let bpm: Double
+    let kit: String?          // drum kit name; nil = no drums
+    let pattern: String?      // drum pattern name; nil = no drums
+    let chords: [Chord]       // progression, looped; may be empty (drums-only)
+    let padSound: String?     // nil unless padLevel > 0
+    let padLevel: Int         // 0-3
+    let bassSound: String?    // nil unless bassLevel > 0
+    let bassLevel: Int        // 0-3
 }
 
 // How the countdown's remaining time is visualized. All three styles
