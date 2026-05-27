@@ -37,6 +37,10 @@ final class Clock: ObservableObject {
     private var motifBar: Int = 0
     private var motifChordKey: String = ""
     private var activeMotif: CountdownMotif?
+    // Flattened per-bar arrangement for activeMotif, precomputed at
+    // startMotif so the per-tick path is a cheap index instead of
+    // rebuilding the section list 16 times a bar. Empty = drums-only.
+    private var motifSlots: [MotifBar] = []
 
     // Count-in pre-roll. While `countInRemaining` > 0 the timer fires
     // metronome clicks instead of song events. Counted in 16th-note
@@ -129,6 +133,7 @@ final class Clock: ObservableObject {
     func startMotif(_ motif: CountdownMotif) {
         stopMotif()
         activeMotif = motif
+        motifSlots = motif.barSlots
         if let kit = motif.kit { audio.selectDrumKit(named: kit) }
         if let pad = motif.padSound { audio.selectPadSound(named: pad) }
         if let bass = motif.bassSound { audio.selectBassSound(named: bass) }
@@ -143,6 +148,7 @@ final class Clock: ObservableObject {
         motifTimer = nil
         guard activeMotif != nil else { return }
         activeMotif = nil
+        motifSlots = []
         audio.stopAllPadAndBass()
         audio.stopAllDrums()
         writeState { s in s.currentBeat = 0 }
@@ -161,16 +167,20 @@ final class Clock: ObservableObject {
         t.resume()
     }
 
-    // One 16th-note tick of the countdown motif. Loops the progression
-    // forever (motifBar wraps via chord(atBar:)) — there's no structure
-    // to advance through, so this stays much simpler than onTick().
+    // One 16th-note tick of the countdown motif. The flattened
+    // `motifSlots` collapse the section arrangement into a per-bar
+    // lookup, so this loops the whole arrangement just by wrapping
+    // motifBar with `% count` — no structure to advance through, which
+    // keeps it much simpler than the song path's onTick().
     private func onMotifTick() {
         guard let motif = activeMotif else { return }
-        let chord = motif.chords.isEmpty
-            ? nil
-            : motif.chords[motifBar % motif.chords.count]
+        let slot = motifSlots.isEmpty ? nil : motifSlots[motifBar % motifSlots.count]
+        let chord = slot?.chord
+        let padLevel = slot?.padLevel ?? 0
+        let bassLevel = slot?.bassLevel ?? 0
 
-        // Chord-change detection drives the level-1 pad drone retrigger,
+        // Chord-change detection drives the level-1 pad drone retrigger
+        // and clears ringing voices at section / chord boundaries,
         // mirroring fireTick0's logic for songs.
         var chordChanged = false
         if motifTick == 0, let chord = chord {
@@ -188,10 +198,10 @@ final class Clock: ObservableObject {
             }
         }
         if let chord = chord {
-            for e in Generators.pad(level: motif.padLevel, chord: chord, tick: motifTick, chordChanged: chordChanged) {
+            for e in Generators.pad(level: padLevel, chord: chord, tick: motifTick, chordChanged: chordChanged) {
                 audio.trigger(e)
             }
-            for e in Generators.bass(level: motif.bassLevel, chord: chord, tick: motifTick) {
+            for e in Generators.bass(level: bassLevel, chord: chord, tick: motifTick) {
                 audio.trigger(e)
             }
         }

@@ -230,13 +230,47 @@ sound-folder names like a song's top-level `pad` / `bass`.
 | `padLevel` | Pad intensity, `0`–`3` (same scale as a song part's `pad`: 0 off, 1 drone, 2 stabs, 3 arpeggio). Defaults to `1` when `pad` is named. |
 | `bass` | Bass sound folder under `Samples/bass/`. |
 | `bassLevel` | Bass intensity, `0`–`3` (0 off, 1 whole, 2 half, 3 pump). Defaults to `1` when `bass` is named. |
+| `sections` | Optional. An ordered list of sections that play in sequence and then loop (see below). Omit it and the top-level `chords` / `padLevel` / `bassLevel` act as one implicit section — the flat form above. |
 
-A countdown is treated as having a motif when it declares `chords` or
-`pattern`. The motif starts on `Space` (start / resume) and stops on
-pause and whenever the lineup cursor leaves the item — so it's bound to
-the same transport as the visible timer. Authoring mistakes (unknown
-pattern, unparseable chord, a level without its sound name) show up in
-the HUD's countdown-issues block, just like song validation.
+A countdown is treated as having a motif when it declares `chords`,
+`pattern`, or `sections`. The motif starts on `Space` (start / resume)
+and stops on pause and whenever the lineup cursor leaves the item — so
+it's bound to the same transport as the visible timer. Authoring
+mistakes (unknown pattern, unparseable chord, a bad repeat count, a
+level without its sound name) show up in the HUD's countdown-issues
+block, just like song validation.
+
+#### Sections
+
+To move between feels within one loop — say, sustained chords for a
+while, then an arpeggio — give the motif a `sections` array. Sections
+play top-to-bottom and then loop. `bpm`, `kit`, `pattern`, `pad`, and
+`bass` (the sounds) stay shared at the top level; each section overrides
+only what it needs and inherits the motif-level `chords` / `padLevel` /
+`bassLevel` for the rest.
+
+```json
+{
+  "name": "Pre-show",
+  "duration": 600,
+  "bpm": 77,
+  "chords": ["D", "Bm", "D", "F#m"],
+  "pad": "piano",
+  "bass": "soft",
+  "bassLevel": 1,
+  "sections": [
+    { "padLevel": 1, "repeats": 8 },
+    { "padLevel": 3, "repeats": 4 }
+  ]
+}
+```
+
+That plays the progression eight times as sustained chords (pad level 1),
+then four times arpeggiated (pad level 3), then loops back to the top —
+the bass holds one root per bar throughout. Per-section fields: `chords`
+(defaults to the motif's), `padLevel`, `bassLevel`, and `repeats` (how
+many times that section's progression plays before the next; default 1,
+same `repeats` meaning as a song part).
 
 ### Audience interaction
 
@@ -1224,8 +1258,8 @@ full-screen with `F`.
 - `ChordParser.swift` — chord symbol → root pitch class + quality + 7th
 - `Clock.swift` — 16th-note timer, song playback engine + the countdown motif loop (startMotif / stopMotif)
 - `ContentView.swift` — SwiftUI HUD (with audience-interactive deck + header blocks)
-- `Countdown.swift` — Countdown / CountdownStyle / CountdownTransport / CountdownMotif structs + JSON schema
-- `CountdownLoader.swift` — directory scan + validation for countdown JSON files (rawValue-driven style parser; motif chord/pattern/level validation)
+- `Countdown.swift` — Countdown / CountdownStyle / CountdownTransport / CountdownMotif / CountdownSection structs + JSON schema (motif flattens to per-bar MotifBar slots)
+- `CountdownLoader.swift` — directory scan + validation for countdown JSON files (rawValue-driven style parser; motif chord/pattern/level/section validation)
 - `CountdownView.swift` — full-screen countdown display (digital / pie / hourglass), label + rotating message + colored-dot audience-button prompt
 - `FileWatcher.swift` — ~1 s polling reloader for songs / countdowns / interstitials / audience interactives / setlists / patterns.json
 - `Generators.swift` — drum pattern loader, pad + bass generators
