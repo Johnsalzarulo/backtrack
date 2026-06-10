@@ -389,7 +389,7 @@ referenced from setlists with `kind: "audience-interactive"`. Same
 | Field | Meaning |
 |-------|---------|
 | `name` | Display name in the HUD's audience-interactive list and the string setlists reference. |
-| `kind` | Discriminator that picks the screen + behavior. Currently `"start_button"`; future kinds add to this list. The loader is lenient on punctuation (`start_button` / `start-button` / `startbutton` all resolve to the same kind). |
+| `kind` | Discriminator that picks the screen + behavior. Currently `"start_button"`, `"transmission"`, and `"lottery"`; future kinds add to this list. The loader is lenient on punctuation (`start_button` / `start-button` / `startbutton` all resolve to the same kind). |
 
 ### Kinds
 
@@ -650,6 +650,134 @@ live or the audience freezes up.
 **Self-care**: there's no runtime "skip tonight" toggle — if a
 transmission doesn't fit a particular show, just remove it from
 that night's setlist. The pieces are opt-in per show.
+
+#### `lottery`
+
+An 8-bit "spin the prize wheel" game. The audience presses green
+to spin; the wheel ratchets through several full rotations on an
+accel-sustain-decel profile, lands on one slice picked uniformly
+at random, plays a triumphant chiptune fanfare, and reveals the
+"won" prize in big screen-filling text. The comedy is the form /
+content collision — game-show language wrapping a piece of modern
+psychological baggage.
+
+Currently shipped:
+
+- `the_lottery.json` — nine slices of attachment-style / mental-
+  health labels (SOCIAL ANXIETY, IMPOSTER SYNDROME, AVOIDANT
+  ATTACHMENT, …). Pick your fighter.
+
+**Phase flow:**
+
+1. `setup` — "CONGRATULATIONS! YOU HAVE A CHANCE TO SPIN THE WHEEL"
+   centerpiece + ascending C-major chime. Auto-advances to `wheel`
+   after `setupHoldSeconds`, or earlier on a green press.
+2. `wheel` — wheel rendered with prize labels around the slices
+   plus a "PRESS 🟢 TO SPIN" prompt. Holds indefinitely until the
+   audience presses green.
+3. `spinning` — wheel rotates per the accel-sustain-decel profile
+   (default 1 s + 2 s + 4 s = 7 s total). Each slice crossing under
+   the top indicator fires a tick SFX, so the click rate naturally
+   tracks the velocity curve (slow → blur → slow). No interruption.
+4. `resultPending` — wheel at rest on the landed slice, slice
+   pulsing/highlighted for a beat; lower-pitched final "clunk" tick
+   plays as it settles.
+5. `revealIntro` — text-only "CONGRATULATIONS! / YOU HAVE WON…";
+   ~2 s triumphant fanfare plays underneath.
+6. `prizeDisplay` — the prize fills the screen in big yellow text,
+   held for `prizeDisplaySeconds`; short ascending "ta-da!" jingle
+   plays as it drops in. Do not rush this phase — the audience
+   needs time to read it, recognize it, sit with it.
+7. `fading` — black overlay fades in over the prize, then the
+   lineup advances.
+
+**Button vocabulary:**
+
+- 🟢 (`1`) — skips the setup hold (`setup` → `wheel`) and starts
+  the spin from `wheel`. Ignored once `spinning` begins; the rest
+  of the sequence is timer-driven.
+- 🔴 (`2`) — no-op. The Lottery is green-only by spec — the
+  audience can't bail mid-spin.
+- `Space` / `←` / `→` — operator escape hatch. Mid-lottery
+  advances cancel every pending lottery timer cleanly and move
+  the lineup on.
+
+**Spin profile** (math in `LotteryPacing.spinAngle` in
+`Sources/BackTrack/AudienceInteractive.swift`):
+
+The wheel uses a piecewise angular-velocity profile so it reads
+as "starts slow, blurs out, decelerates with audible slowing
+ticks" rather than a single ease curve:
+
+- **accel** — `ω(t) = ω_max · t / Ta` (linear ramp from rest)
+- **sustain** — `ω(t) = ω_max` (full-speed blur)
+- **decel** — `ω(t) = ω_max · (1 − (t − Td0)/Td)²` (quadratic falloff to rest)
+
+`ω_max` is solved analytically so the integrated rotation over
+the full spin equals exactly `spinFullRotations × 2π + landing ×
+2π/slices` — i.e. the wheel comes to rest with the chosen slice
+centered under the top indicator, every time, independent of
+slice count. The handler pre-schedules each slice-boundary tick
+SFX at spin-start by sampling this curve, so the click rate stays
+locked to the visual rotation through the whole accel / blur /
+decel arc.
+
+**Sound effects** — all synthesized chiptune buffers, generated
+once at engine startup, routed through the master mixer (same bed
+treatment as the music):
+
+| Sound | When it fires | Description |
+|---|---|---|
+| Setup chime | `setup` begins | Short ascending C-major arpeggio (C5 → E5 → G5 → C6, ~0.7 s) |
+| Tick | Every slice crossing during accel + sustain + decel | 25 ms 880 Hz square click; rate matches the wheel's velocity curve |
+| Final tick | Wheel settles on the landed slice | Slightly lower / longer click (440 Hz, 70 ms) — satisfying "clunk" |
+| Reveal fanfare | `revealIntro` begins | ~2 s ascending triumphant arpeggio + held high notes |
+| Prize jingle | `prizeDisplay` begins | Short ascending "ta-da!" (~0.5 s) — clean punctuation as the prize drops in |
+
+Amplitudes are tuned roughly half of the original prototype
+values (~-6 dB) so the square waves don't overpower the room —
+chip SFX contain a lot of odd-harmonic energy and read
+perceptually louder than equivalent-peak transient samples. Tune
+amplitudes per buffer in `setupGraph()` in `AudioEngine.swift`.
+
+**Schema**
+
+```json
+{
+  "name": "The Lottery",
+  "kind": "lottery",
+  "prizes": [
+    "SOCIAL ANXIETY",
+    "EXISTENTIAL DREAD",
+    "IMPOSTER SYNDROME",
+    "MILD DEPRESSION",
+    "HYPERVIGILANCE",
+    "DADDY ISSUES",
+    "CODEPENDENCY",
+    "TRUST ISSUES",
+    "AVOIDANT ATTACHMENT"
+  ]
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `prizes` | Required. Ordered array of slice labels — each entry one wheel slice, equal weight at the RNG. The loader requires at least 2 (rejects an empty or single-slice array). No hard upper limit, though more than ~12 starts to crowd the wheel visually; keep labels short (1–3 words) so they stay legible on the slice. |
+
+**Pacing constants** (in `LotteryPacing` in
+`Sources/BackTrack/AudienceInteractive.swift`):
+
+- `setupHoldSeconds` — setup-screen auto-advance, default `5`.
+- `spinAccelDuration` / `spinSustainDuration` / `spinDecelDuration` —
+  spin profile pieces, default `1` / `2` / `4` s.
+- `spinFullRotations` — full revolutions before landing, default
+  `6`. Combined with the durations, sets peak angular velocity
+  (and therefore peak tick rate at full blur).
+- `resultPendingSeconds` — wheel-at-rest pulse beat, default `0.5`.
+- `revealIntroSeconds` — text-only "you have won…" beat, default `1.5`.
+- `prizeDisplaySeconds` — prize on screen, default `6`. Do not
+  rush this.
+- `fadingSeconds` — fade-to-black before lineup advance, default `1.5`.
 
 ### Adding a new kind
 
