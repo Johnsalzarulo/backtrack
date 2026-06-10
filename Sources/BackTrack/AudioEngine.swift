@@ -90,6 +90,16 @@ final class AudioEngineController: ObservableObject {
     private var wrongButtonBuffer: AVAudioPCMBuffer?
     private var messageReceivedBuffer: AVAudioPCMBuffer?
     private var transmissionEndBuffer: AVAudioPCMBuffer?
+    // The Lottery audience-interactive's 8-bit SFX pack — synthesized
+    // once at startup, played back on demand. Same single-channel
+    // sfxPlayer as everything else, so the rapid ticks during the spin
+    // naturally chop each other into the classic ratcheting feel
+    // instead of layering into mush.
+    private var lotterySetupBuffer: AVAudioPCMBuffer?
+    private var lotteryTickBuffer: AVAudioPCMBuffer?
+    private var lotteryFinalTickBuffer: AVAudioPCMBuffer?
+    private var lotteryRevealBuffer: AVAudioPCMBuffer?
+    private var lotteryPrizeJingleBuffer: AVAudioPCMBuffer?
 
     // Text-to-speech for transmission message bodies — reads
     // INCOMING in a female voice, OUTGOING in a male voice, both
@@ -366,6 +376,35 @@ final class AudioEngineController: ObservableObject {
         wrongButtonBuffer = makeWrongButtonBuffer()
         messageReceivedBuffer = makeMessageReceivedBuffer()
         transmissionEndBuffer = makeTransmissionEndBuffer()
+        // Lottery SFX — short ascending C major fanfare for the setup
+        // chime, a tight square click for the spin ticks, a longer
+        // click for the wheel's final rest, a 2-second Mario-level-
+        // clear-ish triumphant fanfare for the reveal moment, and a
+        // brief ascending burst when the prize text drops in.
+        // Amplitudes are roughly half of what they were originally — at
+        // full bore the 8-bit square waves were too hot live (read as
+        // shrieky over the FOH). Roughly -6 dB lands them in the same
+        // perceived band as the other SFX after the master-mixer bed.
+        lotterySetupBuffer = makeChipMelodyBuffer(
+            notes: [(523, 0.12), (659, 0.12), (784, 0.12), (1047, 0.36)],
+            amplitude: 0.15
+        )
+        lotteryTickBuffer = makeChipTickBuffer(freq: 880, duration: 0.025, amplitude: 0.14)
+        lotteryFinalTickBuffer = makeChipTickBuffer(freq: 440, duration: 0.07, amplitude: 0.16)
+        lotteryRevealBuffer = makeChipMelodyBuffer(
+            notes: [
+                (523, 0.10), (659, 0.10), (784, 0.10), (1047, 0.10),
+                (1319, 0.10), (1047, 0.10), (1319, 0.10),
+                (1568, 0.40),
+                (1319, 0.30),
+                (1568, 0.50)
+            ],
+            amplitude: 0.15
+        )
+        lotteryPrizeJingleBuffer = makeChipMelodyBuffer(
+            notes: [(784, 0.08), (1047, 0.08), (1319, 0.08), (1568, 0.30)],
+            amplitude: 0.16
+        )
 
         // Tap master for the OUT activity dot.
         masterMixer.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
@@ -451,6 +490,47 @@ final class AudioEngineController: ObservableObject {
     // another error sound.
     func playTransmissionEndSound() {
         playSfx(transmissionEndBuffer)
+    }
+
+    // The Lottery: triumphant ascending fanfare when the bit's
+    // setup screen appears. ~0.7 s. Loud, peppy, NES-coin-collect
+    // energy.
+    func playLotterySetupChime() {
+        playSfx(lotterySetupBuffer)
+    }
+
+    // The Lottery: one ratcheting click as a slice passes under
+    // the top indicator during the spin. Pre-scheduled by the
+    // state machine at every slice-boundary crossing, so the
+    // rate naturally matches the wheel's accel / blur / decel
+    // profile (slow → fast → slow). Each new tick interrupts the
+    // previous one (single-channel sfxPlayer), which is what
+    // produces the discrete "tk-tk-tk" instead of a smeared blur.
+    func playLotteryTick() {
+        playSfx(lotteryTickBuffer)
+    }
+
+    // The Lottery: slightly longer, lower-pitched click for the
+    // wheel's final resting tick. Reads as a satisfying "clunk"
+    // after the rapid ratcheting.
+    func playLotteryFinalTick() {
+        playSfx(lotteryFinalTickBuffer)
+    }
+
+    // The Lottery: ~2 s triumphant 8-bit fanfare when the wheel
+    // lands and the reveal sequence begins. Ascending arpeggio +
+    // held high notes — almost embarrassingly celebratory by
+    // design (the bigger the fanfare, the harder the prize
+    // diagnosis lands).
+    func playLotteryRevealFanfare() {
+        playSfx(lotteryRevealBuffer)
+    }
+
+    // The Lottery: short ascending punctuation when the prize
+    // text drops in. Cuts the tail of the reveal fanfare for a
+    // clean "ta-da!" moment.
+    func playLotteryPrizeJingle() {
+        playSfx(lotteryPrizeJingleBuffer)
     }
 
     // Shared trigger logic for all SFX. Stop-and-restart semantics
@@ -639,6 +719,83 @@ final class AudioEngineController: ObservableObject {
                 right[frameIndex] = sample
                 frameIndex += 1
             }
+        }
+        return buffer
+    }
+
+    // Synthesize a melodic 8-bit phrase from a (freq, duration) list.
+    // Each note is a raw square wave at the given frequency for the
+    // given seconds, phase-reset per note so boundaries stay crisp
+    // (no zero-crossing smear). No envelope — the abrupt edges are
+    // exactly the NES-era sound we want. Used for the lottery setup
+    // chime, reveal fanfare, and prize jingle.
+    private func makeChipMelodyBuffer(notes: [(freq: Float, duration: Float)], amplitude: Float) -> AVAudioPCMBuffer? {
+        let format = Self.canonicalFormat
+        let sampleRate = Float(format.sampleRate)
+        let totalDuration = notes.reduce(Float(0)) { $0 + $1.duration }
+        let frameCount = AVAudioFrameCount(sampleRate * totalDuration)
+        guard frameCount > 0,
+              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount),
+              let channels = buffer.floatChannelData else { return nil }
+        buffer.frameLength = frameCount
+        let left = channels[0]
+        let right = channels[1]
+
+        var frameIndex = 0
+        for note in notes {
+            let noteFrames = Int(sampleRate * note.duration)
+            var phase: Float = 0
+            let phaseInc = note.freq / sampleRate
+            for _ in 0..<noteFrames {
+                guard frameIndex < Int(frameCount) else { break }
+                let sample: Float = (phase < 0.5 ? amplitude : -amplitude)
+                phase += phaseInc
+                if phase >= 1.0 { phase -= 1.0 }
+                left[frameIndex] = sample
+                right[frameIndex] = sample
+                frameIndex += 1
+            }
+        }
+        return buffer
+    }
+
+    // Synthesize a single short square-wave "tk" tick. Tiny attack
+    // and release envelopes round off the edges so a 25 ms pulse
+    // reads as a click (not a pop) when fired in rapid succession
+    // during the wheel spin. Phase-reset every call (each buffer is
+    // standalone) so consecutive ticks all start cleanly.
+    private func makeChipTickBuffer(freq: Float, duration: Float, amplitude: Float) -> AVAudioPCMBuffer? {
+        let format = Self.canonicalFormat
+        let sampleRate = Float(format.sampleRate)
+        let frameCount = AVAudioFrameCount(sampleRate * duration)
+        guard frameCount > 0,
+              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount),
+              let channels = buffer.floatChannelData else { return nil }
+        buffer.frameLength = frameCount
+        let left = channels[0]
+        let right = channels[1]
+
+        var phase: Float = 0
+        let phaseInc = freq / sampleRate
+        let nf = Int(frameCount)
+        // 2 ms attack / 5 ms release, clamped to a sensible fraction
+        // of the buffer for very short ticks.
+        let attackFrames = max(1, min(nf / 8, Int(sampleRate * 0.002)))
+        let releaseFrames = max(1, min(nf / 4, Int(sampleRate * 0.005)))
+        let releaseStart = nf - releaseFrames
+        for i in 0..<nf {
+            let raw: Float = (phase < 0.5 ? amplitude : -amplitude)
+            var env: Float = 1.0
+            if i < attackFrames {
+                env = Float(i) / Float(attackFrames)
+            } else if i >= releaseStart {
+                env = Float(nf - i) / Float(releaseFrames)
+            }
+            let sample = raw * env
+            left[i] = sample
+            right[i] = sample
+            phase += phaseInc
+            if phase >= 1.0 { phase -= 1.0 }
         }
         return buffer
     }

@@ -88,20 +88,56 @@ enum AudienceInteractiveLoader {
         }
 
         // Per-kind compilation of the optional payload.
-        let transmission: TransmissionScript?
+        var transmission: TransmissionScript? = nil
+        var lottery: LotteryScript? = nil
         switch kind {
         case .startButton:
-            transmission = nil
+            break
         case .transmission:
             transmission = try compileTransmission(raw.exchanges)
+        case .lottery:
+            lottery = try compileLottery(raw.prizes)
         }
 
         return AudienceInteractive(
             sourceURL: sourceURL,
             name: raw.name,
             kind: kind,
-            transmission: transmission
+            transmission: transmission,
+            lottery: lottery
         )
+    }
+
+    // Validates the prizes array for a lottery audience-interactive.
+    // Rules:
+    //   - At least 2 prizes (a one-slice wheel isn't a wheel).
+    //   - No empty/whitespace-only entries.
+    //   - Trimmed to keep the display tight (leading/trailing whitespace
+    //     on a slice label would just pad the centered text).
+    // Duplicates are allowed — an author may want the same prize on
+    // multiple slices to weight it heavier.
+    private static func compileLottery(_ raw: [String]?) throws -> LotteryScript {
+        guard let raw = raw, !raw.isEmpty else {
+            throw AudienceInteractiveValidationError(
+                "lottery must declare a 'prizes' array"
+            )
+        }
+        guard raw.count >= 2 else {
+            throw AudienceInteractiveValidationError(
+                "lottery needs at least 2 prizes (got \(raw.count))"
+            )
+        }
+        var prizes: [String] = []
+        for (i, p) in raw.enumerated() {
+            let trimmed = p.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                throw AudienceInteractiveValidationError(
+                    "lottery prize \(i + 1) is empty"
+                )
+            }
+            prizes.append(trimmed)
+        }
+        return LotteryScript(prizes: prizes)
     }
 
     // Validates the exchanges array for a transmission audience-

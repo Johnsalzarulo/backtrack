@@ -27,6 +27,8 @@ struct AudienceInteractiveView: View {
             startButtonView
         case .transmission:
             transmissionView
+        case .lottery:
+            lotteryView
         }
     }
 
@@ -337,5 +339,367 @@ struct AudienceInteractiveView: View {
     // red regardless of theme — "WRONG" reads universally.
     private var errorTint: Color {
         Color(red: 1.0, green: 0.25, blue: 0.25)
+    }
+
+    // MARK: - lottery
+    //
+    // Black-background 8-bit takeover. Independent of the song's theme
+    // (like transmission) — the bit's visual language is a NES-era
+    // game show, not the surrounding song's palette. Phase switch in
+    // `lotteryView` drives the six-screen sequence:
+    //
+    //   setup       → "CONGRATULATIONS! YOU HAVE A CHANCE TO SPIN..."
+    //   wheel       → static wheel + "PRESS TO SPIN"
+    //   spinning    → wheel rotating per LotteryPacing.spinAngle
+    //   resultPending → wheel at rest, landed slice pulsing
+    //   revealIntro → text-only "CONGRATULATIONS! / YOU HAVE WON..."
+    //   prizeDisplay → big yellow prize text
+    //   fading      → prizeDisplay with black overlay fading in
+    //
+    // Each phase carries its own `startedAt` so this view can drive
+    // the spin angle, the pulse on the landed slice, and the fade
+    // opacity off `now - startedAt` without storing any local state.
+
+    private var lotteryView: some View {
+        let slices = interactive.lottery?.sliceCount ?? 0
+        return TimelineView(.animation) { context in
+            let now = context.date
+            GeometryReader { geo in
+                let inset = min(geo.size.width, geo.size.height) * overscanMargin
+                let safeW = max(0, geo.size.width - inset * 2)
+                let safeH = max(0, geo.size.height - inset * 2)
+                let safe = min(safeW, safeH)
+
+                ZStack {
+                    Color.black.ignoresSafeArea()
+                    Group {
+                        switch state.lotteryPhase {
+                        case .idle:
+                            // Pre-init fallback — cursor seeding moves
+                            // us to .setup within a frame; this just
+                            // keeps the screen non-blank in the gap.
+                            lotterySetupContent(now: now, startedAt: now, safe: safe)
+                        case .setup(let startedAt):
+                            lotterySetupContent(now: now, startedAt: startedAt, safe: safe)
+                        case .wheel:
+                            lotteryWheelContent(
+                                rotation: 0,
+                                highlight: nil,
+                                pulseElapsed: 0,
+                                safe: safe,
+                                slices: slices,
+                                showPrompt: true
+                            )
+                        case .spinning(let landing, let startedAt):
+                            let elapsed = now.timeIntervalSince(startedAt)
+                            let rotation = LotteryPacing.spinAngle(
+                                elapsed: elapsed,
+                                landing: landing,
+                                slices: slices
+                            )
+                            lotteryWheelContent(
+                                rotation: rotation,
+                                highlight: nil,
+                                pulseElapsed: 0,
+                                safe: safe,
+                                slices: slices,
+                                showPrompt: false
+                            )
+                        case .resultPending(let landing, let startedAt):
+                            // Math: wheel rests at thetaFinal mod 2π =
+                            // (landing/slices) × 2π, the same as the
+                            // last value spinAngle would produce. The
+                            // landed slice pulses with elapsed time.
+                            let landAngle = (slices > 0)
+                                ? 2 * Double.pi * Double(landing) / Double(slices)
+                                : 0
+                            let pulse = now.timeIntervalSince(startedAt)
+                            lotteryWheelContent(
+                                rotation: landAngle,
+                                highlight: landing,
+                                pulseElapsed: pulse,
+                                safe: safe,
+                                slices: slices,
+                                showPrompt: false
+                            )
+                        case .revealIntro:
+                            lotteryRevealIntroContent(safe: safe)
+                        case .prizeDisplay(let prize, _):
+                            lotteryPrizeContent(prize: prize, safe: safe)
+                        case .fading(let prize, let startedAt):
+                            let t = now.timeIntervalSince(startedAt) / LotteryPacing.fadingSeconds
+                            let opacity = min(1, max(0, t))
+                            lotteryPrizeContent(prize: prize, safe: safe)
+                                .overlay(
+                                    Color.black.opacity(opacity).allowsHitTesting(false)
+                                )
+                        }
+                    }
+                    .frame(width: safeW, height: safeH)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+        }
+    }
+
+    // Setup screen: triumphant text plus flashing stars at top/bottom
+    // (rate ~2.5 Hz so the "celebration energy" reads at a glance,
+    // not seizure-tier). Audience-facing green-dot CONTINUE hint
+    // sits beneath the body copy.
+    @ViewBuilder
+    private func lotterySetupContent(now: Date, startedAt: Date, safe: CGFloat) -> some View {
+        let starsOn = Int(now.timeIntervalSince(startedAt) / 0.4) % 2 == 0
+        VStack(spacing: safe * 0.03) {
+            Spacer(minLength: 0)
+            lotteryStarRow(safe: safe, visible: starsOn)
+            Spacer().frame(height: safe * 0.04)
+            Text("CONGRATULATIONS!")
+                .font(.system(size: safe * 0.10, weight: .heavy, design: .monospaced))
+                .foregroundColor(.white)
+                .multilineTextAlignment(.center)
+                .lineLimit(1)
+                .minimumScaleFactor(0.4)
+            Spacer().frame(height: safe * 0.02)
+            Text("YOU HAVE A CHANCE TO")
+                .font(.system(size: safe * 0.06, weight: .light, design: .monospaced))
+                .foregroundColor(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
+            Text("SPIN THE WHEEL")
+                .font(.system(size: safe * 0.06, weight: .light, design: .monospaced))
+                .foregroundColor(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
+            Spacer().frame(height: safe * 0.04)
+            lotteryStarRow(safe: safe, visible: starsOn)
+            Spacer().frame(height: safe * 0.05)
+            (Text("⬤").foregroundColor(.green) + Text("  CONTINUE").foregroundColor(.white))
+                .font(.system(size: safe * 0.045, weight: .light, design: .monospaced))
+                .lineLimit(1)
+            Spacer(minLength: 0)
+        }
+    }
+
+    // Pixel-star decoration row, used at the top and bottom of every
+    // text-only lottery screen. `visible: false` keeps the slot but
+    // hides the glyphs — drives the celebratory flicker on the setup
+    // screen without making text reflow when the stars vanish.
+    @ViewBuilder
+    private func lotteryStarRow(safe: CGFloat, visible: Bool = true) -> some View {
+        Text("★  ★  ★")
+            .font(.system(size: safe * 0.09, weight: .heavy, design: .monospaced))
+            .foregroundColor(.yellow.opacity(visible ? 1.0 : 0.0))
+            .lineLimit(1)
+    }
+
+    // Wheel screen — wheel centered with the optional press prompt
+    // beneath. Used for both the static `.wheel` phase (showPrompt =
+    // true) and the animated `.spinning` / `.resultPending` phases
+    // (showPrompt = false), so the prompt only displays when the
+    // audience is actually expected to press.
+    @ViewBuilder
+    private func lotteryWheelContent(
+        rotation: Double,
+        highlight: Int?,
+        pulseElapsed: TimeInterval,
+        safe: CGFloat,
+        slices: Int,
+        showPrompt: Bool
+    ) -> some View {
+        let wheelSize = safe * 0.68
+        VStack(spacing: safe * 0.04) {
+            Spacer(minLength: 0)
+            lotteryWheel(
+                wheelSize: wheelSize,
+                rotation: rotation,
+                highlight: highlight,
+                pulseElapsed: pulseElapsed,
+                slices: slices
+            )
+            if showPrompt {
+                Spacer().frame(height: safe * 0.04)
+                (Text("⬤").foregroundColor(.green) + Text("  PRESS TO SPIN").foregroundColor(.white))
+                    .font(.system(size: safe * 0.05, weight: .light, design: .monospaced))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    // The wheel itself. Canvas-drawn N-slice pie with a black border
+    // on each slice; the whole canvas rotates by `rotation` while a
+    // static white triangle indicator floats above the wheel pointing
+    // down at the top of the rim. Highlighting (the landed slice
+    // pulses for the resultPending beat) is done by attenuating
+    // every OTHER slice's fill opacity in time with the pulse — the
+    // winner stays full-color, the field dims.
+    private func lotteryWheel(
+        wheelSize: CGFloat,
+        rotation: Double,
+        highlight: Int?,
+        pulseElapsed: TimeInterval,
+        slices: Int
+    ) -> some View {
+        // Pulse factor 0..1, oscillates ~3 Hz. When highlight is set,
+        // the non-winning slices dim to (1 - pulse * dimAmount); when
+        // pulse is high, the winner pops by contrast.
+        let pulse = (sin(pulseElapsed * Double.pi * 6) + 1) / 2  // 0..1
+        let dimAmount: Double = 0.55  // how dark non-winning slices get at peak
+        return ZStack {
+            Canvas { ctx, size in
+                let center = CGPoint(x: size.width / 2, y: size.height / 2)
+                let radius = min(size.width, size.height) / 2 - 4
+                guard slices > 0 else { return }
+                let twoPi = 2 * Double.pi
+                let half = Double.pi / Double(slices)
+                for i in 0..<slices {
+                    // Slices arranged counterclockwise from top (slice
+                    // 0 at -π/2). A clockwise rotation by k·(2π/N)
+                    // brings slice k to top — matches startLotterySpin's
+                    // landing math.
+                    let centerAngle = -Double.pi / 2 - Double(i) * twoPi / Double(slices)
+                    var path = Path()
+                    path.move(to: center)
+                    path.addLine(to: CGPoint(
+                        x: center.x + radius * cos(centerAngle - half),
+                        y: center.y + radius * sin(centerAngle - half)
+                    ))
+                    path.addArc(
+                        center: center,
+                        radius: radius,
+                        startAngle: .radians(centerAngle - half),
+                        endAngle: .radians(centerAngle + half),
+                        clockwise: false
+                    )
+                    path.closeSubpath()
+
+                    let base = lotterySliceColor(i)
+                    let opacity: Double
+                    if let h = highlight, h != i {
+                        opacity = 1.0 - pulse * dimAmount
+                    } else {
+                        opacity = 1.0
+                    }
+                    ctx.fill(path, with: .color(base.opacity(opacity)))
+                    ctx.stroke(path, with: .color(.black), lineWidth: 2)
+                }
+                // Center hub — a small dark disc that hides the
+                // wedges' sharp inner points and reads as classic
+                // prize-wheel hardware.
+                let hubRadius = radius * 0.08
+                let hub = Path(ellipseIn: CGRect(
+                    x: center.x - hubRadius,
+                    y: center.y - hubRadius,
+                    width: hubRadius * 2,
+                    height: hubRadius * 2
+                ))
+                ctx.fill(hub, with: .color(.black))
+                ctx.stroke(hub, with: .color(.white), lineWidth: 1.5)
+            }
+            .frame(width: wheelSize, height: wheelSize)
+            .rotationEffect(.radians(rotation))
+
+            // Indicator triangle — white with black outline, point
+            // down, perched at the top of the wheel pointing onto it.
+            // Drawn OUTSIDE the rotation effect so it stays fixed.
+            indicatorTriangle
+                .frame(width: wheelSize * 0.10, height: wheelSize * 0.10)
+                .offset(y: -wheelSize / 2 + wheelSize * 0.05)
+        }
+        .frame(width: wheelSize, height: wheelSize)
+    }
+
+    // Pointer triangle at the top of the wheel. Tip at bottom-center
+    // of its frame so positioning the frame just above the wheel's
+    // top edge makes the tip point INTO the wheel rim.
+    private var indicatorTriangle: some View {
+        Canvas { ctx, size in
+            var path = Path()
+            path.move(to: CGPoint(x: size.width / 2, y: size.height))   // bottom tip
+            path.addLine(to: CGPoint(x: 0, y: 0))                       // top-left
+            path.addLine(to: CGPoint(x: size.width, y: 0))              // top-right
+            path.closeSubpath()
+            ctx.fill(path, with: .color(.white))
+            ctx.stroke(path, with: .color(.black), lineWidth: 2)
+        }
+    }
+
+    // 9-entry saturated palette tuned for the NES-era feel. Cycles
+    // if the wheel has more than 9 slices; adjacency rarely
+    // matters above 9 in practice.
+    private func lotterySliceColor(_ i: Int) -> Color {
+        let palette: [Color] = [
+            Color(red: 1.00, green: 0.18, blue: 0.18),  // red
+            Color(red: 1.00, green: 0.55, blue: 0.10),  // orange
+            Color(red: 1.00, green: 0.93, blue: 0.00),  // yellow
+            Color(red: 0.10, green: 0.85, blue: 0.20),  // green
+            Color(red: 0.00, green: 0.88, blue: 0.85),  // cyan
+            Color(red: 0.10, green: 0.40, blue: 1.00),  // blue
+            Color(red: 0.55, green: 0.10, blue: 0.85),  // purple
+            Color(red: 1.00, green: 0.20, blue: 0.85),  // magenta
+            Color(red: 1.00, green: 0.55, blue: 0.78),  // pink
+        ]
+        return palette[((i % palette.count) + palette.count) % palette.count]
+    }
+
+    // "CONGRATULATIONS! / YOU HAVE WON..." text screen. No prize
+    // yet — that's the next phase. Stars are static (no flash) here
+    // so the eye reads the text cleanly.
+    @ViewBuilder
+    private func lotteryRevealIntroContent(safe: CGFloat) -> some View {
+        VStack(spacing: safe * 0.03) {
+            Spacer(minLength: 0)
+            lotteryStarRow(safe: safe)
+            Spacer().frame(height: safe * 0.04)
+            Text("CONGRATULATIONS!")
+                .font(.system(size: safe * 0.10, weight: .heavy, design: .monospaced))
+                .foregroundColor(.white)
+                .minimumScaleFactor(0.4)
+                .lineLimit(1)
+            Spacer().frame(height: safe * 0.02)
+            Text("YOU HAVE WON...")
+                .font(.system(size: safe * 0.07, weight: .light, design: .monospaced))
+                .foregroundColor(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
+            Spacer().frame(height: safe * 0.06)
+            lotteryStarRow(safe: safe)
+            Spacer(minLength: 0)
+        }
+    }
+
+    // Final result screen — big yellow prize text framed by the
+    // celebratory chrome. Held long enough (6 s) for the audience
+    // to read it, recognize themselves in it, and sit with it; do
+    // not shorten this beat — it's the bit's payload.
+    @ViewBuilder
+    private func lotteryPrizeContent(prize: String, safe: CGFloat) -> some View {
+        VStack(spacing: safe * 0.025) {
+            Spacer(minLength: 0)
+            lotteryStarRow(safe: safe)
+            Spacer().frame(height: safe * 0.02)
+            Text("CONGRATULATIONS!")
+                .font(.system(size: safe * 0.08, weight: .heavy, design: .monospaced))
+                .foregroundColor(.white)
+                .minimumScaleFactor(0.4)
+                .lineLimit(1)
+            Text("YOU HAVE WON...")
+                .font(.system(size: safe * 0.05, weight: .light, design: .monospaced))
+                .foregroundColor(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
+            Spacer().frame(height: safe * 0.04)
+            Text(prize)
+                .font(.system(size: safe * 0.11, weight: .heavy, design: .monospaced))
+                .foregroundColor(.yellow)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.3)
+                .frame(maxWidth: .infinity)
+            Spacer().frame(height: safe * 0.04)
+            lotteryStarRow(safe: safe)
+            Spacer(minLength: 0)
+        }
     }
 }

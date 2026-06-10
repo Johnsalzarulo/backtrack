@@ -19,10 +19,14 @@ import Foundation
 //                  Used immediately after the pre-show countdown.
 struct AudienceInteractiveJSON: Codable {
     let name: String
-    let kind: String       // "start_button" | "transmission"
+    let kind: String       // "start_button" | "transmission" | "lottery"
     // Transmission-specific. Required when kind == "transmission",
     // ignored otherwise. Codable handles missing field as nil.
     let exchanges: [TransmissionExchangeJSON]?
+    // Lottery-specific. Required when kind == "lottery": the wheel's
+    // slice labels (the prizes the audience can "win"). Ignored for
+    // other kinds.
+    let prizes: [String]?
 }
 
 struct TransmissionExchangeJSON: Codable {
@@ -71,6 +75,8 @@ struct AudienceInteractive {
     let kind: AudienceInteractiveKind
     // Populated only when kind == .transmission.
     let transmission: TransmissionScript?
+    // Populated only when kind == .lottery.
+    let lottery: LotteryScript?
 }
 
 enum AudienceInteractiveKind: String, CaseIterable {
@@ -87,6 +93,15 @@ enum AudienceInteractiveKind: String, CaseIterable {
     // advances. The first scripted transmission is "The Breakup" —
     // the kind is reusable for future narrative pieces.
     case transmission
+    // An 8-bit prize-wheel game. Audience presses green to spin a
+    // wheel of N slices; the wheel ramps up, sustains a blur, then
+    // decelerates with ratcheting ticks and lands on a random slice;
+    // a triumphant fanfare plays and the "won" prize fills the
+    // screen for a beat before the bit fades out and the lineup
+    // advances. The comedy is the form/content collision —
+    // celebratory game-show language wrapping a piece of modern
+    // psychological baggage.
+    case lottery
 }
 
 // MARK: - Transmission script types
@@ -231,4 +246,119 @@ enum TransmissionPacing {
     // 40 ms ≈ 25 chars/sec — brisk text-message tempo, faster than
     // human typing but slow enough that the eye reads each char.
     static let charDuration: TimeInterval = 0.04
+}
+
+// MARK: - Lottery script types
+
+// Compiled, validated lottery ready for runtime. The prizes array is
+// the wheel — each entry one slice, equal weight at the RNG. Slice
+// count is captured at load time so the view, the spin-angle math, and
+// the random selection all agree on the same count.
+struct LotteryScript: Equatable {
+    let prizes: [String]
+
+    var sliceCount: Int { prizes.count }
+}
+
+// Runtime phase for the active lottery. .idle when none is playing.
+// Transitions are driven by KeyboardHandler timers (auto-advances) and
+// audience green presses (manual advances on `.setup` and `.wheel`).
+// All non-idle phases carry the wall-clock moment the phase began —
+// the view reads it to drive animation (spin angle, fade opacity,
+// pulse on the landed slice) and the handler reads it for ignore-
+// early-presses logic.
+enum LotteryPhase: Equatable {
+    case idle
+    // Triumphant "CONGRATULATIONS! YOU HAVE A CHANCE TO SPIN THE
+    // WHEEL" setup screen. Auto-advances to .wheel after
+    // setupHoldSeconds, or earlier on a green press.
+    case setup(startedAt: Date)
+    // Wheel rendered static with "PRESS TO SPIN" prompt. Stays here
+    // until the audience presses green.
+    case wheel(startedAt: Date)
+    // Wheel animating to its landing slice. No interruption.
+    // `landing` is the slice index chosen at spin start; the view
+    // computes the current rotation from (now - startedAt) using a
+    // 1s accel / 2s sustain / 4s decel profile that ends exactly at
+    // landing.
+    case spinning(landing: Int, startedAt: Date)
+    // Wheel at rest on the landed slice, slice pulsing/highlighted.
+    // Brief beat before the text screens take over.
+    case resultPending(landing: Int, startedAt: Date)
+    // Text-only "CONGRATULATIONS! / YOU HAVE WON..." with no prize
+    // yet visible. Builds tension on the diagnostic before it drops.
+    case revealIntro(prize: String, startedAt: Date)
+    // The prize fills the screen. Held for prizeDisplaySeconds —
+    // long enough for the audience to read it, recognize it, sit
+    // with it. Do not rush this phase.
+    case prizeDisplay(prize: String, startedAt: Date)
+    // Fade-to-black over the prize before the lineup advances. The
+    // view reads `startedAt` to drive a 0→1 black-overlay opacity.
+    case fading(prize: String, startedAt: Date)
+}
+
+// Shared pacing constants for the lottery. View and KeyboardHandler
+// both reference these so phase transitions in code and animation
+// timing in the view stay in agreement.
+enum LotteryPacing {
+    // Phase durations.
+    static let setupHoldSeconds: TimeInterval = 5
+    static let resultPendingSeconds: TimeInterval = 0.5
+    static let revealIntroSeconds: TimeInterval = 1.5
+    static let prizeDisplaySeconds: TimeInterval = 6.0
+    static let fadingSeconds: TimeInterval = 1.5
+
+    // Spin animation profile: accel-sustain-decel piecewise so the
+    // wheel matches the spec's "starts slow, blurs out for ~2s, then
+    // decelerates with audible slowing ticks" shape rather than a
+    // single ease curve.
+    static let spinAccelDuration: TimeInterval = 1.0
+    static let spinSustainDuration: TimeInterval = 2.0
+    static let spinDecelDuration: TimeInterval = 4.0
+    // Full revolutions the wheel makes before landing on the chosen
+    // slice. Combined with the durations above, sets peak angular
+    // velocity (and therefore peak tick rate at full blur).
+    static let spinFullRotations: Int = 6
+
+    static var spinDuration: TimeInterval {
+        spinAccelDuration + spinSustainDuration + spinDecelDuration
+    }
+
+    // Rotation angle (radians, clockwise from rest) at `elapsed`
+    // seconds into a spin that lands on `landing` out of `slices`.
+    // Used by the view to draw the wheel and by the handler to
+    // pre-schedule tick SFX at each slice-boundary crossing.
+    //
+    // Profile:
+    //   accel  : ω(t) = ωmax · t / Ta             (linear ramp-up)
+    //   sustain: ω(t) = ωmax                      (full-speed blur)
+    //   decel  : ω(t) = ωmax · (1 - (t-Td0)/Td)²  (quadratic falloff)
+    //
+    // ωmax is solved so the integrated θ over [0, spinDuration]
+    // equals exactly `spinFullRotations × 2π + landing × 2π/slices`,
+    // i.e. the wheel comes to rest with the chosen slice centered
+    // under the top indicator.
+    static func spinAngle(elapsed: TimeInterval, landing: Int, slices: Int) -> Double {
+        let landingFraction = Double(landing) / Double(slices)
+        let thetaFinal = (Double(spinFullRotations) + landingFraction) * 2 * .pi
+        // Integrated angle factor over the full spin: Ta/2 + Ts + Td/3
+        // (accel contributes 0.5·ωmax·Ta = ωmax·Ta/2 worth of rotation;
+        // sustain contributes ωmax·Ts; decel's ∫(1-x)² over [0,1] = 1/3,
+        // scaled by Td gives ωmax·Td/3).
+        let factor = spinAccelDuration / 2.0 + spinSustainDuration + spinDecelDuration / 3.0
+        let omegaMax = thetaFinal / factor
+        let t = max(0, min(spinDuration, elapsed))
+        if t <= spinAccelDuration {
+            return omegaMax * t * t / (2 * spinAccelDuration)
+        }
+        let afterAccel = omegaMax * spinAccelDuration / 2.0
+        if t <= spinAccelDuration + spinSustainDuration {
+            return afterAccel + omegaMax * (t - spinAccelDuration)
+        }
+        let afterSustain = afterAccel + omegaMax * spinSustainDuration
+        let dt = t - spinAccelDuration - spinSustainDuration
+        // ∫₀^dt ωmax · (1 - s/Td)² ds = ωmax·Td/3 · [1 - (1 - dt/Td)³]
+        let u = dt / spinDecelDuration
+        return afterSustain + omegaMax * spinDecelDuration / 3.0 * (1.0 - pow(1.0 - u, 3))
+    }
 }

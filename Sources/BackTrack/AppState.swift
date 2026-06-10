@@ -168,6 +168,15 @@ final class AppState: ObservableObject {
     // view just renders whatever phase is current.
     @Published var transmissionPhase: TransmissionPhase = .idle
 
+    // Multi-step state for the active "lottery" audience-interactive
+    // (The Lottery). .idle when none is running; otherwise tracks
+    // which of the six bit phases (setup → wheel → spinning →
+    // resultPending → revealIntro → prizeDisplay → fading) the screen
+    // is in, plus the randomly-chosen landing slice and prize string.
+    // Driven by KeyboardHandler timers + the audience green press;
+    // the view renders off whichever phase is current.
+    @Published var lotteryPhase: LotteryPhase = .idle
+
     // MARK: - Per-song state (only meaningful when currentSong != nil)
 
     @Published var currentPartIndex: Int = 0    // index into current song's structure

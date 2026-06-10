@@ -137,8 +137,10 @@ final class KeyboardHandler {
         }
         // Seed any per-item state for whatever lineup item the cursor
         // happens to be on at app launch (typically index 0). Covers
-        // the rare case where the very first item is a transmission.
+        // the rare case where the very first item is a transmission
+        // or lottery.
         seedTransmissionIfNeeded()
+        seedLotteryIfNeeded()
     }
 
     deinit {
@@ -482,6 +484,11 @@ final class KeyboardHandler {
                 nextLineupItem()
             case .transmission:
                 nextLineupItem()
+            case .lottery:
+                // Space is the operator's "bail" — kill any in-flight
+                // lottery timers and move on. selectLineupItem will
+                // clear the phase + cancel scheduled ticks for us.
+                nextLineupItem()
             }
         case nil:
             break
@@ -521,9 +528,11 @@ final class KeyboardHandler {
         state.wrongButtonAt = .distantPast
         clearSongEffectOverride()
         clearTransmission()
+        clearLottery()
 
         scheduleInterstitialAutoAdvanceIfNeeded()
         seedTransmissionIfNeeded()
+        seedLotteryIfNeeded()
     }
 
     // If the new current item is a transmission audience-interactive,
@@ -825,6 +834,8 @@ final class KeyboardHandler {
             nextLineupItem()
         case .transmission:
             handleTransmissionPress(button: .green)
+        case .lottery:
+            handleLotteryGreenPress()
         }
     }
 
@@ -841,6 +852,11 @@ final class KeyboardHandler {
             // do the wrong thing here).
             audio.playWrongButtonBeep()
             state.wrongButtonAt = Date()
+        case .lottery:
+            // The Lottery's button vocabulary is green-only by spec
+            // ("Audience presses 🟢 to spin"). Red presses are silent
+            // no-ops — neither a wrong-button error nor an advance.
+            break
         case .transmission:
             handleTransmissionPress(button: .red)
         }
@@ -980,6 +996,209 @@ final class KeyboardHandler {
         transmissionTimer = nil
         state.transmissionPhase = .idle
         audio.stopSpeaking()
+    }
+
+    // MARK: - Lottery state machine
+
+    // All pending phase-transition and tick-SFX work items for the
+    // active lottery. Held together so a cursor move (or operator
+    // bail via Space) can cancel the entire bit at once instead of
+    // letting a stray tick or fade-out fire after the lineup has
+    // moved on. Cleared by `clearLottery`.
+    private var lotteryTimers: [DispatchWorkItem] = []
+
+    // Convenience: schedule a closure on the main queue after `delay`
+    // and record the work item in `lotteryTimers` so `clearLottery`
+    // can cancel it. All lottery state transitions go through this
+    // (and the tick scheduling below) so cleanup is a single sweep.
+    private func scheduleLottery(after delay: TimeInterval, _ block: @escaping () -> Void) {
+        let work = DispatchWorkItem(block: block)
+        lotteryTimers.append(work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    // Cancel every pending lottery work item and clear the array.
+    // The state machine never reuses these timers — each phase
+    // entrypoint schedules its own fresh ones.
+    private func cancelLotteryTimers() {
+        for w in lotteryTimers { w.cancel() }
+        lotteryTimers.removeAll()
+    }
+
+    // Cursor arrived on a lottery item — enter the setup screen so
+    // the audience sees the "CONGRATULATIONS! YOU HAVE A CHANCE TO
+    // SPIN THE WHEEL" gate the moment the cursor lands. No-op on
+    // every other item kind.
+    private func seedLotteryIfNeeded() {
+        guard let interactive = state.currentAudienceInteractive,
+              case .lottery = interactive.kind,
+              interactive.lottery != nil else { return }
+        enterLotterySetup()
+    }
+
+    // Tear down any in-flight lottery: cancel pending timers, reset
+    // the phase to .idle. Idempotent. Called from selectLineupItem
+    // and (transitively) from the operator's Space-bail path.
+    private func clearLottery() {
+        cancelLotteryTimers()
+        state.lotteryPhase = .idle
+    }
+
+    // Audience green press. Only the .setup and .wheel phases are
+    // interactive — every other phase is mid-transition or
+    // mid-spin and per spec the audience cannot interrupt. Silent
+    // no-op outside those two phases (the operator bails via
+    // arrows / Space, not the audience buttons).
+    private func handleLotteryGreenPress() {
+        switch state.lotteryPhase {
+        case .setup:
+            enterLotteryWheel()
+        case .wheel:
+            startLotterySpin()
+        case .idle, .spinning, .resultPending, .revealIntro, .prizeDisplay, .fading:
+            break
+        }
+    }
+
+    // Setup screen — celebratory text + flashing stars. Plays the
+    // peppy 1 s entry chime once, schedules auto-advance to the
+    // wheel after `setupHoldSeconds`. Audience green press during
+    // this phase cancels the auto-advance early (via the green
+    // handler routing to enterLotteryWheel, which cancels timers
+    // first).
+    private func enterLotterySetup() {
+        cancelLotteryTimers()
+        state.lotteryPhase = .setup(startedAt: Date())
+        audio.playLotterySetupChime()
+        scheduleLottery(after: LotteryPacing.setupHoldSeconds) { [weak self] in
+            // Only fire if we're still in setup — defensive against a
+            // green press already having advanced us. cancelLottery
+            // already wiped this work item in that case, but belt-
+            // and-suspenders.
+            guard let self = self,
+                  case .setup = self.state.lotteryPhase else { return }
+            self.enterLotteryWheel()
+        }
+    }
+
+    // Wheel rendered static with the "PRESS TO SPIN" prompt. Stays
+    // here until the audience presses green. No auto-advance — the
+    // bit waits for engagement.
+    private func enterLotteryWheel() {
+        cancelLotteryTimers()
+        state.lotteryPhase = .wheel(startedAt: Date())
+    }
+
+    // Audience pressed green on the wheel. Pick a random slice and a
+    // prize (decoupled — slice and prize indices can differ if an
+    // author repeats prizes, though by default they're 1:1), then
+    // schedule every tick of the spin animation and the cascade of
+    // post-spin phase transitions. Once committed, the bit runs to
+    // completion or to a cursor move — no audience interruption.
+    private func startLotterySpin() {
+        guard let interactive = state.currentAudienceInteractive,
+              let lottery = interactive.lottery,
+              lottery.sliceCount >= 2 else { return }
+        cancelLotteryTimers()
+        let slices = lottery.sliceCount
+        let landing = Int.random(in: 0..<slices)
+        // Slice maps 1:1 to prize by index — slice N == prizes[N].
+        // Authors who want weighted distribution can list the same
+        // prize on multiple slices (validation allows duplicates).
+        let prize = lottery.prizes[landing]
+        let startedAt = Date()
+        state.lotteryPhase = .spinning(landing: landing, startedAt: startedAt)
+
+        // Pre-compute every slice-boundary crossing during the spin
+        // and schedule a tick at each. Sampling the piecewise angle
+        // function at 5 ms resolution is more than enough to land
+        // each tick on the right frame at the spec's peak rate
+        // (~14 ticks/sec at full blur).
+        let sliceAngle = 2 * .pi / Double(slices)
+        var lastBoundary = 0
+        let sampleStep: TimeInterval = 0.005
+        var crossings: [TimeInterval] = []
+        var t: TimeInterval = 0
+        while t <= LotteryPacing.spinDuration + sampleStep {
+            let angle = LotteryPacing.spinAngle(elapsed: t, landing: landing, slices: slices)
+            let boundary = Int(angle / sliceAngle)
+            if boundary > lastBoundary {
+                // Multiple boundaries can be crossed in a single
+                // sample window during the high-velocity blur —
+                // record each in order so the tick rate stays
+                // faithful to the rotation.
+                for _ in (lastBoundary + 1)...boundary {
+                    crossings.append(t)
+                }
+                lastBoundary = boundary
+            }
+            t += sampleStep
+        }
+        // Schedule ticks. The very last crossing is the final
+        // resting click — slightly lower-pitched, slightly longer,
+        // so the ear hears "tk-tk-tk-CLUNK" as the wheel stops.
+        for (i, ct) in crossings.enumerated() {
+            let isFinal = (i == crossings.count - 1)
+            scheduleLottery(after: ct) { [weak self] in
+                if isFinal {
+                    self?.audio.playLotteryFinalTick()
+                } else {
+                    self?.audio.playLotteryTick()
+                }
+            }
+        }
+
+        // Phase cascade: spinning → resultPending → revealIntro →
+        // prizeDisplay → fading → next lineup item. Each transition
+        // scheduled relative to the spin start so any drift in the
+        // tick sampler doesn't ripple into the phase clock.
+        let toResult = LotteryPacing.spinDuration
+        let toReveal = toResult + LotteryPacing.resultPendingSeconds
+        let toPrize  = toReveal + LotteryPacing.revealIntroSeconds
+        let toFade   = toPrize + LotteryPacing.prizeDisplaySeconds
+        let toAdvance = toFade + LotteryPacing.fadingSeconds
+
+        scheduleLottery(after: toResult) { [weak self] in
+            self?.enterLotteryResultPending(landing: landing)
+        }
+        scheduleLottery(after: toReveal) { [weak self] in
+            self?.enterLotteryRevealIntro(prize: prize)
+        }
+        scheduleLottery(after: toPrize) { [weak self] in
+            self?.enterLotteryPrizeDisplay(prize: prize)
+        }
+        scheduleLottery(after: toFade) { [weak self] in
+            self?.enterLotteryFading(prize: prize)
+        }
+        scheduleLottery(after: toAdvance) { [weak self] in
+            // Bit complete — advance the lineup like any other
+            // auto-advancing item. nextLineupItem clears lottery
+            // timers as part of selectLineupItem teardown, so any
+            // late stragglers are cancelled there too.
+            self?.nextLineupItem()
+        }
+    }
+
+    private func enterLotteryResultPending(landing: Int) {
+        state.lotteryPhase = .resultPending(landing: landing, startedAt: Date())
+    }
+
+    private func enterLotteryRevealIntro(prize: String) {
+        state.lotteryPhase = .revealIntro(prize: prize, startedAt: Date())
+        // ~2 s triumphant fanfare. The reveal-intro phase is 1.5 s and
+        // the prize jingle (fired at prizeDisplay entry) interrupts
+        // the fanfare's last ~0.5 s for a clean "ta-da!" — exactly
+        // the spec's celebratory-into-punctuation shape.
+        audio.playLotteryRevealFanfare()
+    }
+
+    private func enterLotteryPrizeDisplay(prize: String) {
+        state.lotteryPhase = .prizeDisplay(prize: prize, startedAt: Date())
+        audio.playLotteryPrizeJingle()
+    }
+
+    private func enterLotteryFading(prize: String) {
+        state.lotteryPhase = .fading(prize: prize, startedAt: Date())
     }
 
     // Put the visuals window into (or out of) macOS native full-screen.
