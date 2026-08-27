@@ -31,10 +31,7 @@ package enum Generators {
     private static var patterns: [String: CompiledPattern] = compileAll(defaultDefinitions)
 
     package static func defaultPatternsURL() -> URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("BackTrack")
-            .appendingPathComponent("Samples")
-            .appendingPathComponent("patterns.json")
+        MacContentStore().patternsURL()
     }
 
     package static func loadPatterns() {

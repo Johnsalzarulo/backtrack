@@ -2,17 +2,33 @@ import Foundation
 
 package enum LineupBuilder {
     package struct Input {
-        let songs: [Song]
-        let countdowns: [Countdown]
-        let interstitials: [Interstitial]
-        let audienceInteractives: [AudienceInteractive]
-        let activeSetlist: Setlist?
-        let capabilities: PlatformCapabilities
+        package let songs: [Song]
+        package let countdowns: [Countdown]
+        package let interstitials: [Interstitial]
+        package let audienceInteractives: [AudienceInteractive]
+        package let activeSetlist: Setlist?
+        package let capabilities: PlatformCapabilities
+
+        package init(
+            songs: [Song],
+            countdowns: [Countdown],
+            interstitials: [Interstitial],
+            audienceInteractives: [AudienceInteractive],
+            activeSetlist: Setlist?,
+            capabilities: PlatformCapabilities
+        ) {
+            self.songs = songs
+            self.countdowns = countdowns
+            self.interstitials = interstitials
+            self.audienceInteractives = audienceInteractives
+            self.activeSetlist = activeSetlist
+            self.capabilities = capabilities
+        }
     }
 
     package struct Output {
-        let lineup: [LineupItem]
-        let resolveIssues: [String]
+        package let lineup: [LineupItem]
+        package let resolveIssues: [String]
     }
 
     package static func build(_ input: Input) -> Output {

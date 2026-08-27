@@ -2,11 +2,15 @@ import BackTrackCore
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct LibraryImportView: View {
+public struct LibraryImportView: View {
     @ObservedObject var coordinator: PadCoordinator
     @State private var showImporter = false
 
-    var body: some View {
+    public init(coordinator: PadCoordinator) {
+        self.coordinator = coordinator
+    }
+
+    public var body: some View {
         VStack(spacing: 24) {
             Text("BackTrack")
                 .font(.largeTitle.bold().monospaced())

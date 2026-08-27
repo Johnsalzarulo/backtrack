@@ -12,9 +12,7 @@ package enum AudienceInteractiveLoader {
     }
 
     package static func defaultDirectory() -> URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("BackTrack")
-            .appendingPathComponent("AudienceInteractives")
+        MacContentStore().rootURL.appendingPathComponent("AudienceInteractives")
     }
 
     package static func loadAll() -> Result {

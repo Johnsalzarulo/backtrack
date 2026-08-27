@@ -3,18 +3,48 @@
 A minimal, song-based backing-track player for live solo practice and
 performance. Songs are JSON files that define parts, chord progressions,
 drum patterns, and lyrics; BackTrack plays them back with sample-based
-drums, pitch-shifted pad chords, and bass. Keyboard-driven. Native macOS.
+drums, pitch-shifted pad chords, and bass.
 
-Two of the keys (`1` / `2`) are wired to physical red and green buttons
-in front of the audience, giving them direct, momentary control over the
-visuals window — see [Audience interaction](#audience-interaction).
+**Mac** is the full show authoring and runtime — keyboard-driven, dual
+window (HUD + visuals), countdowns, interstitials, and audience
+interactives. **iPad** is a read-only performer app: backing tracks,
+lyrics, chords, and setlist navigation via touch. Same song/setlist
+JSON; import your Mac library before a gig.
+
+Two of the Mac keys (`1` / `2`) are wired to physical red and green
+buttons in front of the audience, giving them direct, momentary control
+over the visuals window — see [Audience interaction](#audience-interaction).
 
 ## Requirements
+
+### Mac
 
 - macOS 13+
 - Swift 5.9+ (Xcode or Command Line Tools)
 - Headphones / routed monitor (no live-input processing; output is the
   backing track)
+
+### iPad (performer app)
+
+- iPadOS 16+
+- Xcode 15+ and an Apple Developer account (simulator, USB deploy, or TestFlight)
+- Same `~/BackTrack/` content as Mac — `Songs/`, `Setlists/`, `Samples/` only
+
+## Project layout
+
+```
+├── Package.swift              # SwiftPM: BackTrackCore, BackTrackMac, BackTrackPadKit, tests
+├── BackTrack.xcodeproj        # iPad app target (signing, simulator, TestFlight)
+├── BackTrackPad/              # iPad app entry + Info.plist
+├── Sources/
+│   ├── BackTrackCore/         # Shared models, audio engine, loaders, show logic
+│   ├── BackTrackMac/          # Mac app shell, HUD, visuals, keyboard input
+│   └── BackTrackPadKit/       # iPad perform UI + library import
+├── Tests/BackTrackTests/      # Golden-path unit tests
+└── docs/ipad-testflight.md    # iPad deploy guide
+```
+
+Mac runs via SwiftPM. iPad runs via the Xcode project (or `./scripts/run-ipad-simulator.sh`).
 
 ## Samples
 
@@ -858,16 +888,48 @@ want a beat between songs.
 
 ## Run
 
+### Mac
+
 ```
-swift run
+swift run BackTrack
 ```
 
 Or:
 
 ```
-swift build -c release
+swift build -c release --product BackTrack
 ./.build/release/BackTrack
 ```
+
+Content lives under `~/BackTrack/` (created on first launch for countdown /
+interstitial / audience-interactive folders). Songs, setlists, samples, and
+patterns hot-reload while the app runs.
+
+### iPad (performer)
+
+Import a **parent folder** that contains `Songs/`, `Setlists/`, and
+`Samples/` (e.g. your Mac `~/BackTrack/` folder). Countdowns, visuals, and
+other Mac-only items in setlists are skipped silently on iPad.
+
+**Simulator** (defaults to iPad mini):
+
+```bash
+./scripts/run-ipad-simulator.sh
+```
+
+**Xcode:** open `BackTrack.xcodeproj`, scheme **BackTrackPad**, destination
+**iPad mini (A17 Pro)**, then **⌘R** (Run — not Build only).
+
+See [docs/ipad-testflight.md](docs/ipad-testflight.md) for signing, device
+deploy, and TestFlight.
+
+### Tests
+
+```bash
+./scripts/run-tests.sh
+```
+
+Requires full Xcode (not Command Line Tools alone) for XCTest.
 
 ## Keybindings
 
@@ -1376,34 +1438,37 @@ full-screen with `F`.
 
 ## Files
 
-- `App.swift` — entry point, coordinator wiring (loads songs / countdowns / interstitials / audience interactives / setlists)
-- `AppState.swift` — observable state (songs, transport, lineup, audience-button overrides, wrong-button flash, telemetry visibility)
-- `AudienceInteractive.swift` — AudienceInteractive struct + AudienceInteractiveKind enum + transmission script types (TransmissionScript / Exchange / Choice / AutoAdvance / Next / Phase) + JSON schemas + shared TransmissionPacing constants (typing reveal speed, etc.)
-- `AudienceInteractiveLoader.swift` — directory scan + validation for audience-interactive JSON files (lenient on hyphens/underscores in `kind`); compiles + validates transmission `exchanges` (unique ids, both-or-neither choices, autoAdvance↔choices mutual exclusion, every `next` resolves)
-- `AudienceInteractiveView.swift` — full-screen audience-driven screen; per-kind branches: start_button (themed prompt + WRONG BUTTON overlay), transmission (phosphor-green CRT terminal — gate centerpiece, character-by-character typing with layout-stable underlay, stacked reply prompts gated on typing-complete, DELETED flash on manual abort)
-- `AudioEngine.swift` — AVAudioEngine graph, sample loading, pitched voice pools, master-mixer bed level, dedicated SFX node feeding the master mixer (wrong-button beep, transmission "doot doot" message-received chirp, pac-man-style "death" arpeggio for GAME OVER beats — all synthesized once at startup), and an AVSpeechSynthesizer for transmission TTS (female INCOMING / male OUTGOING, resolved at startup from a fallback chain of known voice identifiers)
-- `AudioDevices.swift` — CoreAudio helpers for default output device name
-- `ChordParser.swift` — chord symbol → root pitch class + quality + 7th
-- `Clock.swift` — 16th-note timer, song playback engine + the countdown motif loop (startMotif / stopMotif)
-- `ContentView.swift` — SwiftUI HUD (with audience-interactive deck + header blocks)
-- `Countdown.swift` — Countdown / CountdownStyle / CountdownTransport / CountdownMotif / CountdownSection structs + JSON schema (motif flattens to per-bar MotifBar slots)
-- `CountdownLoader.swift` — directory scan + validation for countdown JSON files (rawValue-driven style parser; motif chord/pattern/level/section validation)
-- `CountdownView.swift` — full-screen countdown display (digital / pie / hourglass), label + rotating message + colored-dot audience-button prompt
-- `FileWatcher.swift` — ~1 s polling reloader for songs / countdowns / interstitials / audience interactives / setlists / patterns.json
+Shared logic lives in **BackTrackCore**; platform shells are separate targets.
+
+**BackTrackCore** (Mac + iPad)
+
+- `AppState.swift` — observable state (transport, lineup, inventories)
+- `ShowController.swift` — shared transport / setlist / part actions
+- `LineupBuilder.swift` — lineup build + perform-only filter (iPad skips non-songs)
+- `ContentStore.swift` — content paths, library import, visuals/video scan helpers
+- `PlatformCapabilities.swift` — `.full` (Mac) vs `.performOnly` (iPad)
+- `AudioEngine.swift` — AVAudioEngine graph, samples, SFX, TTS
+- `Clock.swift` — 16th-note timer, song playback + countdown motif loop
 - `Generators.swift` — drum pattern loader, pad + bass generators
-- `IdleStaticView.swift` — TV static / "no signal" idle state, shown when transport is stopped with no part-level visual
-- `Interstitial.swift` — Interstitial struct + JSON schema (text / image / video kinds)
-- `InterstitialLoader.swift` — directory scan + validation for interstitial JSON files (rawValue-driven kind + theme parsers; theme parser shared with SongLoader)
-- `KeyboardHandler.swift` — NSEvent local monitor (keyDown only; audience presses unconditionally consumed to suppress the macOS alert beep), tap-toggle telemetry timer, song-effect cycle timer, transmission state machine + auto-transition timers, audience-interactive routing per kind
-- `LyricsVisualizers.swift` — NSViewRepresentable auto-fitting justified-text view, plus the centered single-line/word view
-- `PostEffect.swift` — PostEffect enum (none / glitch / tracking / chroma) + shared rawValue-driven parser
-- `PostEffectsView.swift` — implementations of the glitch / tracking / chroma post-processing layers
-- `Setlist.swift` — Setlist struct + JSON schema (ordered refs to song / countdown / interstitial / audience-interactive)
-- `SetlistLoader.swift` — directory scan + ref-resolution against songs / countdowns / interstitials / audience interactives
-- `Song.swift` — Song / Part structs + raw JSON schema; VisualizerStyle (incl. `oscilloscope`) + VisualTheme enums
-- `SongLoader.swift` — directory scan + validation; rawValue-driven shared visualizer + theme parsers
-- `TelemetryView.swift` — full-screen amber-on-black telemetry panel toggled by audience taps on `2` during a song (auto-hides after 5 s)
-- `Tweak.swift` — TweakField enum + cycling logic for the in-app structured editor
-- `VideoClipView.swift` — AVPlayer-backed view for `videoClip` parts and video interstitials, with volume + loop awareness
-- `VisualView.swift` — NSViewRepresentable for images / GIFs (via NSImageView) and video (via AVPlayer), all with CSS-cover scaling
-- `VisualsView.swift` — Canvas-based synth-layer visuals window, geometric + lyric + oscilloscope motifs, audience-interactive + telemetry takeovers, audience-flash overlay
+- `ChordParser.swift`, `Song.swift`, `SongLoader.swift`, `Setlist.swift`, `SetlistLoader.swift`
+- `Countdown.swift`, `CountdownLoader.swift`, `Interstitial.swift`, `InterstitialLoader.swift`
+- `AudienceInteractive.swift`, `AudienceInteractiveLoader.swift`, `PostEffect.swift`
+
+**BackTrackMac** (Mac only)
+
+- `App.swift` — entry point, coordinator wiring
+- `ContentView.swift` — SwiftUI HUD
+- `KeyboardHandler.swift` — NSEvent local monitor, audience-interactive state machines
+- `VisualsView.swift`, `VisualView.swift`, `CountdownView.swift`, `AudienceInteractiveView.swift`
+- `PostEffectsView.swift`, `TelemetryView.swift`, `LyricsVisualizers.swift`, `VideoClipView.swift`
+- `IdleStaticView.swift`, `FileWatcher.swift`, `AudioDevices.swift`, `Tweak.swift`
+
+**BackTrackPadKit** (iPad only)
+
+- `PadCoordinator.swift` — sandbox library, bootstrap, perform-only show wiring
+- `PerformView.swift` — touch HUD (lyrics, chords, bar/beat, transport)
+- `LibraryImportView.swift` — copy-on-import from Files / AirDrop
+
+**BackTrackPad** — `BackTrackPadApp.swift`, `Info.plist` (landscape iPad app)
+
+**Tests** — `Tests/BackTrackTests/` (ChordParser, loaders, lineup build, perform-only filter)

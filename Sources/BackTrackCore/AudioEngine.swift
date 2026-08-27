@@ -816,8 +816,7 @@ package final class AudioEngineController: ObservableObject {
     private static let extensionGlob = "{wav,aif,aiff,mp3}"
 
     package func loadAllSamples() {
-        loadAllSamples(from: FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("BackTrack/Samples"))
+        loadAllSamples(from: MacContentStore().samplesDirectory())
     }
 
     package func loadAllSamples(from base: URL) {

@@ -1,5 +1,16 @@
 import Foundation
 
+package enum BackTrackPaths {
+    package static var defaultRoot: URL {
+        #if os(iOS)
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("BackTrack")
+        #else
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("BackTrack")
+        #endif
+    }
+}
+
 package protocol ContentStore {
     var rootURL: URL { get }
     func songsDirectory() -> URL
@@ -9,9 +20,7 @@ package protocol ContentStore {
 }
 
 package struct MacContentStore: ContentStore {
-    package var rootURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("BackTrack")
-    }
+    package var rootURL: URL { BackTrackPaths.defaultRoot }
     package func songsDirectory() -> URL { rootURL.appendingPathComponent("Songs") }
     package func setlistsDirectory() -> URL { rootURL.appendingPathComponent("Setlists") }
     package func samplesDirectory() -> URL { rootURL.appendingPathComponent("Samples") }
@@ -42,12 +51,7 @@ package enum LibraryImporter {
     }
 
     package static func defaultSandboxRoot() -> URL {
-        #if os(iOS)
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("BackTrack")
-        #else
-        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("BackTrack")
-        #endif
+        BackTrackPaths.defaultRoot
     }
 }
 

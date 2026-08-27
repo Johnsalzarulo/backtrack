@@ -11,9 +11,7 @@ package enum SongLoader {
     }
 
     package static func defaultDirectory() -> URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("BackTrack")
-            .appendingPathComponent("Songs")
+        MacContentStore().songsDirectory()
     }
 
     package static func loadAll() -> Result {

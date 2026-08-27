@@ -10,9 +10,7 @@ package enum InterstitialLoader {
     }
 
     package static func defaultDirectory() -> URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("BackTrack")
-            .appendingPathComponent("Interstitials")
+        MacContentStore().rootURL.appendingPathComponent("Interstitials")
     }
 
     package static func loadAll() -> Result {

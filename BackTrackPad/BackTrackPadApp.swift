@@ -14,7 +14,6 @@ struct BackTrackPadApp: App {
                     LibraryImportView(coordinator: coordinator)
                 }
             }
-            .environmentObject(coordinator.state)
         }
     }
 }

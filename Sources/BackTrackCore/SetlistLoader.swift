@@ -18,9 +18,7 @@ package enum SetlistLoader {
     }
 
     package static func defaultDirectory() -> URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("BackTrack")
-            .appendingPathComponent("Setlists")
+        MacContentStore().setlistsDirectory()
     }
 
     package static func loadAll() -> Result {

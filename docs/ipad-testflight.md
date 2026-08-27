@@ -11,7 +11,7 @@ BackTrack iPad v1 is a read-only performer app (backing tracks + lyrics). Deploy
 ## Open the project
 
 1. Open `BackTrack.xcodeproj` in Xcode (wraps the Swift package and iPad app target).
-2. Select the **BackTrackPad** scheme and your iPad device or simulator.
+2. Select the **BackTrackPad** scheme and destination **iPad mini (A17 Pro)** (matches a physical iPad Mini).
 3. Set **Signing & Capabilities**:
    - Team: your Apple Developer team
    - Bundle Identifier: e.g. `com.yourname.backtrack.pad` (create App ID in portal if needed)

@@ -3,17 +3,17 @@ import Combine
 import Foundation
 
 @MainActor
-final class PadCoordinator: ObservableObject {
+public final class PadCoordinator: ObservableObject {
     let state = AppState()
     let audio = AudioEngineController()
     lazy var clock = Clock(state: state, audio: audio)
     lazy var show = ShowController(state: state, clock: clock)
 
     private let store: SandboxContentStore
-    @Published var libraryImported = false
-    @Published var importError: String?
+    @Published public var libraryImported = false
+    @Published public var importError: String?
 
-    init() {
+    public init() {
         let root = LibraryImporter.defaultSandboxRoot()
         store = SandboxContentStore(rootURL: root)
         state.platformCapabilities = .performOnly
@@ -27,7 +27,7 @@ final class PadCoordinator: ObservableObject {
         }
     }
 
-    var setlistIsEmpty: Bool {
+    public var setlistIsEmpty: Bool {
         guard let setlist = state.currentSetlist else { return false }
         return LineupBuilder.performOnlySetlistIsEmpty(
             LineupBuilder.Input(
@@ -41,7 +41,7 @@ final class PadCoordinator: ObservableObject {
         )
     }
 
-    func bootstrap() {
+    public func bootstrap() {
         audio.loadAllSamples(from: store.samplesDirectory())
         Generators.loadPatterns(from: store.patternsURL())
         reloadContent()
@@ -56,7 +56,7 @@ final class PadCoordinator: ObservableObject {
         state.rebuildLineup()
     }
 
-    func importLibrary(from source: URL) {
+    public func importLibrary(from source: URL) {
         importError = nil
         do {
             try LibraryImporter.importLibrary(from: source, to: store.rootURL)
@@ -67,7 +67,7 @@ final class PadCoordinator: ObservableObject {
         }
     }
 
-    func updateLibrary(from source: URL) {
+    public func updateLibrary(from source: URL) {
         importLibrary(from: source)
     }
 }

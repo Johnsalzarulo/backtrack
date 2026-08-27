@@ -9,6 +9,7 @@ let package = Package(
     ],
     products: [
         .executable(name: "BackTrack", targets: ["BackTrackMac"]),
+        .library(name: "BackTrackCore", targets: ["BackTrackCore"]),
         .library(name: "BackTrackPadKit", targets: ["BackTrackPadKit"]),
     ],
     targets: [

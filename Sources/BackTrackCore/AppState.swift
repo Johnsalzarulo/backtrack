@@ -288,8 +288,7 @@ package final class AppState: ObservableObject {
         guard let part = currentPart,
               let name = part.visualFilename(bar: currentBar, beat: currentBeat),
               !name.isEmpty else { return nil }
-        let url = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("BackTrack")
+        let url = MacContentStore().rootURL
             .appendingPathComponent("Visuals")
             .appendingPathComponent(name)
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }

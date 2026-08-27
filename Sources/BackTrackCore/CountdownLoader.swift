@@ -10,9 +10,7 @@ package enum CountdownLoader {
     }
 
     package static func defaultDirectory() -> URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("BackTrack")
-            .appendingPathComponent("Countdowns")
+        MacContentStore().rootURL.appendingPathComponent("Countdowns")
     }
 
     package static func loadAll() -> Result {
