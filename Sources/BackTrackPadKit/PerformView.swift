@@ -138,6 +138,19 @@ public struct PerformView: View {
                             .font(.body.monospaced())
                             .foregroundStyle(dim)
                     }
+
+                    if let preview = nextPartPreview {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("NEXT — \(preview.name.uppercased())")
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(dim)
+                            if !preview.firstLine.isEmpty {
+                                Text(preview.firstLine)
+                                    .font(.system(.body, design: .monospaced))
+                                    .foregroundStyle(dim.opacity(0.75))
+                            }
+                        }
+                    }
                 }
                 .padding(24)
             }
@@ -200,6 +213,23 @@ public struct PerformView: View {
         let filled = max(0, min(total, current + 1))
         let empty = max(0, total - filled)
         return String(repeating: "█", count: filled) + String(repeating: "░", count: empty)
+    }
+
+    private var nextPartPreview: (name: String, firstLine: String)? {
+        guard let song = state.currentSong else { return nil }
+        let nextIdx: Int
+        if let pending = state.pendingPartIndex {
+            nextIdx = pending
+        } else if state.currentPartIndex + 1 < song.structure.count {
+            nextIdx = state.currentPartIndex + 1
+        } else {
+            return nil
+        }
+        guard nextIdx >= 0, nextIdx < song.structure.count else { return nil }
+        let name = song.structure[nextIdx]
+        guard let part = song.parts[name] else { return nil }
+        let first = part.lyrics.split(separator: "\n").first.map(String.init) ?? ""
+        return (name, first)
     }
 
     private var setlistPicker: some View {
