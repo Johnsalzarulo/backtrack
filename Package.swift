@@ -3,14 +3,33 @@ import PackageDescription
 
 let package = Package(
     name: "BackTrack",
-    platforms: [.macOS(.v13)],
+    platforms: [
+        .macOS(.v13),
+        .iOS(.v16),
+    ],
     products: [
-        .executable(name: "BackTrack", targets: ["BackTrack"])
+        .executable(name: "BackTrack", targets: ["BackTrackMac"]),
+        .library(name: "BackTrackPadKit", targets: ["BackTrackPadKit"]),
     ],
     targets: [
+        .target(
+            name: "BackTrackCore",
+            path: "Sources/BackTrackCore"
+        ),
         .executableTarget(
-            name: "BackTrack",
-            path: "Sources/BackTrack"
-        )
+            name: "BackTrackMac",
+            dependencies: ["BackTrackCore"],
+            path: "Sources/BackTrackMac"
+        ),
+        .target(
+            name: "BackTrackPadKit",
+            dependencies: ["BackTrackCore"],
+            path: "Sources/BackTrackPadKit"
+        ),
+        .testTarget(
+            name: "BackTrackTests",
+            dependencies: ["BackTrackCore"],
+            path: "Tests/BackTrackTests"
+        ),
     ]
 )

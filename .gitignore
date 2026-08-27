@@ -3,5 +3,6 @@
 Package.resolved
 DerivedData/
 *.xcodeproj
+!BackTrack.xcodeproj
 .DS_Store
 .claude/

@@ -1,0 +1,9 @@
+{
+  "name": "Mixed Setlist",
+  "items": [
+    { "kind": "countdown", "name": "Opener" },
+    { "kind": "song", "name": "Test Song" },
+    { "kind": "interstitial", "name": "Break" },
+    { "kind": "song", "name": "Test Song" }
+  ]
+}

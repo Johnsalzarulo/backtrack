@@ -1,0 +1,7 @@
+{
+  "name": "Countdown Only",
+  "items": [
+    { "kind": "countdown", "name": "Opener" },
+    { "kind": "interstitial", "name": "Break" }
+  ]
+}

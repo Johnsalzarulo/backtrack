@@ -1,0 +1,15 @@
+{
+  "name": "Test Song",
+  "key": "C",
+  "bpm": 120,
+  "kit": "default",
+  "countIn": 0,
+  "structure": ["verse"],
+  "parts": {
+    "verse": {
+      "pattern": "1",
+      "chords": ["C", "G", "Am", "F"],
+      "lyrics": "Line one\nLine two"
+    }
+  }
+}
